@@ -1,6 +1,7 @@
 const std = @import("std");
 const configuration = @import("configuration.zig");
 const yazap = @import("yazap");
+const chunk = @import("chunk.zig");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
