@@ -51,33 +51,53 @@ pub const LoxValue = union(enum) {
     Bool: bool,
 };
 
+pub const MAX_SHORT_VALUE: usize = 255;
+
 allocator: std.mem.Allocator,
 code: std.ArrayList(u8),
 constants: std.ArrayList(LoxValue),
+lines: std.ArrayList(usize),
 
 pub fn init(gpa: std.mem.Allocator) Chunk {
     return Chunk{
         .allocator = gpa,
         .code = .empty,
         .constants = .empty,
+        .lines = .empty,
     };
 }
 
 pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
     self.constants.deinit(self.allocator);
+    self.lines.deinit(self.allocator);
 }
 
-pub fn writeCode(self: *Chunk, code: OpCode) !void {
-    try self.write(@intFromEnum(code));
+pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
+    try self.writeOperand(@intFromEnum(code), line);
 }
 
-pub fn writeConstant(self: *Chunk, value: LoxValue) !void {
-    try self.writeCode(OpCode.Constant);
+pub fn writeConstant(self: *Chunk, value: LoxValue, line: usize) !void {
     try self.constants.append(self.allocator, value);
     const ix = self.constants.items.len - 1;
-    const byte: u8 = @intCast(ix);
-    try self.write(byte);
+    if (ix > MAX_SHORT_VALUE) {
+        try self.writeCode(OpCode.ConstantLong, line);
+    } else {
+        try self.writeCode(OpCode.Constant, line);
+    }
+    try self.writeOperand(ix, line);
+}
+
+pub fn writeOperand(self: *Chunk, value: usize, line: usize) !void {
+    if (value > MAX_SHORT_VALUE) {
+        for (intoThreeBytes(value)) |b| {
+            try self.write(b);
+            try self.lines.append(self.allocator, line);
+        }
+    } else {
+        try self.write(@truncate(value));
+        try self.lines.append(self.allocator, line);
+    }
 }
 
 pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void {
@@ -153,4 +173,17 @@ fn readThreeBytes(self: *Chunk, offset: usize) usize {
     const op3 = self.readByte(offset + 2); // third operand defines constant index in the constant's vector
 
     return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
+}
+
+fn intoThreeBytes(value: usize) [3]u8 {
+    const op1: u8 = @truncate(value & 0xFF);
+    const op2: u8 = @truncate((value & 0xFF00) >> 8);
+    const op3: u8 = @truncate((value & 0x00FF_0000) >> 16);
+    return [3]u8{ op1, op2, op3 };
+}
+
+fn intoTwoBytes(value: usize) [2]u8 {
+    const op1: u8 = @truncate(value & 0xFF);
+    const op2: u8 = @truncate((value & 0xFF00) >> 8);
+    return [2]u8{ op1, op2 };
 }
