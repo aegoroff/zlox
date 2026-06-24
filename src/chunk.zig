@@ -67,3 +67,29 @@ pub fn write(self: *Chunk, byte: u8) !void {
 pub fn writeCode(self: *Chunk, code: OpCode) !void {
     try self.write(@intFromEnum(code));
 }
+
+pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void {
+    try writer.print("== {s} ==\n", .{name});
+    var offset: usize = 0;
+    while (offset < self.code.items.len) {
+        offset = try self.disassemblyInstruction(writer, offset);
+    }
+}
+
+pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
+    try writer.print("{d:0>4} ", .{offset});
+    const byte = self.code.items[offset];
+    const opcode: OpCode = @enumFromInt(byte);
+    return switch (opcode) {
+        OpCode.Return => try disassemblySimpleInstruction(writer, offset, "OP_RETURN"),
+        else => {
+            try writer.print("Unknown opcode {d}\n", .{byte});
+            return offset + 1;
+        },
+    };
+}
+
+fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
+    try writer.print("{s}\n", .{name});
+    return offset + 1;
+}
