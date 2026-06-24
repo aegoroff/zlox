@@ -60,6 +60,10 @@ pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
 }
 
+pub fn write(self: *Chunk, byte: u8) !void {
+    try self.code.append(self.allocator, @enumFromInt(byte));
+}
+
 pub fn writeCode(self: *Chunk, code: OpCode) !void {
     try self.code.append(self.allocator, code);
 }

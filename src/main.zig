@@ -31,5 +31,6 @@ pub fn run(gpa: std.mem.Allocator, _: *std.Io.Writer, io: std.Io, argv: []const 
     defer config.deinit();
     var ch = chunk.Chunk.init(gpa);
     defer ch.deinit();
+    try ch.write(0);
     try ch.writeCode(chunk.OpCode.Return);
 }
