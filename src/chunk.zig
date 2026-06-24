@@ -46,26 +46,38 @@ pub const OpCode = enum(u8) {
     Method = 40,
 };
 
+pub const LoxValue = union(enum) {
+    Number: f64,
+    Bool: bool,
+};
+
 allocator: std.mem.Allocator,
 code: std.ArrayList(u8),
+constants: std.ArrayList(LoxValue),
 
 pub fn init(gpa: std.mem.Allocator) Chunk {
     return Chunk{
         .allocator = gpa,
         .code = .empty,
+        .constants = .empty,
     };
 }
 
 pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
-}
-
-pub fn write(self: *Chunk, byte: u8) !void {
-    try self.code.append(self.allocator, byte);
+    self.constants.deinit(self.allocator);
 }
 
 pub fn writeCode(self: *Chunk, code: OpCode) !void {
     try self.write(@intFromEnum(code));
+}
+
+pub fn writeConstant(self: *Chunk, value: LoxValue) !void {
+    try self.writeCode(OpCode.Constant);
+    try self.constants.append(self.allocator, value);
+    const ix = self.constants.items.len - 1;
+    const byte: u8 = @intCast(ix);
+    try self.write(byte);
 }
 
 pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void {
@@ -78,10 +90,28 @@ pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void
 
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
     try writer.print("{d:0>4} ", .{offset});
-    const byte = self.code.items[offset];
+    const byte = self.readByte(offset);
     const opcode: OpCode = @enumFromInt(byte);
     return switch (opcode) {
         OpCode.Return => try disassemblySimpleInstruction(writer, offset, "OP_RETURN"),
+        OpCode.Nil => try disassemblySimpleInstruction(writer, offset, "OP_NIL"),
+        OpCode.True => try disassemblySimpleInstruction(writer, offset, "OP_TRUE"),
+        OpCode.False => try disassemblySimpleInstruction(writer, offset, "OP_FALSE"),
+        OpCode.Negate => try disassemblySimpleInstruction(writer, offset, "OP_NEGATE"),
+        OpCode.Add => try disassemblySimpleInstruction(writer, offset, "OP_ADD"),
+        OpCode.Subtract => try disassemblySimpleInstruction(writer, offset, "OP_SUBTRACT"),
+        OpCode.Multiply => try disassemblySimpleInstruction(writer, offset, "OP_MULTIPLY"),
+        OpCode.Divide => try disassemblySimpleInstruction(writer, offset, "OP_DIVIDE"),
+        OpCode.Not => try disassemblySimpleInstruction(writer, offset, "OP_NOT"),
+        OpCode.Equal => try disassemblySimpleInstruction(writer, offset, "OP_EQUAL"),
+        OpCode.Greater => try disassemblySimpleInstruction(writer, offset, "OP_GREATER"),
+        OpCode.Less => try disassemblySimpleInstruction(writer, offset, "OP_LESS"),
+        OpCode.Print => try disassemblySimpleInstruction(writer, offset, "OP_PRINT"),
+        OpCode.Pop => try disassemblySimpleInstruction(writer, offset, "OP_POP"),
+        OpCode.CloseUpvalue => try disassemblySimpleInstruction(writer, offset, "OP_CLOSE_UPVALUE"),
+        OpCode.Inherit => try disassemblySimpleInstruction(writer, offset, "OP_INHERIT"),
+        OpCode.Constant => try disassemblyConstant(self, writer, offset, "OP_CONSTANT", 1),
+        OpCode.ConstantLong => try disassemblyConstant(self, writer, offset, "OP_CONSTANT_LONG", 3),
         else => {
             try writer.print("Unknown opcode {d}\n", .{byte});
             return offset + 1;
@@ -89,7 +119,38 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
     };
 }
 
+fn write(self: *Chunk, byte: u8) !void {
+    try self.code.append(self.allocator, byte);
+}
+
 fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
     try writer.print("{s}\n", .{name});
     return offset + 1;
+}
+
+fn disassemblyConstant(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, constant_size: usize) !usize {
+    const ix = self.getConstantIx(offset + 1, constant_size);
+    const value = self.constants.items[ix];
+    try writer.print("{s:<16} {d:0>4} '{}'\n", .{ name, ix, value });
+    return offset + constant_size + 1; // + 1 for opcode itself
+}
+
+fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
+    return switch (constant_size) {
+        1 => self.readByte(offset),
+        3 => self.readThreeBytes(offset),
+        else => std.math.maxInt(usize), // so as to crash app if error
+    };
+}
+
+fn readByte(self: *Chunk, offset: usize) u8 {
+    return self.code.items[offset];
+}
+
+fn readThreeBytes(self: *Chunk, offset: usize) usize {
+    const op1: usize = self.readByte(offset); // first operand defines constant index in the constant's vector
+    const op2 = self.readByte(offset + 1); // second operand defines constant index in the constant's vector
+    const op3 = self.readByte(offset + 2); // third operand defines constant index in the constant's vector
+
+    return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
 }
