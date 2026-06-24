@@ -29,4 +29,7 @@ pub fn main(init: std.process.Init) !void {
 pub fn run(gpa: std.mem.Allocator, _: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
     var config = try configuration.Config.init(gpa, io, argv);
     defer config.deinit();
+    var ch = chunk.Chunk.init(gpa);
+    defer ch.deinit();
+    try ch.writeCode(chunk.OpCode.Return);
 }
