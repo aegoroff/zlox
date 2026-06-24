@@ -47,7 +47,7 @@ pub const OpCode = enum(u8) {
 };
 
 allocator: std.mem.Allocator,
-code: std.ArrayList(OpCode),
+code: std.ArrayList(u8),
 
 pub fn init(gpa: std.mem.Allocator) Chunk {
     return Chunk{
@@ -61,9 +61,9 @@ pub fn deinit(self: *Chunk) void {
 }
 
 pub fn write(self: *Chunk, byte: u8) !void {
-    try self.code.append(self.allocator, @enumFromInt(byte));
+    try self.code.append(self.allocator, byte);
 }
 
 pub fn writeCode(self: *Chunk, code: OpCode) !void {
-    try self.code.append(self.allocator, code);
+    try self.write(@intFromEnum(code));
 }
