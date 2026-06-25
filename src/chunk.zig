@@ -108,6 +108,13 @@ pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void
 
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
     try writer.print("{d:0>4} ", .{offset});
+
+    if (offset > 0 and self.lines.items[offset] == self.lines.items[offset - 1]) {
+        try writer.print("   | ", .{});
+    } else {
+        try writer.print("{d:4} ", .{self.lines.items[offset]});
+    }
+
     const byte = self.readByte(offset);
     const opcode: OpCode = @enumFromInt(byte);
     return switch (opcode) {
