@@ -106,6 +106,11 @@ pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void
     }
 }
 
+pub fn readOpcode(self: *Chunk, offset: usize) OpCode {
+    const byte = self.readByte(offset);
+    return @enumFromInt(byte);
+}
+
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
     try writer.print("{d:0>4} ", .{offset});
 
@@ -115,8 +120,7 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         try writer.print("{d:4} ", .{self.lines.items[offset]});
     }
 
-    const byte = self.readByte(offset);
-    const opcode: OpCode = @enumFromInt(byte);
+    const opcode = self.readOpcode(offset);
     return switch (opcode) {
         OpCode.Return => try disassemblySimpleInstruction(writer, offset, "OP_RETURN"),
         OpCode.Nil => try disassemblySimpleInstruction(writer, offset, "OP_NIL"),
@@ -154,7 +158,7 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         OpCode.SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
         OpCode.SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
         else => {
-            try writer.print("Unknown opcode {d}\n", .{byte});
+            try writer.print("Unknown opcode {d}\n", .{opcode});
             return offset + 1;
         },
     };

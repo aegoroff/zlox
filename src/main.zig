@@ -2,6 +2,7 @@ const std = @import("std");
 const configuration = @import("configuration.zig");
 const yazap = @import("yazap");
 const chunk = @import("chunk.zig");
+const vm = @import("vm.zig");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
@@ -37,4 +38,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     try ch.writeCode(chunk.OpCode.Nil, 5);
     try ch.writeCode(chunk.OpCode.Return, 5);
     try ch.disassembly(writer, "main");
+    var virtualMachine = vm.init(gpa);
+    defer virtualMachine.deinit();
+    try virtualMachine.interpret(&ch);
 }
