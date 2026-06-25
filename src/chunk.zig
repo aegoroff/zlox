@@ -135,8 +135,24 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         OpCode.Pop => try disassemblySimpleInstruction(writer, offset, "OP_POP"),
         OpCode.CloseUpvalue => try disassemblySimpleInstruction(writer, offset, "OP_CLOSE_UPVALUE"),
         OpCode.Inherit => try disassemblySimpleInstruction(writer, offset, "OP_INHERIT"),
-        OpCode.Constant => try disassemblyConstant(self, writer, offset, "OP_CONSTANT", 1),
-        OpCode.ConstantLong => try disassemblyConstant(self, writer, offset, "OP_CONSTANT_LONG", 3),
+        OpCode.Constant => try self.disassemblyConstant(writer, offset, "OP_CONSTANT", 1),
+        OpCode.DefineGlobal => try self.disassemblyConstant(writer, offset, "OP_DEFINE_GLOBAL", 1),
+        OpCode.GetGlobal => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL", 1),
+        OpCode.SetGlobal => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL", 1),
+        OpCode.GetSuper => try self.disassemblyConstant(writer, offset, "OP_GET_SUPER", 1),
+        OpCode.ConstantLong => try self.disassemblyConstant(writer, offset, "OP_CONSTANT_LONG", 3),
+        OpCode.GetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL_LONG", 3),
+        OpCode.SetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL_LONG", 3),
+        OpCode.DefineGlobalLong => try self.disassemblyConstant(writer, offset, "OP_DEFINE_LONG", 3),
+        OpCode.SetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_SET_LOCAL"),
+        OpCode.GetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_GET_LOCAL"),
+        OpCode.Call => try self.disassemblyByteInstruction(writer, offset, "OP_CALL"),
+        OpCode.GetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_GET_UPVALUE"),
+        OpCode.Class => try self.disassemblyByteInstruction(writer, offset, "OP_CLASS"),
+        OpCode.Method => try self.disassemblyByteInstruction(writer, offset, "OP_METHOD"),
+        OpCode.GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
+        OpCode.SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
+        OpCode.SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
         else => {
             try writer.print("Unknown opcode {d}\n", .{byte});
             return offset + 1;
@@ -151,6 +167,12 @@ fn write(self: *Chunk, byte: u8) !void {
 fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
     try writer.print("{s}\n", .{name});
     return offset + 1;
+}
+
+fn disassemblyByteInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
+    const ix = self.readByte(offset + 1);
+    try writer.print("{s:<16} {d:4}", .{ name, ix });
+    return offset + 2;
 }
 
 fn disassemblyConstant(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, constant_size: usize) !usize {
