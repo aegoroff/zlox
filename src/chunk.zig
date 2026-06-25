@@ -156,7 +156,7 @@ fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []c
 fn disassemblyConstant(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, constant_size: usize) !usize {
     const ix = self.getConstantIx(offset + 1, constant_size);
     const val = self.constants.items[ix];
-    try writer.print("{s:<16} {d:0>4} '", .{ name, ix });
+    try writer.print("{s:<16} {d:4} '", .{ name, ix });
     try val.format(writer);
     try writer.print("'\n", .{});
     return offset + constant_size + 1; // + 1 for opcode itself
