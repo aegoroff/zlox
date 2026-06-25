@@ -1,6 +1,9 @@
 pub const Chunk = @This();
 
 const std = @import("std");
+const value = @import("value.zig");
+
+const LoxValue = value.LoxValue;
 
 pub const OpCode = enum(u8) {
     Constant = 0,
@@ -46,11 +49,6 @@ pub const OpCode = enum(u8) {
     Method = 40,
 };
 
-pub const LoxValue = union(enum) {
-    Number: f64,
-    Bool: bool,
-};
-
 pub const MAX_SHORT_VALUE: usize = 255;
 
 allocator: std.mem.Allocator,
@@ -77,8 +75,8 @@ pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
     try self.writeOperand(@intFromEnum(code), line);
 }
 
-pub fn writeConstant(self: *Chunk, value: LoxValue, line: usize) !void {
-    try self.constants.append(self.allocator, value);
+pub fn writeConstant(self: *Chunk, val: LoxValue, line: usize) !void {
+    try self.constants.append(self.allocator, val);
     const ix = self.constants.items.len - 1;
     if (ix > MAX_SHORT_VALUE) {
         try self.writeCode(OpCode.ConstantLong, line);
@@ -88,14 +86,14 @@ pub fn writeConstant(self: *Chunk, value: LoxValue, line: usize) !void {
     try self.writeOperand(ix, line);
 }
 
-pub fn writeOperand(self: *Chunk, value: usize, line: usize) !void {
-    if (value > MAX_SHORT_VALUE) {
-        for (intoThreeBytes(value)) |b| {
+pub fn writeOperand(self: *Chunk, val: usize, line: usize) !void {
+    if (val > MAX_SHORT_VALUE) {
+        for (intoThreeBytes(val)) |b| {
             try self.write(b);
             try self.lines.append(self.allocator, line);
         }
     } else {
-        try self.write(@truncate(value));
+        try self.write(@truncate(val));
         try self.lines.append(self.allocator, line);
     }
 }
@@ -150,8 +148,8 @@ fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []c
 
 fn disassemblyConstant(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, constant_size: usize) !usize {
     const ix = self.getConstantIx(offset + 1, constant_size);
-    const value = self.constants.items[ix];
-    try writer.print("{s:<16} {d:0>4} '{}'\n", .{ name, ix, value });
+    const val = self.constants.items[ix];
+    try writer.print("{s:<16} {d:0>4} '{}'\n", .{ name, ix, val });
     return offset + constant_size + 1; // + 1 for opcode itself
 }
 
@@ -175,15 +173,15 @@ fn readThreeBytes(self: *Chunk, offset: usize) usize {
     return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
 }
 
-fn intoThreeBytes(value: usize) [3]u8 {
-    const op1: u8 = @truncate(value & 0xFF);
-    const op2: u8 = @truncate((value & 0xFF00) >> 8);
-    const op3: u8 = @truncate((value & 0x00FF_0000) >> 16);
+fn intoThreeBytes(val: usize) [3]u8 {
+    const op1: u8 = @truncate(val & 0xFF);
+    const op2: u8 = @truncate((val & 0xFF00) >> 8);
+    const op3: u8 = @truncate((val & 0x00FF_0000) >> 16);
     return [3]u8{ op1, op2, op3 };
 }
 
-fn intoTwoBytes(value: usize) [2]u8 {
-    const op1: u8 = @truncate(value & 0xFF);
-    const op2: u8 = @truncate((value & 0xFF00) >> 8);
+fn intoTwoBytes(val: usize) [2]u8 {
+    const op1: u8 = @truncate(val & 0xFF);
+    const op2: u8 = @truncate((val & 0xFF00) >> 8);
     return [2]u8{ op1, op2 };
 }
