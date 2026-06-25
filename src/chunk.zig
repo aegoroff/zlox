@@ -157,7 +157,7 @@ fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
     return switch (constant_size) {
         1 => self.readByte(offset),
         3 => self.readThreeBytes(offset),
-        else => std.math.maxInt(usize), // so as to crash app if error
+        else => @panic("Invalid constant size"),
     };
 }
 
