@@ -156,7 +156,7 @@ fn peek(self: *Lexer) u8 {
 }
 
 fn skipWhitespace(self: *Lexer) void {
-    while (true) {
+    while (!self.isAtEnd()) {
         const c = self.peek();
         switch (c) {
             ' ', '\r', '\t' => _ = self.advance(),
