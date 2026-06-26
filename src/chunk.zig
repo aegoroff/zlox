@@ -111,6 +111,28 @@ pub fn readOpcode(self: *Chunk, offset: usize) OpCode {
     return @enumFromInt(byte);
 }
 
+pub fn readByte(self: *Chunk, offset: usize) u8 {
+    return self.code.items[offset];
+}
+
+pub fn readConstant(self: *Chunk, offset: usize) LoxValue {
+    const ix = self.getConstantIx(offset, 1);
+    return self.constants.items[ix];
+}
+
+pub fn readConstantLong(self: *Chunk, offset: usize) LoxValue {
+    const ix = self.getConstantIx(offset, 3);
+    return self.constants.items[ix];
+}
+
+pub fn readThreeBytes(self: *Chunk, offset: usize) usize {
+    const op1: usize = self.readByte(offset); // first operand defines constant index in the constant's vector
+    const op2 = self.readByte(offset + 1); // second operand defines constant index in the constant's vector
+    const op3 = self.readByte(offset + 2); // third operand defines constant index in the constant's vector
+
+    return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
+}
+
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
     try writer.print("{d:0>4} ", .{offset});
 
@@ -194,18 +216,6 @@ fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
         3 => self.readThreeBytes(offset),
         else => @panic("Invalid constant size"),
     };
-}
-
-fn readByte(self: *Chunk, offset: usize) u8 {
-    return self.code.items[offset];
-}
-
-fn readThreeBytes(self: *Chunk, offset: usize) usize {
-    const op1: usize = self.readByte(offset); // first operand defines constant index in the constant's vector
-    const op2 = self.readByte(offset + 1); // second operand defines constant index in the constant's vector
-    const op3 = self.readByte(offset + 2); // third operand defines constant index in the constant's vector
-
-    return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
 }
 
 fn intoThreeBytes(val: usize) [3]u8 {
