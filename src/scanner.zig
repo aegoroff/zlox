@@ -4,6 +4,7 @@ const std = @import("std");
 
 pub const LexerError = error{
     UnexpectedCharacter,
+    UnterminatedString,
 };
 
 pub const TokenType = enum {
@@ -78,6 +79,9 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
         return self.makeToken(TokenType.Eof);
     }
     const c = self.advance();
+    if (isDigit(c)) {
+        return self.number();
+    }
     return switch (c) {
         '(' => self.makeToken(TokenType.LeftParen),
         ')' => self.makeToken(TokenType.RightParen),
@@ -118,6 +122,7 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
                 return self.makeToken(TokenType.Greater);
             }
         },
+        '"' => self.string(),
         else => return LexerError.UnexpectedCharacter,
     };
 }
@@ -133,6 +138,29 @@ fn makeToken(self: *Lexer, tokenType: TokenType) Token {
 
 fn isAtEnd(self: *Lexer) bool {
     return self.current == self.source.len or self.source[self.current] == '\x00';
+}
+
+fn isDigit(c: u8) bool {
+    return std.ascii.isDigit(c);
+}
+
+fn number(self: *Lexer) Token {
+    while (isDigit(self.peek())) {
+        _ = self.advance();
+    }
+
+    // Look for a fractional part.
+    if (self.peek() == '.' and isDigit(self.peekNext())) {
+        // Consume the ".".
+        _ = self.advance();
+
+        // Read fractional
+        while (isDigit(self.peek())) {
+            _ = self.advance();
+        }
+    }
+
+    return self.makeToken(TokenType.Number);
 }
 
 fn match(self: *Lexer, expected: u8) bool {
@@ -152,6 +180,9 @@ fn advance(self: *Lexer) u8 {
 }
 
 fn peek(self: *Lexer) u8 {
+    if (self.isAtEnd()) {
+        return '\x00';
+    }
     return self.source[self.current];
 }
 
@@ -183,6 +214,22 @@ fn skipWhitespace(self: *Lexer) void {
             else => return,
         }
     }
+}
+
+fn string(self: *Lexer) !Token {
+    while (self.peek() != '"') {
+        if (self.peek() == '\n') {
+            self.line += 1;
+        }
+        _ = self.advance();
+    }
+
+    if (self.isAtEnd()) {
+        return LexerError.UnterminatedString;
+    }
+
+    _ = self.advance();
+    return self.makeToken(TokenType.String);
 }
 
 test "Left paren" {
@@ -231,4 +278,26 @@ test "Not comment and comment test" {
     // Assert
     try std.testing.expectEqual(TokenType.Bang, token1.type);
     try std.testing.expectEqual(TokenType.Eof, token2.type);
+}
+
+test "String test" {
+    // Arrange
+    var lexer = Lexer.init(std.testing.allocator, "\"test\"");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.String, token.type);
+}
+
+test "Number test" {
+    // Arrange
+    var lexer = Lexer.init(std.testing.allocator, "123.0");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Number, token.type);
 }
