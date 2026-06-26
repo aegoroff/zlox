@@ -45,6 +45,10 @@ pub fn init(gpa: std.mem.Allocator, io: std.Io, argv: []const [:0]const u8) !Con
     };
 }
 
+pub fn getPathArgValue(match: yazap.ArgMatches) ?[]const u8 {
+    return match.getSingleValue(path_name);
+}
+
 pub fn deinit(self: *Config) void {
     self.app.deinit();
     self.allocator.free(self.app_descr);

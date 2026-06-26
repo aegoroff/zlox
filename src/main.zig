@@ -30,6 +30,19 @@ pub fn main(init: std.process.Init) !void {
 pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
     var config = try configuration.Config.init(gpa, io, argv);
     defer config.deinit();
+    if (configuration.getPathArgValue(config.matches)) |path| {
+        var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+        defer file.close(io);
+        const stat = try file.stat(io);
+        var file_buffer: [64 * 1024]u8 = undefined;
+        var file_reader = file.reader(io, &file_buffer);
+        const reader = &file_reader.interface;
+        const source = try reader.readAlloc(gpa, stat.size);
+        var virtualMachine = vm.init(gpa, writer);
+        defer virtualMachine.deinit();
+        try virtualMachine.interpret(source);
+    }
+
     var ch = chunk.Chunk.init(gpa);
     defer ch.deinit();
     try ch.writeConstant(.{ .Number = 1.2 }, 1);
@@ -40,9 +53,6 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     try ch.writeCode(chunk.OpCode.Negate, 1);
     try ch.writeCode(chunk.OpCode.Return, 2);
     try ch.disassembly(writer, "main");
-    var virtualMachine = vm.init(gpa, writer);
-    defer virtualMachine.deinit();
-    try virtualMachine.interpret("-+===\n*()!\"test\"123.0//comment\ntest\x00");
 }
 
 test {
