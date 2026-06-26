@@ -79,9 +79,9 @@ pub fn writeConstant(self: *Chunk, val: LoxValue, line: usize) !void {
     try self.constants.append(self.allocator, val);
     const ix = self.constants.items.len - 1;
     if (ix > MAX_SHORT_VALUE) {
-        try self.writeCode(OpCode.ConstantLong, line);
+        try self.writeCode(.ConstantLong, line);
     } else {
-        try self.writeCode(OpCode.Constant, line);
+        try self.writeCode(.Constant, line);
     }
     try self.writeOperand(ix, line);
 }
@@ -144,41 +144,41 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
 
     const opcode = self.readOpcode(offset);
     return switch (opcode) {
-        OpCode.Return => try disassemblySimpleInstruction(writer, offset, "OP_RETURN"),
-        OpCode.Nil => try disassemblySimpleInstruction(writer, offset, "OP_NIL"),
-        OpCode.True => try disassemblySimpleInstruction(writer, offset, "OP_TRUE"),
-        OpCode.False => try disassemblySimpleInstruction(writer, offset, "OP_FALSE"),
-        OpCode.Negate => try disassemblySimpleInstruction(writer, offset, "OP_NEGATE"),
-        OpCode.Add => try disassemblySimpleInstruction(writer, offset, "OP_ADD"),
-        OpCode.Subtract => try disassemblySimpleInstruction(writer, offset, "OP_SUBTRACT"),
-        OpCode.Multiply => try disassemblySimpleInstruction(writer, offset, "OP_MULTIPLY"),
-        OpCode.Divide => try disassemblySimpleInstruction(writer, offset, "OP_DIVIDE"),
-        OpCode.Not => try disassemblySimpleInstruction(writer, offset, "OP_NOT"),
-        OpCode.Equal => try disassemblySimpleInstruction(writer, offset, "OP_EQUAL"),
-        OpCode.Greater => try disassemblySimpleInstruction(writer, offset, "OP_GREATER"),
-        OpCode.Less => try disassemblySimpleInstruction(writer, offset, "OP_LESS"),
-        OpCode.Print => try disassemblySimpleInstruction(writer, offset, "OP_PRINT"),
-        OpCode.Pop => try disassemblySimpleInstruction(writer, offset, "OP_POP"),
-        OpCode.CloseUpvalue => try disassemblySimpleInstruction(writer, offset, "OP_CLOSE_UPVALUE"),
-        OpCode.Inherit => try disassemblySimpleInstruction(writer, offset, "OP_INHERIT"),
-        OpCode.Constant => try self.disassemblyConstant(writer, offset, "OP_CONSTANT", 1),
-        OpCode.DefineGlobal => try self.disassemblyConstant(writer, offset, "OP_DEFINE_GLOBAL", 1),
-        OpCode.GetGlobal => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL", 1),
-        OpCode.SetGlobal => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL", 1),
-        OpCode.GetSuper => try self.disassemblyConstant(writer, offset, "OP_GET_SUPER", 1),
-        OpCode.ConstantLong => try self.disassemblyConstant(writer, offset, "OP_CONSTANT_LONG", 3),
-        OpCode.GetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL_LONG", 3),
-        OpCode.SetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL_LONG", 3),
-        OpCode.DefineGlobalLong => try self.disassemblyConstant(writer, offset, "OP_DEFINE_LONG", 3),
-        OpCode.SetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_SET_LOCAL"),
-        OpCode.GetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_GET_LOCAL"),
-        OpCode.Call => try self.disassemblyByteInstruction(writer, offset, "OP_CALL"),
-        OpCode.GetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_GET_UPVALUE"),
-        OpCode.Class => try self.disassemblyByteInstruction(writer, offset, "OP_CLASS"),
-        OpCode.Method => try self.disassemblyByteInstruction(writer, offset, "OP_METHOD"),
-        OpCode.GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
-        OpCode.SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
-        OpCode.SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
+        .Return => try disassemblySimpleInstruction(writer, offset, "OP_RETURN"),
+        .Nil => try disassemblySimpleInstruction(writer, offset, "OP_NIL"),
+        .True => try disassemblySimpleInstruction(writer, offset, "OP_TRUE"),
+        .False => try disassemblySimpleInstruction(writer, offset, "OP_FALSE"),
+        .Negate => try disassemblySimpleInstruction(writer, offset, "OP_NEGATE"),
+        .Add => try disassemblySimpleInstruction(writer, offset, "OP_ADD"),
+        .Subtract => try disassemblySimpleInstruction(writer, offset, "OP_SUBTRACT"),
+        .Multiply => try disassemblySimpleInstruction(writer, offset, "OP_MULTIPLY"),
+        .Divide => try disassemblySimpleInstruction(writer, offset, "OP_DIVIDE"),
+        .Not => try disassemblySimpleInstruction(writer, offset, "OP_NOT"),
+        .Equal => try disassemblySimpleInstruction(writer, offset, "OP_EQUAL"),
+        .Greater => try disassemblySimpleInstruction(writer, offset, "OP_GREATER"),
+        .Less => try disassemblySimpleInstruction(writer, offset, "OP_LESS"),
+        .Print => try disassemblySimpleInstruction(writer, offset, "OP_PRINT"),
+        .Pop => try disassemblySimpleInstruction(writer, offset, "OP_POP"),
+        .CloseUpvalue => try disassemblySimpleInstruction(writer, offset, "OP_CLOSE_UPVALUE"),
+        .Inherit => try disassemblySimpleInstruction(writer, offset, "OP_INHERIT"),
+        .Constant => try self.disassemblyConstant(writer, offset, "OP_CONSTANT", 1),
+        .DefineGlobal => try self.disassemblyConstant(writer, offset, "OP_DEFINE_GLOBAL", 1),
+        .GetGlobal => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL", 1),
+        .SetGlobal => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL", 1),
+        .GetSuper => try self.disassemblyConstant(writer, offset, "OP_GET_SUPER", 1),
+        .ConstantLong => try self.disassemblyConstant(writer, offset, "OP_CONSTANT_LONG", 3),
+        .GetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL_LONG", 3),
+        .SetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL_LONG", 3),
+        .DefineGlobalLong => try self.disassemblyConstant(writer, offset, "OP_DEFINE_LONG", 3),
+        .SetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_SET_LOCAL"),
+        .GetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_GET_LOCAL"),
+        .Call => try self.disassemblyByteInstruction(writer, offset, "OP_CALL"),
+        .GetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_GET_UPVALUE"),
+        .Class => try self.disassemblyByteInstruction(writer, offset, "OP_CLASS"),
+        .Method => try self.disassemblyByteInstruction(writer, offset, "OP_METHOD"),
+        .GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
+        .SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
+        .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
         else => {
             try writer.print("Unknown opcode {d}\n", .{opcode});
             return offset + 1;

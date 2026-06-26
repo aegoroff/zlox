@@ -59,41 +59,41 @@ pub fn run(self: *VM) !void {
         const opcode = self.chunk.readOpcode(ip);
         ip += 1;
         switch (opcode) {
-            Chunk.OpCode.Constant => {
+            .Constant => {
                 const value = self.chunk.readConstant(ip);
                 ip += 1;
                 try self.push(value);
             },
-            Chunk.OpCode.ConstantLong => {
+            .ConstantLong => {
                 const value = self.chunk.readConstantLong(ip);
                 ip += 3;
                 try self.push(value);
             },
-            Chunk.OpCode.Negate => {
+            .Negate => {
                 const value = try self.pop();
                 try self.push(.{ .Number = -try value.tryNumber() });
             },
-            Chunk.OpCode.Add => {
+            .Add => {
                 const b = try self.pop();
                 const a = try self.pop();
                 try self.push(.{ .Number = try a.tryNumber() + try b.tryNumber() });
             },
-            Chunk.OpCode.Subtract => {
+            .Subtract => {
                 const b = try self.pop();
                 const a = try self.pop();
                 try self.push(.{ .Number = try a.tryNumber() - try b.tryNumber() });
             },
-            Chunk.OpCode.Multiply => {
+            .Multiply => {
                 const b = try self.pop();
                 const a = try self.pop();
                 try self.push(.{ .Number = try a.tryNumber() * try b.tryNumber() });
             },
-            Chunk.OpCode.Divide => {
+            .Divide => {
                 const b = try self.pop();
                 const a = try self.pop();
                 try self.push(.{ .Number = try a.tryNumber() / try b.tryNumber() });
             },
-            Chunk.OpCode.Return => {
+            .Return => {
                 const value = try self.pop();
                 try value.print(self.writer);
                 try self.println();
