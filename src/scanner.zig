@@ -205,7 +205,7 @@ fn checkKeyword(self: *Lexer, start: usize, length: usize, rest: []const u8, tok
     const current_len = self.current - self.start;
 
     if (current_len == start + length) {
-        const lexeme = self.source[start .. start + length];
+        const lexeme = self.source[self.start + start .. self.start + start + length];
 
         if (std.mem.eql(u8, lexeme, rest)) {
             return tokenType;
