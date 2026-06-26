@@ -562,3 +562,149 @@ test "Single letter f identifier" {
     // Assert
     try std.testing.expectEqual(TokenType.Identifier, token.type);
 }
+
+test "Tree benchmark lexer test" {
+    const code =
+        \\class Tree {
+        \\  init(item, depth) {
+        \\    this.item = item;
+        \\    this.depth = depth;
+        \\    if (depth > 0) {
+        \\      var item2 = item + item;
+        \\      depth = depth - 1;
+        \\      this.left = Tree(item2 - 1, depth);
+        \\      this.right = Tree(item2, depth);
+        \\    } else {
+        \\      this.left = nil;
+        \\      this.right = nil;
+        \\    }
+        \\  }
+        \\
+        \\  check() {
+        \\    if (this.left == nil) {
+        \\      return this.item;
+        \\    }
+        \\
+        \\    return this.item + this.left.check() - this.right.check();
+        \\  }
+        \\}
+        \\
+        \\var minDepth = 4;
+        \\var maxDepth = 14;
+        \\var stretchDepth = maxDepth + 1;
+        \\
+        \\var start = clock();
+        \\
+        \\print "stretch tree of depth:";
+        \\print stretchDepth;
+        \\print "check:";
+        \\print Tree(0, stretchDepth).check();
+        \\
+        \\var longLivedTree = Tree(0, maxDepth);
+        \\
+        \\// iterations = 2 ** maxDepth
+        \\var iterations = 1;
+        \\var d = 0;
+        \\while (d < maxDepth) {
+        \\  iterations = iterations * 2;
+        \\  d = d + 1;
+        \\}
+        \\
+        \\var depth = minDepth;
+        \\while (depth < stretchDepth) {
+        \\  var check = 0;
+        \\  var i = 1;
+        \\  while (i <= iterations) {
+        \\    check = check + Tree(i, depth).check() + Tree(-i, depth).check();
+        \\    i = i + 1;
+        \\  }
+        \\
+        \\  print "num trees:";
+        \\  print iterations * 2;
+        \\  print "depth:";
+        \\  print depth;
+        \\  print "check:";
+        \\  print check;
+        \\
+        \\  iterations = iterations / 4;
+        \\  depth = depth + 2;
+        \\}
+        \\
+        \\print "long lived tree of depth:";
+        \\print maxDepth;
+        \\print "check:";
+        \\print longLivedTree.check();
+        \\print "elapsed:";
+        \\print clock() - start;
+        \\
+    ;
+
+    const expected_tokens = [_]TokenType{
+        .Class, .Identifier, .LeftBrace, // class Tree {
+        .Identifier, .LeftParen, .Identifier, .Comma, .Identifier, .RightParen, .LeftBrace, // init(item, depth) {
+        .This, .Dot, .Identifier, .Equal, .Identifier, .Semicolon, // this.item = item;
+        .This, .Dot, .Identifier, .Equal, .Identifier, .Semicolon, // this.depth = depth;
+        .If, .LeftParen, .Identifier, .Greater, .Number, .RightParen, .LeftBrace, // if (depth > 0) {
+        .Var, .Identifier, .Equal, .Identifier, .Plus, .Identifier, .Semicolon, // var item2 = item + item;
+        .Identifier, .Equal, .Identifier, .Minus, .Number, .Semicolon, // depth = depth - 1;
+        .This, .Dot, .Identifier, .Equal, .Identifier, .LeftParen, .Identifier, .Minus, .Number, .Comma, .Identifier, .RightParen, .Semicolon, // this.left = Tree(item2 - 1, depth);
+        .This, .Dot, .Identifier, .Equal, .Identifier, .LeftParen, .Identifier, .Comma, .Identifier, .RightParen, .Semicolon, // this.right = Tree(item2, depth);
+        .RightBrace, .Else, .LeftBrace, // } else {
+        .This, .Dot, .Identifier, .Equal, .Nil, .Semicolon, // this.left = nil;
+        .This, .Dot, .Identifier, .Equal, .Nil, .Semicolon, // this.right = nil;
+        .RightBrace, .RightBrace, // } }
+        .Identifier, .LeftParen, .RightParen, .LeftBrace, // check() {
+        .If, .LeftParen, .This, .Dot, .Identifier, .EqualEqual, .Nil, .RightParen, .LeftBrace, // if (this.left == nil) {
+        .Return, .This, .Dot, .Identifier, .Semicolon, // return this.item;
+        .RightBrace, // }
+        .Return, .This, .Dot, .Identifier, .Plus, .This, .Dot, .Identifier, .Dot, .Identifier, .LeftParen, .RightParen, .Minus, .This, .Dot, .Identifier, .Dot, .Identifier, .LeftParen, .RightParen, .Semicolon, // return this.item + this.left.check() - this.right.check();
+        .RightBrace, .RightBrace, // } }
+        .Var, .Identifier, .Equal, .Number, .Semicolon, // var minDepth = 4;
+        .Var, .Identifier, .Equal, .Number, .Semicolon, // var maxDepth = 14;
+        .Var, .Identifier, .Equal, .Identifier, .Plus, .Number, .Semicolon, // var stretchDepth = maxDepth + 1;
+        .Var, .Identifier, .Equal, .Identifier, .LeftParen, .RightParen, .Semicolon, // var start = clock();
+        .Print, .String, .Semicolon, // print "stretch tree of depth:";
+        .Print, .Identifier, .Semicolon, // print stretchDepth;
+        .Print, .String, .Semicolon, // print "check:";
+        .Print, .Identifier, .LeftParen, .Number, .Comma, .Identifier, .RightParen, .Dot, .Identifier, .LeftParen, .RightParen, .Semicolon, // print Tree(0, stretchDepth).check();
+        .Var, .Identifier, .Equal, .Identifier, .LeftParen, .Number, .Comma, .Identifier, .RightParen, .Semicolon, // var longLivedTree = Tree(0, maxDepth);
+        .Var, .Identifier, .Equal, .Number, .Semicolon, // var iterations = 1;
+        .Var, .Identifier, .Equal, .Number, .Semicolon, // var d = 0;
+        .While, .LeftParen, .Identifier, .Less, .Identifier, .RightParen, .LeftBrace, // while (d < maxDepth) {
+        .Identifier, .Equal, .Identifier, .Star, .Number, .Semicolon, // iterations = iterations * 2;
+        .Identifier, .Equal, .Identifier, .Plus, .Number, .Semicolon, // d = d + 1;
+        .RightBrace, // }
+        .Var, .Identifier, .Equal, .Identifier, .Semicolon, // var depth = minDepth;
+        .While, .LeftParen, .Identifier, .Less, .Identifier, .RightParen, .LeftBrace, // while (depth < stretchDepth) {
+        .Var, .Identifier, .Equal, .Number, .Semicolon, // var check = 0;
+        .Var, .Identifier, .Equal, .Number, .Semicolon, // var i = 1;
+        .While, .LeftParen, .Identifier, .LessEqual, .Identifier, .RightParen, .LeftBrace, // while (i <= iterations) {
+        .Identifier, .Equal, .Identifier, .Plus, .Identifier, .LeftParen, .Identifier, .Comma, .Identifier, .RightParen, .Dot, .Identifier, .LeftParen, .RightParen, .Plus, .Identifier, .LeftParen, .Minus, .Identifier, .Comma, .Identifier, .RightParen, .Dot, .Identifier, .LeftParen, .RightParen, .Semicolon, // check = check + Tree(i, depth).check() + Tree(-i, depth).check();
+        .Identifier, .Equal, .Identifier, .Plus, .Number, .Semicolon, // i = i + 1;
+        .RightBrace, // }
+        .Print, .String, .Semicolon, // print "num trees:";
+        .Print, .Identifier, .Star, .Number, .Semicolon, // print iterations * 2;
+        .Print, .String, .Semicolon, // print "depth:";
+        .Print, .Identifier, .Semicolon, // print depth;
+        .Print, .String, .Semicolon, // print "check:";
+        .Print, .Identifier, .Semicolon, // print check;
+        .Identifier, .Equal, .Identifier, .Slash, .Number, .Semicolon, // iterations = iterations / 4;
+        .Identifier, .Equal, .Identifier, .Plus, .Number, .Semicolon, // depth = depth + 2;
+        .RightBrace, // }
+        .Print, .String, .Semicolon, // print "long lived tree of depth:";
+        .Print, .Identifier, .Semicolon, // print maxDepth;
+        .Print, .String, .Semicolon, // print "check:";
+        .Print, .Identifier, .Dot, .Identifier, .LeftParen, .RightParen, .Semicolon, // print longLivedTree.check();
+        .Print, .String, .Semicolon, // print "elapsed:";
+        .Print, .Identifier, .LeftParen, .RightParen, .Minus, .Identifier, .Semicolon, // print clock() - start;
+        .Eof, // EOF
+    };
+
+    var lexer = Lexer.init(code);
+
+    // Scan all tokens and verify each one
+    for (expected_tokens) |expected_type| {
+        const token = try lexer.scanToken();
+        try std.testing.expectEqual(expected_type, token.type);
+    }
+}
