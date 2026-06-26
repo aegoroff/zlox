@@ -72,6 +72,13 @@ pub fn run(self: *VM) !void {
                 try value.print(self.writer);
                 try self.println();
             },
+            chk.OpCode.Negate => {
+                const value = try self.pop();
+                switch (value) {
+                    .Number => |n| try self.push(.{ .Number = -n }),
+                    else => return err.Error.RuntimeError,
+                }
+            },
             chk.OpCode.Return => {
                 const value = try self.pop();
                 try value.print(self.writer);
