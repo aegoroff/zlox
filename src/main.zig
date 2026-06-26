@@ -32,11 +32,13 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     defer config.deinit();
     var ch = chunk.Chunk.init(gpa);
     defer ch.deinit();
-    try ch.writeConstant(.{ .Number = 20.0 }, 1);
-    try ch.writeConstant(.{ .Number = 1.2 }, 2);
-    try ch.writeCode(chunk.OpCode.Negate, 2);
-    try ch.writeCode(chunk.OpCode.Add, 2);
-    try ch.writeCode(chunk.OpCode.Return, 3);
+    try ch.writeConstant(.{ .Number = 1.2 }, 1);
+    try ch.writeConstant(.{ .Number = 3.4 }, 1);
+    try ch.writeCode(chunk.OpCode.Add, 1);
+    try ch.writeConstant(.{ .Number = 5.6 }, 1);
+    try ch.writeCode(chunk.OpCode.Divide, 1);
+    try ch.writeCode(chunk.OpCode.Negate, 1);
+    try ch.writeCode(chunk.OpCode.Return, 2);
     try ch.disassembly(writer, "main");
     var virtualMachine = vm.init(gpa, writer);
     defer virtualMachine.deinit();
