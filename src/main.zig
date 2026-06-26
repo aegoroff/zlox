@@ -42,5 +42,5 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     try ch.disassembly(writer, "main");
     var virtualMachine = vm.init(gpa, writer);
     defer virtualMachine.deinit();
-    try virtualMachine.interpret(&ch);
+    try virtualMachine.interpret("");
 }
