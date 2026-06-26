@@ -74,62 +74,27 @@ pub fn run(self: *VM) !void {
             },
             chk.OpCode.Negate => {
                 const value = try self.pop();
-                switch (value) {
-                    .Number => |n| try self.push(.{ .Number = -n }),
-                    else => return err.Error.RuntimeError,
-                }
+                try self.push(.{ .Number = -try value.tryNumber() });
             },
             chk.OpCode.Add => {
                 const b = try self.pop();
                 const a = try self.pop();
-                const b_num = switch (b) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                const a_num = switch (a) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                try self.push(.{ .Number = a_num + b_num });
+                try self.push(.{ .Number = try a.tryNumber() + try b.tryNumber() });
             },
             chk.OpCode.Subtract => {
                 const b = try self.pop();
                 const a = try self.pop();
-                const b_num = switch (b) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                const a_num = switch (a) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                try self.push(.{ .Number = a_num - b_num });
+                try self.push(.{ .Number = try a.tryNumber() - try b.tryNumber() });
             },
             chk.OpCode.Multiply => {
                 const b = try self.pop();
                 const a = try self.pop();
-                const b_num = switch (b) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                const a_num = switch (a) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                try self.push(.{ .Number = a_num * b_num });
+                try self.push(.{ .Number = try a.tryNumber() * try b.tryNumber() });
             },
             chk.OpCode.Divide => {
                 const b = try self.pop();
                 const a = try self.pop();
-                const b_num = switch (b) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                const a_num = switch (a) {
-                    .Number => |n| n,
-                    else => return err.Error.RuntimeError,
-                };
-                try self.push(.{ .Number = a_num / b_num });
+                try self.push(.{ .Number = try a.tryNumber() / try b.tryNumber() });
             },
             chk.OpCode.Return => {
                 const value = try self.pop();
