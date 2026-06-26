@@ -62,15 +62,11 @@ pub fn run(self: *VM) !void {
                 const value = self.chunk.readConstant(ip);
                 ip += 1;
                 try self.push(value);
-                try value.print(self.writer);
-                try self.println();
             },
             chk.OpCode.ConstantLong => {
                 const value = self.chunk.readConstantLong(ip);
                 ip += 3;
                 try self.push(value);
-                try value.print(self.writer);
-                try self.println();
             },
             chk.OpCode.Negate => {
                 const value = try self.pop();
