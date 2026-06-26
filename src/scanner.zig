@@ -77,12 +77,6 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
         return self.makeToken(TokenType.Eof);
     }
     const c = self.advance();
-    if (isAlpha(c)) {
-        return self.identifier();
-    }
-    if (isDigit(c)) {
-        return self.number();
-    }
     return switch (c) {
         '(' => self.makeToken(TokenType.LeftParen),
         ')' => self.makeToken(TokenType.RightParen),
@@ -95,6 +89,8 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
         ';' => self.makeToken(TokenType.Semicolon),
         '*' => self.makeToken(TokenType.Star),
         '/' => self.makeToken(TokenType.Slash),
+        '0'...'9' => self.number(),
+        'A'...'Z', 'a'...'z' => self.identifier(),
         '!' => {
             if (self.match('=')) {
                 return self.makeToken(TokenType.BangEqual);
