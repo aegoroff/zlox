@@ -29,8 +29,7 @@ pub fn deinit(_: *VM) void {}
 
 pub fn interpret(self: *VM, source: []const u8) !void {
     var compile = Compiler.init(self.allocator);
-    compile.compile(source);
-    try self.run();
+    try compile.compile(source);
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
