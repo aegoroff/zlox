@@ -42,7 +42,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     try ch.disassembly(writer, "main");
     var virtualMachine = vm.init(gpa, writer);
     defer virtualMachine.deinit();
-    try virtualMachine.interpret("-+===\n*()!\"test\"123.0\x00");
+    try virtualMachine.interpret("-+===\n*()!\"test\"123.0//comment\ntest\x00");
 }
 
 test {

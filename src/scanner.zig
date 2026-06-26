@@ -77,6 +77,9 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
         return self.makeToken(TokenType.Eof);
     }
     const c = self.advance();
+    if (isAlpha(c)) {
+        return self.identifier();
+    }
     if (isDigit(c)) {
         return self.number();
     }
@@ -142,6 +145,10 @@ fn isDigit(c: u8) bool {
     return std.ascii.isDigit(c);
 }
 
+fn isAlpha(c: u8) bool {
+    return std.ascii.isAlphabetic(c) or c == '_';
+}
+
 fn number(self: *Lexer) Token {
     while (isDigit(self.peek())) {
         _ = self.advance();
@@ -159,6 +166,18 @@ fn number(self: *Lexer) Token {
     }
 
     return self.makeToken(TokenType.Number);
+}
+
+fn identifier(self: *Lexer) Token {
+    while (isAlpha(self.peek()) or isDigit(self.peek())) {
+        _ = self.advance();
+    }
+
+    return self.makeToken(identifierType());
+}
+
+fn identifierType() TokenType {
+    return TokenType.Identifier;
 }
 
 fn match(self: *Lexer, expected: u8) bool {
@@ -298,4 +317,15 @@ test "Number test" {
 
     // Assert
     try std.testing.expectEqual(TokenType.Number, token.type);
+}
+
+test "Identifier test" {
+    // Arrange
+    var lexer = Lexer.init("var");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Identifier, token.type);
 }
