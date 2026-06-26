@@ -31,12 +31,18 @@ pub fn interpret(self: *VM, chunk: *chk.Chunk) !void {
     try self.run();
 }
 
-fn push(self: *VM, value: LoxValue) void {
+fn push(self: *VM, value: LoxValue) err.Error!void {
+    if (self.stack_top == STACK_MAX) {
+        return err.Error.RuntimeError;
+    }
     self.stack[self.stack_top] = value;
     self.stack_top += 1;
 }
 
-fn pop(self: *VM) LoxValue {
+fn pop(self: *VM) err.Error!LoxValue {
+    if (self.stack_top == 0) {
+        return err.Error.RuntimeError;
+    }
     const result = self.stack[self.stack_top - 1];
     self.stack_top -= 1;
     return result;
@@ -55,19 +61,19 @@ pub fn run(self: *VM) !void {
             chk.OpCode.Constant => {
                 const value = self.chunk.readConstant(ip);
                 ip += 1;
-                self.push(value);
+                try self.push(value);
                 try value.print(self.writer);
                 try self.println();
             },
             chk.OpCode.ConstantLong => {
                 const value = self.chunk.readConstantLong(ip);
                 ip += 3;
-                self.push(value);
+                try self.push(value);
                 try value.print(self.writer);
                 try self.println();
             },
             chk.OpCode.Return => {
-                const value = self.pop();
+                const value = try self.pop();
                 try value.print(self.writer);
                 try self.println();
                 break;
