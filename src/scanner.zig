@@ -155,6 +155,13 @@ fn peek(self: *Lexer) u8 {
     return self.source[self.current];
 }
 
+fn peekNext(self: *Lexer) u8 {
+    if (self.isAtEnd()) {
+        return '\x00';
+    }
+    return self.source[self.current + 1];
+}
+
 fn skipWhitespace(self: *Lexer) void {
     while (!self.isAtEnd()) {
         const c = self.peek();
@@ -163,6 +170,15 @@ fn skipWhitespace(self: *Lexer) void {
             '\n' => {
                 self.line += 1;
                 _ = self.advance();
+            },
+            '/' => {
+                if (self.peekNext() == '/') {
+                    while (!self.isAtEnd() and self.peek() != '\n') {
+                        _ = self.advance();
+                    }
+                } else {
+                    return;
+                }
             },
             else => return,
         }
@@ -191,4 +207,28 @@ test "Bang tests" {
     // Assert
     try std.testing.expectEqual(TokenType.Bang, token1.type);
     try std.testing.expectEqual(TokenType.BangEqual, token2.type);
+}
+
+test "Only comment test" {
+    // Arrange
+    var lexer = Lexer.init(std.testing.allocator, "// Comment");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Eof, token.type);
+}
+
+test "Not comment and comment test" {
+    // Arrange
+    var lexer = Lexer.init(std.testing.allocator, "! // Comment");
+
+    // Act
+    const token1 = try lexer.scanToken();
+    const token2 = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Bang, token1.type);
+    try std.testing.expectEqual(TokenType.Eof, token2.type);
 }
