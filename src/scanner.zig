@@ -56,15 +56,13 @@ pub const Token = struct {
     line: usize,
 };
 
-allocator: std.mem.Allocator,
 source: []const u8,
 start: usize,
 current: usize,
 line: usize,
 
-pub fn init(gpa: std.mem.Allocator, source: []const u8) Lexer {
+pub fn init(source: []const u8) Lexer {
     return Lexer{
-        .allocator = gpa,
         .source = source,
         .start = 0,
         .current = 0,
@@ -234,7 +232,7 @@ fn string(self: *Lexer) !Token {
 
 test "Left paren" {
     // Arrange
-    var lexer = Lexer.init(std.testing.allocator, "(");
+    var lexer = Lexer.init("(");
 
     // Act
     const token = try lexer.scanToken();
@@ -245,7 +243,7 @@ test "Left paren" {
 
 test "Bang tests" {
     // Arrange
-    var lexer = Lexer.init(std.testing.allocator, "!!=");
+    var lexer = Lexer.init("!!=");
 
     // Act
     const token1 = try lexer.scanToken();
@@ -258,7 +256,7 @@ test "Bang tests" {
 
 test "Only comment test" {
     // Arrange
-    var lexer = Lexer.init(std.testing.allocator, "// Comment");
+    var lexer = Lexer.init("// Comment");
 
     // Act
     const token = try lexer.scanToken();
@@ -269,7 +267,7 @@ test "Only comment test" {
 
 test "Not comment and comment test" {
     // Arrange
-    var lexer = Lexer.init(std.testing.allocator, "! // Comment");
+    var lexer = Lexer.init("! // Comment");
 
     // Act
     const token1 = try lexer.scanToken();
@@ -282,7 +280,7 @@ test "Not comment and comment test" {
 
 test "String test" {
     // Arrange
-    var lexer = Lexer.init(std.testing.allocator, "\"test\"");
+    var lexer = Lexer.init("\"test\"");
 
     // Act
     const token = try lexer.scanToken();
@@ -293,7 +291,7 @@ test "String test" {
 
 test "Number test" {
     // Arrange
-    var lexer = Lexer.init(std.testing.allocator, "123.0");
+    var lexer = Lexer.init("123.0");
 
     // Act
     const token = try lexer.scanToken();

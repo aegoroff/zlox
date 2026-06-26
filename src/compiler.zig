@@ -14,7 +14,7 @@ pub fn init(gpa: std.mem.Allocator) Compiler {
 }
 
 pub fn compile(self: *Compiler, source: []const u8) !void {
-    self.lexer = scan.Lexer.init(self.allocator, source);
+    self.lexer = scan.Lexer.init(source);
     var line: usize = 0;
     while (true) {
         const token = try self.lexer.scanToken();
