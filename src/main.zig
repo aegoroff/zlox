@@ -44,3 +44,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     defer virtualMachine.deinit();
     try virtualMachine.interpret("-+===\n*()!\x00");
 }
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

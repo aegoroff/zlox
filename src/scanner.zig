@@ -168,3 +168,27 @@ fn skipWhitespace(self: *Lexer) void {
         }
     }
 }
+
+test "Left paren" {
+    // Arrange
+    var lexer = Lexer.init(std.testing.allocator, "(");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.LeftParen, token.type);
+}
+
+test "Bang tests" {
+    // Arrange
+    var lexer = Lexer.init(std.testing.allocator, "!!=");
+
+    // Act
+    const token1 = try lexer.scanToken();
+    const token2 = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Bang, token1.type);
+    try std.testing.expectEqual(TokenType.BangEqual, token2.type);
+}
