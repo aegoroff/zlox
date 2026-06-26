@@ -173,16 +173,28 @@ fn identifier(self: *Lexer) Token {
 }
 
 fn identifierType(self: *Lexer) TokenType {
+    const len = self.current - self.start;
     return switch (self.source[self.start]) {
         'a' => self.checkKeyword(1, 2, "nd", TokenType.And),
         'c' => self.checkKeyword(1, 4, "lass", TokenType.Class),
         'e' => self.checkKeyword(1, 3, "lse", TokenType.Else),
+        'f' => if (len >= 2) switch (self.source[self.start + 1]) {
+            'a' => self.checkKeyword(2, 3, "lse", TokenType.False),
+            'o' => self.checkKeyword(2, 1, "r", TokenType.For),
+            'u' => self.checkKeyword(2, 1, "n", TokenType.Fun),
+            else => TokenType.Identifier,
+        } else TokenType.Identifier,
         'i' => self.checkKeyword(1, 1, "f", TokenType.If),
         'n' => self.checkKeyword(1, 2, "il", TokenType.Nil),
         'o' => self.checkKeyword(1, 1, "r", TokenType.Or),
         'p' => self.checkKeyword(1, 4, "rint", TokenType.Print),
         'r' => self.checkKeyword(1, 5, "eturn", TokenType.Return),
         's' => self.checkKeyword(1, 4, "uper", TokenType.Super),
+        't' => if (len >= 2) switch (self.source[self.start + 1]) {
+            'r' => self.checkKeyword(2, 2, "ue", TokenType.True),
+            'h' => self.checkKeyword(2, 2, "is", TokenType.This),
+            else => TokenType.Identifier,
+        } else TokenType.Identifier,
         'v' => self.checkKeyword(1, 2, "ar", TokenType.Var),
         'w' => self.checkKeyword(1, 4, "hile", TokenType.While),
         else => TokenType.Identifier,
@@ -362,4 +374,191 @@ test "Keyword print" {
 
     // Assert
     try std.testing.expectEqual(TokenType.Print, token.type);
+}
+
+test "Keyword and" {
+    // Arrange
+    var lexer = Lexer.init("and");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.And, token.type);
+}
+
+test "Keyword class" {
+    // Arrange
+    var lexer = Lexer.init("class");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Class, token.type);
+}
+
+test "Keyword else" {
+    // Arrange
+    var lexer = Lexer.init("else");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Else, token.type);
+}
+
+test "Keyword false" {
+    // Arrange
+    var lexer = Lexer.init("false");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.False, token.type);
+}
+
+test "Keyword fun" {
+    // Arrange
+    var lexer = Lexer.init("fun");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Fun, token.type);
+}
+
+test "Keyword for" {
+    // Arrange
+    var lexer = Lexer.init("for");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.For, token.type);
+}
+
+test "Keyword if" {
+    // Arrange
+    var lexer = Lexer.init("if");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.If, token.type);
+}
+
+test "Keyword nil" {
+    // Arrange
+    var lexer = Lexer.init("nil");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Nil, token.type);
+}
+
+test "Keyword or" {
+    // Arrange
+    var lexer = Lexer.init("or");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Or, token.type);
+}
+
+test "Keyword return" {
+    // Arrange
+    var lexer = Lexer.init("return");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Return, token.type);
+}
+
+test "Keyword super" {
+    // Arrange
+    var lexer = Lexer.init("super");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Super, token.type);
+}
+
+test "Keyword this" {
+    // Arrange
+    var lexer = Lexer.init("this");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.This, token.type);
+}
+
+test "Keyword true" {
+    // Arrange
+    var lexer = Lexer.init("true");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.True, token.type);
+}
+
+test "Keyword var" {
+    // Arrange
+    var lexer = Lexer.init("var");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Var, token.type);
+}
+
+test "Keyword while" {
+    // Arrange
+    var lexer = Lexer.init("while");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.While, token.type);
+}
+
+test "Single letter t identifier" {
+    // Arrange
+    var lexer = Lexer.init("t");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Identifier, token.type);
+}
+
+test "Single letter f identifier" {
+    // Arrange
+    var lexer = Lexer.init("f");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Identifier, token.type);
 }
