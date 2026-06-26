@@ -169,10 +169,37 @@ fn identifier(self: *Lexer) Token {
         _ = self.advance();
     }
 
-    return self.makeToken(identifierType());
+    return self.makeToken(self.identifierType());
 }
 
-fn identifierType() TokenType {
+fn identifierType(self: *Lexer) TokenType {
+    return switch (self.source[self.start]) {
+        'a' => self.checkKeyword(1, 2, "nd", TokenType.And),
+        'c' => self.checkKeyword(1, 4, "lass", TokenType.Class),
+        'e' => self.checkKeyword(1, 3, "lse", TokenType.Else),
+        'i' => self.checkKeyword(1, 1, "f", TokenType.If),
+        'n' => self.checkKeyword(1, 2, "il", TokenType.Nil),
+        'o' => self.checkKeyword(1, 1, "r", TokenType.Or),
+        'p' => self.checkKeyword(1, 4, "rint", TokenType.Print),
+        'r' => self.checkKeyword(1, 5, "eturn", TokenType.Return),
+        's' => self.checkKeyword(1, 4, "uper", TokenType.Super),
+        'v' => self.checkKeyword(1, 2, "ar", TokenType.Var),
+        'w' => self.checkKeyword(1, 4, "hile", TokenType.While),
+        else => TokenType.Identifier,
+    };
+}
+
+fn checkKeyword(self: *Lexer, start: usize, length: usize, rest: []const u8, tokenType: TokenType) TokenType {
+    const current_len = self.current - self.start;
+
+    if (current_len == start + length) {
+        const lexeme = self.source[start .. start + length];
+
+        if (std.mem.eql(u8, lexeme, rest)) {
+            return tokenType;
+        }
+    }
+
     return TokenType.Identifier;
 }
 
@@ -317,11 +344,22 @@ test "Number test" {
 
 test "Identifier test" {
     // Arrange
-    var lexer = Lexer.init("var");
+    var lexer = Lexer.init("test");
 
     // Act
     const token = try lexer.scanToken();
 
     // Assert
     try std.testing.expectEqual(TokenType.Identifier, token.type);
+}
+
+test "Keyword print" {
+    // Arrange
+    var lexer = Lexer.init("print");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(TokenType.Print, token.type);
 }
