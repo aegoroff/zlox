@@ -74,49 +74,49 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
     self.skipWhitespace();
     self.start = self.current;
     if (self.isAtEnd()) {
-        return self.makeToken(TokenType.Eof);
+        return self.makeToken(.Eof);
     }
     const c = self.advance();
     return switch (c) {
-        '(' => self.makeToken(TokenType.LeftParen),
-        ')' => self.makeToken(TokenType.RightParen),
-        '{' => self.makeToken(TokenType.LeftBrace),
-        '}' => self.makeToken(TokenType.RightBrace),
-        ',' => self.makeToken(TokenType.Comma),
-        '.' => self.makeToken(TokenType.Dot),
-        '-' => self.makeToken(TokenType.Minus),
-        '+' => self.makeToken(TokenType.Plus),
-        ';' => self.makeToken(TokenType.Semicolon),
-        '*' => self.makeToken(TokenType.Star),
-        '/' => self.makeToken(TokenType.Slash),
+        '(' => self.makeToken(.LeftParen),
+        ')' => self.makeToken(.RightParen),
+        '{' => self.makeToken(.LeftBrace),
+        '}' => self.makeToken(.RightBrace),
+        ',' => self.makeToken(.Comma),
+        '.' => self.makeToken(.Dot),
+        '-' => self.makeToken(.Minus),
+        '+' => self.makeToken(.Plus),
+        ';' => self.makeToken(.Semicolon),
+        '*' => self.makeToken(.Star),
+        '/' => self.makeToken(.Slash),
         '0'...'9' => self.number(),
         'A'...'Z', 'a'...'z' => self.identifier(),
         '!' => {
             if (self.match('=')) {
-                return self.makeToken(TokenType.BangEqual);
+                return self.makeToken(.BangEqual);
             } else {
-                return self.makeToken(TokenType.Bang);
+                return self.makeToken(.Bang);
             }
         },
         '=' => {
             if (self.match('=')) {
-                return self.makeToken(TokenType.EqualEqual);
+                return self.makeToken(.EqualEqual);
             } else {
-                return self.makeToken(TokenType.Equal);
+                return self.makeToken(.Equal);
             }
         },
         '<' => {
             if (self.match('=')) {
-                return self.makeToken(TokenType.LessEqual);
+                return self.makeToken(.LessEqual);
             } else {
-                return self.makeToken(TokenType.Less);
+                return self.makeToken(.Less);
             }
         },
         '>' => {
             if (self.match('=')) {
-                return self.makeToken(TokenType.GreaterEqual);
+                return self.makeToken(.GreaterEqual);
             } else {
-                return self.makeToken(TokenType.Greater);
+                return self.makeToken(.Greater);
             }
         },
         '"' => self.string(),
@@ -161,7 +161,7 @@ fn number(self: *Lexer) Token {
         }
     }
 
-    return self.makeToken(TokenType.Number);
+    return self.makeToken(.Number);
 }
 
 fn identifier(self: *Lexer) Token {
@@ -175,29 +175,29 @@ fn identifier(self: *Lexer) Token {
 fn identifierType(self: *Lexer) TokenType {
     const len = self.current - self.start;
     return switch (self.source[self.start]) {
-        'a' => self.checkKeyword(1, 2, "nd", TokenType.And),
-        'c' => self.checkKeyword(1, 4, "lass", TokenType.Class),
-        'e' => self.checkKeyword(1, 3, "lse", TokenType.Else),
+        'a' => self.checkKeyword(1, 2, "nd", .And),
+        'c' => self.checkKeyword(1, 4, "lass", .Class),
+        'e' => self.checkKeyword(1, 3, "lse", .Else),
         'f' => if (len >= 2) switch (self.source[self.start + 1]) {
-            'a' => self.checkKeyword(2, 3, "lse", TokenType.False),
-            'o' => self.checkKeyword(2, 1, "r", TokenType.For),
-            'u' => self.checkKeyword(2, 1, "n", TokenType.Fun),
-            else => TokenType.Identifier,
-        } else TokenType.Identifier,
-        'i' => self.checkKeyword(1, 1, "f", TokenType.If),
-        'n' => self.checkKeyword(1, 2, "il", TokenType.Nil),
-        'o' => self.checkKeyword(1, 1, "r", TokenType.Or),
-        'p' => self.checkKeyword(1, 4, "rint", TokenType.Print),
-        'r' => self.checkKeyword(1, 5, "eturn", TokenType.Return),
-        's' => self.checkKeyword(1, 4, "uper", TokenType.Super),
+            'a' => self.checkKeyword(2, 3, "lse", .False),
+            'o' => self.checkKeyword(2, 1, "r", .For),
+            'u' => self.checkKeyword(2, 1, "n", .Fun),
+            else => .Identifier,
+        } else .Identifier,
+        'i' => self.checkKeyword(1, 1, "f", .If),
+        'n' => self.checkKeyword(1, 2, "il", .Nil),
+        'o' => self.checkKeyword(1, 1, "r", .Or),
+        'p' => self.checkKeyword(1, 4, "rint", .Print),
+        'r' => self.checkKeyword(1, 5, "eturn", .Return),
+        's' => self.checkKeyword(1, 4, "uper", .Super),
         't' => if (len >= 2) switch (self.source[self.start + 1]) {
-            'r' => self.checkKeyword(2, 2, "ue", TokenType.True),
-            'h' => self.checkKeyword(2, 2, "is", TokenType.This),
-            else => TokenType.Identifier,
-        } else TokenType.Identifier,
-        'v' => self.checkKeyword(1, 2, "ar", TokenType.Var),
-        'w' => self.checkKeyword(1, 4, "hile", TokenType.While),
-        else => TokenType.Identifier,
+            'r' => self.checkKeyword(2, 2, "ue", .True),
+            'h' => self.checkKeyword(2, 2, "is", .This),
+            else => .Identifier,
+        } else .Identifier,
+        'v' => self.checkKeyword(1, 2, "ar", .Var),
+        'w' => self.checkKeyword(1, 4, "hile", .While),
+        else => .Identifier,
     };
 }
 
@@ -212,7 +212,7 @@ fn checkKeyword(self: *Lexer, start: usize, length: usize, rest: []const u8, tok
         }
     }
 
-    return TokenType.Identifier;
+    return .Identifier;
 }
 
 fn match(self: *Lexer, expected: u8) bool {
@@ -281,7 +281,7 @@ fn string(self: *Lexer) !Token {
     }
 
     _ = self.advance();
-    return self.makeToken(TokenType.String);
+    return self.makeToken(.String);
 }
 
 test "Left paren" {
@@ -292,7 +292,7 @@ test "Left paren" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.LeftParen, token.type);
+    try std.testing.expectEqual(.LeftParen, token.type);
 }
 
 test "Bang tests" {
@@ -304,8 +304,8 @@ test "Bang tests" {
     const token2 = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Bang, token1.type);
-    try std.testing.expectEqual(TokenType.BangEqual, token2.type);
+    try std.testing.expectEqual(.Bang, token1.type);
+    try std.testing.expectEqual(.BangEqual, token2.type);
 }
 
 test "Only comment test" {
@@ -316,7 +316,7 @@ test "Only comment test" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Eof, token.type);
+    try std.testing.expectEqual(.Eof, token.type);
 }
 
 test "Not comment and comment test" {
@@ -328,8 +328,8 @@ test "Not comment and comment test" {
     const token2 = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Bang, token1.type);
-    try std.testing.expectEqual(TokenType.Eof, token2.type);
+    try std.testing.expectEqual(.Bang, token1.type);
+    try std.testing.expectEqual(.Eof, token2.type);
 }
 
 test "String test" {
@@ -340,7 +340,7 @@ test "String test" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.String, token.type);
+    try std.testing.expectEqual(.String, token.type);
 }
 
 test "Number test" {
@@ -351,7 +351,7 @@ test "Number test" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Number, token.type);
+    try std.testing.expectEqual(.Number, token.type);
 }
 
 test "Identifier test" {
@@ -362,7 +362,7 @@ test "Identifier test" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Identifier, token.type);
+    try std.testing.expectEqual(.Identifier, token.type);
 }
 
 test "Keyword print" {
@@ -373,7 +373,7 @@ test "Keyword print" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Print, token.type);
+    try std.testing.expectEqual(.Print, token.type);
 }
 
 test "Keyword and" {
@@ -384,7 +384,7 @@ test "Keyword and" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.And, token.type);
+    try std.testing.expectEqual(.And, token.type);
 }
 
 test "Keyword class" {
@@ -395,7 +395,7 @@ test "Keyword class" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Class, token.type);
+    try std.testing.expectEqual(.Class, token.type);
 }
 
 test "Keyword else" {
@@ -406,7 +406,7 @@ test "Keyword else" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Else, token.type);
+    try std.testing.expectEqual(.Else, token.type);
 }
 
 test "Keyword false" {
@@ -417,7 +417,7 @@ test "Keyword false" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.False, token.type);
+    try std.testing.expectEqual(.False, token.type);
 }
 
 test "Keyword fun" {
@@ -428,7 +428,7 @@ test "Keyword fun" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Fun, token.type);
+    try std.testing.expectEqual(.Fun, token.type);
 }
 
 test "Keyword for" {
@@ -439,7 +439,7 @@ test "Keyword for" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.For, token.type);
+    try std.testing.expectEqual(.For, token.type);
 }
 
 test "Keyword if" {
@@ -450,7 +450,7 @@ test "Keyword if" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.If, token.type);
+    try std.testing.expectEqual(.If, token.type);
 }
 
 test "Keyword nil" {
@@ -461,7 +461,7 @@ test "Keyword nil" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Nil, token.type);
+    try std.testing.expectEqual(.Nil, token.type);
 }
 
 test "Keyword or" {
@@ -472,7 +472,7 @@ test "Keyword or" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Or, token.type);
+    try std.testing.expectEqual(.Or, token.type);
 }
 
 test "Keyword return" {
@@ -483,7 +483,7 @@ test "Keyword return" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Return, token.type);
+    try std.testing.expectEqual(.Return, token.type);
 }
 
 test "Keyword super" {
@@ -494,7 +494,7 @@ test "Keyword super" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Super, token.type);
+    try std.testing.expectEqual(.Super, token.type);
 }
 
 test "Keyword this" {
@@ -505,7 +505,7 @@ test "Keyword this" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.This, token.type);
+    try std.testing.expectEqual(.This, token.type);
 }
 
 test "Keyword true" {
@@ -516,7 +516,7 @@ test "Keyword true" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.True, token.type);
+    try std.testing.expectEqual(.True, token.type);
 }
 
 test "Keyword var" {
@@ -527,7 +527,7 @@ test "Keyword var" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Var, token.type);
+    try std.testing.expectEqual(.Var, token.type);
 }
 
 test "Keyword while" {
@@ -538,7 +538,7 @@ test "Keyword while" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.While, token.type);
+    try std.testing.expectEqual(.While, token.type);
 }
 
 test "Single letter t identifier" {
@@ -549,7 +549,7 @@ test "Single letter t identifier" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Identifier, token.type);
+    try std.testing.expectEqual(.Identifier, token.type);
 }
 
 test "Single letter f identifier" {
@@ -560,7 +560,7 @@ test "Single letter f identifier" {
     const token = try lexer.scanToken();
 
     // Assert
-    try std.testing.expectEqual(TokenType.Identifier, token.type);
+    try std.testing.expectEqual(.Identifier, token.type);
 }
 
 test "Tree benchmark lexer test" {
