@@ -35,8 +35,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     try ch.writeConstant(.{ .Number = 20.0 }, 1);
     try ch.writeConstant(.{ .Bool = true }, 2);
     try ch.writeConstant(.{ .Number = 1.0 }, 3);
-    try ch.writeCode(chunk.OpCode.Nil, 5);
-    try ch.writeCode(chunk.OpCode.Return, 5);
+    try ch.writeCode(chunk.OpCode.Return, 4);
     try ch.disassembly(writer, "main");
     var virtualMachine = vm.init(gpa, writer);
     defer virtualMachine.deinit();

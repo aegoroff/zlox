@@ -205,7 +205,7 @@ fn disassemblyConstant(self: *Chunk, writer: *std.Io.Writer, offset: usize, name
     const ix = self.getConstantIx(offset + 1, constant_size);
     const val = self.constants.items[ix];
     try writer.print("{s:<16} {d:4} '", .{ name, ix });
-    try val.format(writer);
+    try val.print(writer);
     try writer.print("'\n", .{});
     return offset + constant_size + 1; // + 1 for opcode itself
 }

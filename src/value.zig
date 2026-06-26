@@ -4,7 +4,7 @@ pub const LoxValue = union(enum) {
     Number: f64,
     Bool: bool,
 
-    pub fn format(self: LoxValue, writer: *std.Io.Writer) !void {
+    pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
         switch (self) {
             .Number => |n| try writer.print("{d}", .{n}),
             .Bool => |b| try writer.print("{}", .{b}),

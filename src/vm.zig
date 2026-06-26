@@ -37,9 +37,13 @@ fn push(self: *VM, value: LoxValue) void {
 }
 
 fn pop(self: *VM) LoxValue {
-    const result = self.stack[self.stack_top];
+    const result = self.stack[self.stack_top - 1];
     self.stack_top -= 1;
     return result;
+}
+
+fn println(self: *VM) !void {
+    try self.writer.print("\n", .{});
 }
 
 pub fn run(self: *VM) !void {
@@ -52,17 +56,22 @@ pub fn run(self: *VM) !void {
                 const value = self.chunk.readConstant(ip);
                 ip += 1;
                 self.push(value);
-                try value.format(self.writer);
-                try self.writer.print("\n", .{});
+                try value.print(self.writer);
+                try self.println();
             },
             chk.OpCode.ConstantLong => {
                 const value = self.chunk.readConstantLong(ip);
                 ip += 3;
                 self.push(value);
-                try value.format(self.writer);
-                try self.writer.print("\n", .{});
+                try value.print(self.writer);
+                try self.println();
             },
-            chk.OpCode.Return => return,
+            chk.OpCode.Return => {
+                const value = self.pop();
+                try value.print(self.writer);
+                try self.println();
+                break;
+            },
             else => {},
         }
     }
