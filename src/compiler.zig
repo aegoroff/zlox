@@ -35,7 +35,7 @@ pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     self.expression();
-    self.consume(.Eof, "Expect end of expression.");
+    try self.consume(.Eof, "Expect end of expression.");
 }
 
 fn advance(self: *Compiler) !void {
@@ -73,4 +73,9 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) void {
 
 fn expression(_: *Compiler) void {}
 
-fn consume(_: *Compiler, _: scan.TokenType, _: []const u8) void {}
+fn consume(self: *Compiler, token: scan.TokenType, message: []const u8) !void {
+    if (self.parser.current.type == token) {
+        try self.advance();
+    }
+    self.errorAtCurrent(message);
+}
