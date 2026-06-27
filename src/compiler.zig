@@ -141,6 +141,17 @@ fn number(self: *Compiler) !void {
     try self.emitConstant(.{ .Number = value });
 }
 
+fn literal(self: *Compiler) !void {
+    switch (self.parser.previous.type) {
+        .False => try self.emitOpcode(.False),
+        .Nil => try self.emitOpcode(.Nil),
+        .True => try self.emitOpcode(.True),
+        else => {
+            return;
+        },
+    }
+}
+
 fn unary(self: *Compiler) !void {
     const operatorType = self.parser.previous.type;
     try self.parsePrecedence(.Unary);
@@ -201,9 +212,9 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
         //.Identifier => |_| try self.variable(can_assign),
 
         //.This => try self.this(),
-        //.TokenSuper => try self.super_(),
+        //.Super => try self.super_(),
 
-        //.True, .False, .Nil => try self.literal(),
+        .True, .False, .Nil => try self.literal(),
 
         else => {},
     }

@@ -77,6 +77,15 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 ip += 3;
                 try self.push(value);
             },
+            .Nil => {
+                try self.push(.Nil);
+            },
+            .True => {
+                try self.push(.{ .Bool = true });
+            },
+            .False => {
+                try self.push(.{ .Bool = false });
+            },
             .Negate => {
                 const value = try self.pop();
                 try self.push(.{ .Number = -try value.tryNumber() });
