@@ -25,10 +25,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
 
 pub fn deinit(_: *VM) void {}
 
-pub fn interpret(self: *VM, source: []const u8) !void {
+pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     var chunk = Chunk.init(self.allocator);
     defer chunk.deinit();
-    var compile = Compiler.init(self.allocator, self.writer);
+    var compile = Compiler.init(self.allocator, self.writer, print_code);
     try compile.compile(source, &chunk);
     try self.run(&chunk);
 }

@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init) !void {
 pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
     var config = try configuration.Config.init(gpa, io, argv);
     defer config.deinit();
-    if (configuration.getPathArgValue(config.matches)) |path| {
+    if (config.getPathArgValue()) |path| {
         var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
         defer file.close(io);
         const stat = try file.stat(io);
@@ -39,7 +39,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
         const source = try reader.readAlloc(gpa, stat.size);
         var virtualMachine = vm.init(gpa, writer);
         defer virtualMachine.deinit();
-        try virtualMachine.interpret(source);
+        try virtualMachine.interpret(source, config.printCode());
     }
 }
 

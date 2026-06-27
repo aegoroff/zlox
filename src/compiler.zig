@@ -31,11 +31,13 @@ writer: *std.Io.Writer,
 lexer: scan.Lexer,
 compilingChunk: *Chunk,
 parser: Parser,
+print_code: bool,
 
-pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) Compiler {
+pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Compiler {
     return Compiler{
         .allocator = gpa,
         .writer = writer,
+        .print_code = print_code,
         .lexer = undefined,
         .compilingChunk = undefined,
         .parser = .{
@@ -118,7 +120,7 @@ fn emitConstant(self: *Compiler, value: val.LoxValue) !void {
 
 fn endCompiler(self: *Compiler) !void {
     try self.emitReturn();
-    if (!self.parser.hadError) {
+    if (!self.parser.hadError and self.print_code) {
         try self.currentChunk().disassembly(self.writer, "main");
     }
 }

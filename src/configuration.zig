@@ -12,6 +12,7 @@ io: std.Io,
 app_descr: []const u8,
 
 const path_name: []const u8 = "PATH";
+const printcode: []const u8 = "printcode";
 
 pub fn init(gpa: std.mem.Allocator, io: std.Io, argv: []const [:0]const u8) !Config {
     const app_descr_template =
@@ -30,8 +31,10 @@ pub fn init(gpa: std.mem.Allocator, io: std.Io, argv: []const [:0]const u8) !Con
 
     var root_cmd = app.rootCommand();
 
+    const printcode_opt = yazap.Arg.booleanOption(printcode, null, "Printing bytecode");
     const file_arg = yazap.Arg.positional(path_name, "Full path to file to interpret", null);
 
+    try root_cmd.addArg(printcode_opt);
     try root_cmd.addArg(file_arg);
 
     const matches = try app.parseFrom(io, argv);
@@ -45,8 +48,12 @@ pub fn init(gpa: std.mem.Allocator, io: std.Io, argv: []const [:0]const u8) !Con
     };
 }
 
-pub fn getPathArgValue(match: yazap.ArgMatches) ?[]const u8 {
-    return match.getSingleValue(path_name);
+pub fn getPathArgValue(self: *Config) ?[]const u8 {
+    return self.matches.getSingleValue(path_name);
+}
+
+pub fn printCode(self: *Config) bool {
+    return self.matches.containsArg(printcode);
 }
 
 pub fn deinit(self: *Config) void {
