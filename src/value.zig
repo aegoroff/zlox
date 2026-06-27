@@ -2,11 +2,13 @@ const std = @import("std");
 const err = @import("error.zig");
 
 pub const LoxValue = union(enum) {
+    Nil,
     Number: f64,
     Bool: bool,
 
     pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
         switch (self) {
+            .Nil => try writer.print("nil", .{}),
             .Number => |n| try writer.print("{d}", .{n}),
             .Bool => |b| try writer.print("{}", .{b}),
         }
