@@ -8,6 +8,7 @@ pub const Parser = struct {
     current: scan.Token,
     previous: scan.Token,
     hadError: bool,
+    panicMode: bool,
 };
 
 allocator: std.mem.Allocator,
@@ -24,6 +25,7 @@ pub fn init(gpa: std.mem.Allocator) Compiler {
             .current = undefined,
             .previous = undefined,
             .hadError = false,
+            .panicMode = false,
         },
     };
 }
@@ -39,12 +41,24 @@ pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
 fn advance(self: *Compiler) !void {
     self.parser.previous = self.parser.current;
     self.parser.current = self.lexer.scanToken() catch |err| {
-        self.errorAt(&self.parser.current, "");
+        self.errorAtCurrent("");
         return err;
     };
 }
 
+fn errorAtCurrent(self: *Compiler, message: []const u8) void {
+    self.errorAt(&self.parser.current, message);
+}
+
+fn errorAtPrev(self: *Compiler, message: []const u8) void {
+    self.errorAt(&self.parser.previous, message);
+}
+
 fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) void {
+    if (self.parser.panicMode) {
+        return;
+    }
+    self.parser.panicMode = true;
     std.log.err("[line {d}] Error", .{token.line});
 
     if (token.type == .Eof) {
