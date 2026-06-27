@@ -50,6 +50,13 @@ fn pop(self: *VM) err.Error!LoxValue {
     return result;
 }
 
+fn peek(self: *VM, distance: usize) err.Error!LoxValue {
+    if (self.stack_top < distance + 1) {
+        return err.Error.RuntimeError;
+    }
+    return self.stack[self.stack_top - 1 - distance];
+}
+
 fn println(self: *VM) !void {
     try self.writer.print("\n", .{});
 }
