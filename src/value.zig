@@ -20,4 +20,12 @@ pub const LoxValue = union(enum) {
             else => return err.Error.RuntimeError,
         };
     }
+
+    pub fn isFalsee(self: LoxValue) bool {
+        return switch (self) {
+            .Bool => |n| !n,
+            .Nil => true,
+            else => false,
+        };
+    }
 };

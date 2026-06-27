@@ -90,6 +90,10 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 const value = try self.pop();
                 try self.push(.{ .Number = -try value.tryNumber() });
             },
+            .Not => {
+                const value = try self.pop();
+                try self.push(.{ .Bool = value.isFalsee() });
+            },
             .Add => {
                 const b = try self.pop();
                 const a = try self.pop();

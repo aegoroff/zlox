@@ -157,6 +157,7 @@ fn unary(self: *Compiler) !void {
     try self.parsePrecedence(.Unary);
     switch (operatorType) {
         .Minus => try self.emitOpcode(.Negate),
+        .Bang => try self.emitOpcode(.Not),
         else => {
             return;
         },
