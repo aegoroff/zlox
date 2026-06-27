@@ -95,11 +95,23 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) void {
 }
 
 fn consume(self: *Compiler, token: scan.TokenType, message: []const u8) !void {
-    if (self.parser.current.type == token) {
+    if (self.check(token)) {
         try self.advance();
         return;
     }
     self.errorAtCurrent(message);
+}
+
+fn match(self: *Compiler, token: scan.TokenType) !bool {
+    if (!self.check(token)) {
+        return false;
+    }
+    try self.advance();
+    return true;
+}
+
+fn check(self: *Compiler, token: scan.TokenType) bool {
+    return self.parser.current.type == token;
 }
 
 fn emitOpcode(self: *Compiler, opcode: Chunk.OpCode) !void {
@@ -116,6 +128,10 @@ fn emitReturn(self: *Compiler) !void {
 
 fn emitConstant(self: *Compiler, value: val.LoxValue) !void {
     try self.currentChunk().writeConstant(value, self.parser.previous.line);
+}
+
+fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
+    return try self.currentChunk().addConstant(value);
 }
 
 fn endCompiler(self: *Compiler) !void {
@@ -138,12 +154,12 @@ fn number(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
     const value = try std.fmt.parseFloat(f64, s);
 
-    try self.emitConstant(.{ .Number = value });
+    _ = try self.emitConstant(.{ .Number = value });
 }
 
 fn string(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
-    try self.emitConstant(.{ .String = s });
+    _ = try self.emitConstant(.{ .String = s });
 }
 
 fn literal(self: *Compiler) !void {
@@ -223,6 +239,20 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     }
 }
 
+fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
+    try self.consume(.Identifier, message);
+    return try self.identifierConstant(&self.parser.previous);
+}
+
+fn defintVariable(self: *Compiler, global: usize) anyerror!usize {
+    try self.emitOpcode(.DefineGlobal);
+    try self.emitOperand(global);
+}
+
+fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
+    return try self.makeConstant(.{ .String = self.lexeme(token) });
+}
+
 fn callPrefix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
     switch (tokenType) {
         .Minus, .Bang => try self.unary(),
@@ -254,4 +284,61 @@ fn currentChunk(self: *Compiler) *Chunk {
 
 fn expression(self: *Compiler) !void {
     try self.parsePrecedence(.Assignment);
+}
+
+fn varDeclaration(self: *Compiler) !void {
+    const global = try self.parseVariable("Expect variable name.");
+
+    if (self.match(.Equal)) {
+        try self.expression();
+    } else {
+        try self.emitOpcode(.Nil);
+    }
+    try self.consume(.Semicolon, "Expect ';' after variable declaration.");
+    try self.defintVariable(global);
+}
+
+fn declaration(self: *Compiler) !void {
+    if (self.match(.Var)) {
+        try self.varDeclaration();
+    } else {
+        try self.statement();
+    }
+    if (self.parser.panicMode) {
+        try self.synchronize();
+    }
+}
+
+fn statement(self: *Compiler) !void {
+    if (self.match(.Print)) {
+        try self.printStatement();
+    } else {
+        try self.expressionStatement();
+    }
+}
+
+fn printStatement(self: *Compiler) !void {
+    try self.expression();
+    try self.consume(.Semicolon, "Expect ';' after value.");
+    try self.emitOpcode(.Print);
+}
+
+fn expressionStatement(self: *Compiler) !void {
+    try self.expression();
+    try self.consume(.Semicolon, "Expect ';' after expression.");
+    try self.emitOpcode(.Pop);
+}
+
+fn synchronize(self: *Compiler) !void {
+    self.parser.panicMode = false;
+    while (self.parser.current.type != .Eof) {
+        if (self.parser.previous.type == .Semicolon) {
+            return;
+        }
+        switch (self.parser.current.type) {
+            .Class, .Fun, .Var, .For, .If, .While, .Print, .Return => return,
+            else => {},
+        }
+        try self.advance();
+    }
 }

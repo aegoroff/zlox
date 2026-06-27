@@ -76,14 +76,18 @@ pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
 }
 
 pub fn writeConstant(self: *Chunk, val: LoxValue, line: usize) !void {
-    try self.constants.append(self.allocator, val);
-    const ix = self.constants.items.len - 1;
+    const ix = try self.addConstant(val);
     if (ix > MAX_SHORT_VALUE) {
         try self.writeCode(.ConstantLong, line);
     } else {
         try self.writeCode(.Constant, line);
     }
     try self.writeOperand(ix, line);
+}
+
+pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
+    try self.constants.append(self.allocator, val);
+    return self.constants.items.len - 1;
 }
 
 pub fn writeOperand(self: *Chunk, val: usize, line: usize) !void {

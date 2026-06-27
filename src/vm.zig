@@ -143,12 +143,12 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 const a = try self.pop();
                 try self.push(.{ .Number = try a.tryNumber() / try b.tryNumber() });
             },
-            .Return => {
+            .Print => {
                 const value = try self.pop();
                 try value.print(self.writer);
                 try self.println();
-                break;
             },
+            .Return => break,
             else => {},
         }
     }
