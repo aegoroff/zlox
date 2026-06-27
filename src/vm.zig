@@ -10,7 +10,6 @@ const LoxValue = val.LoxValue;
 const STACK_MAX: usize = 256;
 
 allocator: std.mem.Allocator,
-chunk: *Chunk,
 writer: *std.Io.Writer,
 stack: [STACK_MAX]LoxValue,
 stack_top: usize,
@@ -18,7 +17,6 @@ stack_top: usize,
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
     return VM{
         .allocator = gpa,
-        .chunk = undefined,
         .writer = writer,
         .stack = undefined,
         .stack_top = 0,
@@ -32,6 +30,7 @@ pub fn interpret(self: *VM, source: []const u8) !void {
     defer chunk.deinit();
     var compile = Compiler.init(self.allocator, self.writer);
     try compile.compile(source, &chunk);
+    try self.run(&chunk);
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -55,19 +54,19 @@ fn println(self: *VM) !void {
     try self.writer.print("\n", .{});
 }
 
-pub fn run(self: *VM) !void {
+pub fn run(self: *VM, chunk: *Chunk) !void {
     var ip: usize = 0;
-    while (ip < self.chunk.code.items.len) {
-        const opcode = self.chunk.readOpcode(ip);
+    while (ip < chunk.code.items.len) {
+        const opcode = chunk.readOpcode(ip);
         ip += 1;
         switch (opcode) {
             .Constant => {
-                const value = self.chunk.readConstant(ip);
+                const value = chunk.readConstant(ip);
                 ip += 1;
                 try self.push(value);
             },
             .ConstantLong => {
-                const value = self.chunk.readConstantLong(ip);
+                const value = chunk.readConstantLong(ip);
                 ip += 3;
                 try self.push(value);
             },
