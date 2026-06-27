@@ -173,6 +173,21 @@ fn binary(self: *Compiler) !void {
         .Minus => try self.emitOpcode(.Subtract),
         .Star => try self.emitOpcode(.Multiply),
         .Slash => try self.emitOpcode(.Divide),
+        .BangEqual => {
+            try self.emitOpcode(.Equal);
+            try self.emitOpcode(.Not);
+        },
+        .EqualEqual => try self.emitOpcode(.Equal),
+        .Greater => try self.emitOpcode(.Greater),
+        .GreaterEqual => {
+            try self.emitOpcode(.Less);
+            try self.emitOpcode(.Not);
+        },
+        .Less => try self.emitOpcode(.Less),
+        .LessEqual => {
+            try self.emitOpcode(.Greater);
+            try self.emitOpcode(.Not);
+        },
         else => {
             return;
         },
