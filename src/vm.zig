@@ -30,7 +30,7 @@ pub fn deinit(_: *VM) void {}
 pub fn interpret(self: *VM, source: []const u8) !void {
     var chunk = Chunk.init(self.allocator);
     defer chunk.deinit();
-    var compile = Compiler.init(self.allocator);
+    var compile = Compiler.init(self.allocator, self.writer);
     try compile.compile(source, &chunk);
 }
 
