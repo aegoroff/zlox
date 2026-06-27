@@ -13,14 +13,14 @@ pub const Parser = struct {
 
 allocator: std.mem.Allocator,
 lexer: scan.Lexer,
-chunk: *Chunk,
+compilingChunk: *Chunk,
 parser: Parser,
 
 pub fn init(gpa: std.mem.Allocator) Compiler {
     return Compiler{
         .allocator = gpa,
         .lexer = undefined,
-        .chunk = undefined,
+        .compilingChunk = undefined,
         .parser = .{
             .current = undefined,
             .previous = undefined,
@@ -31,11 +31,12 @@ pub fn init(gpa: std.mem.Allocator) Compiler {
 }
 
 pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
-    self.chunk = chunk;
+    self.compilingChunk = chunk;
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     self.expression();
     try self.consume(.Eof, "Expect end of expression.");
+    try self.endCompiler();
 }
 
 fn advance(self: *Compiler) !void {
@@ -79,6 +80,26 @@ fn consume(self: *Compiler, token: scan.TokenType, message: []const u8) !void {
         try self.advance();
     }
     self.errorAtCurrent(message);
+}
+
+fn emitOpcode(self: *Compiler, opcode: Chunk.OpCode) !void {
+    try self.currentChunk().writeCode(opcode, self.parser.previous.line);
+}
+
+fn emitOperand(self: *Compiler, value: usize) !void {
+    try self.currentChunk().writeOperand(value, self.parser.previous.line);
+}
+
+fn emitReturn(self: *Compiler) !void {
+    try self.emitOpcode(.Return);
+}
+
+fn endCompiler(self: *Compiler) !void {
+    try self.emitReturn();
+}
+
+fn currentChunk(self: *Compiler) *Chunk {
+    return self.compilingChunk;
 }
 
 fn expression(_: *Compiler) void {}

@@ -1,7 +1,6 @@
 const std = @import("std");
 const configuration = @import("configuration.zig");
 const yazap = @import("yazap");
-const chunk = @import("chunk.zig");
 const vm = @import("vm.zig");
 const Io = std.Io;
 
@@ -42,17 +41,6 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
         defer virtualMachine.deinit();
         try virtualMachine.interpret(source);
     }
-
-    var ch = chunk.Chunk.init(gpa);
-    defer ch.deinit();
-    try ch.writeConstant(.{ .Number = 1.2 }, 1);
-    try ch.writeConstant(.{ .Number = 3.4 }, 1);
-    try ch.writeCode(chunk.OpCode.Add, 1);
-    try ch.writeConstant(.{ .Number = 5.6 }, 1);
-    try ch.writeCode(chunk.OpCode.Divide, 1);
-    try ch.writeCode(chunk.OpCode.Negate, 1);
-    try ch.writeCode(chunk.OpCode.Return, 2);
-    try ch.disassembly(writer, "main");
 }
 
 test {
