@@ -141,6 +141,11 @@ fn number(self: *Compiler) !void {
     try self.emitConstant(.{ .Number = value });
 }
 
+fn string(self: *Compiler) !void {
+    const s = self.lexeme(&self.parser.previous);
+    try self.emitConstant(.{ .String = s });
+}
+
 fn literal(self: *Compiler) !void {
     switch (self.parser.previous.type) {
         .False => try self.emitOpcode(.False),
@@ -223,7 +228,7 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
         .Minus, .Bang => try self.unary(),
         .LeftParen => try self.grouping(),
         .Number => try self.number(),
-        //.String => |_| try self.string(),
+        .String => try self.string(),
 
         //.Identifier => |_| try self.variable(can_assign),
 
