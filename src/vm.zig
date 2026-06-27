@@ -112,7 +112,21 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
             .Add => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Number = try a.tryNumber() + try b.tryNumber() });
+
+                switch (a) {
+                    .Number => |an| switch (b) {
+                        .Number => |bn| try self.push(.{ .Number = an + bn }),
+                        else => return err.Error.RuntimeError,
+                    },
+                    .String => |as| switch (b) {
+                        .String => |bs| {
+                            const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
+                            try self.push(.{ .String = result });
+                        },
+                        else => return err.Error.RuntimeError,
+                    },
+                    else => return err.Error.RuntimeError,
+                }
             },
             .Subtract => {
                 const b = try self.pop();
