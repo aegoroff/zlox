@@ -41,7 +41,10 @@ pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
 fn advance(self: *Compiler) !void {
     self.parser.previous = self.parser.current;
     self.parser.current = self.lexer.scanToken() catch |err| {
-        self.errorAtCurrent("");
+        switch (err) {
+            error.UnexpectedCharacter => self.errorAtCurrent("Unexpected character found in source code."),
+            error.UnterminatedString => self.errorAtCurrent("Unterminated string literal."),
+        }
         return err;
     };
 }
@@ -71,11 +74,11 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) void {
     self.parser.hadError = true;
 }
 
-fn expression(_: *Compiler) void {}
-
 fn consume(self: *Compiler, token: scan.TokenType, message: []const u8) !void {
     if (self.parser.current.type == token) {
         try self.advance();
     }
     self.errorAtCurrent(message);
 }
+
+fn expression(_: *Compiler) void {}
