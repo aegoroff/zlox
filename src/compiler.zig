@@ -210,7 +210,7 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     var getOp: Chunk.OpCode = undefined;
     var setOp: Chunk.OpCode = undefined;
-    var arg = self.resolveLocal(token);
+    var arg = self.resolveLocal(&self.current, token);
     if (arg != null) {
         getOp = .GetLocal;
         setOp = .SetLocal;
@@ -246,11 +246,11 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     try self.emitOperand(arg.?);
 }
 
-fn resolveLocal(self: *Compiler, token: *scan.Token) ?usize {
-    var i: usize = self.current.localCount;
+fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) ?usize {
+    var i: usize = compiler.localCount;
     while (i > 0) {
         i -= 1;
-        const local = &self.current.locals[i];
+        const local = compiler.locals[i];
 
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             return i;
