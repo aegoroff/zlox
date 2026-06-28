@@ -129,7 +129,9 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
             .Greater => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Bool = a.equal(b) });
+                const lt = try a.less(b);
+                const eq = a.equal(b);
+                try self.push(.{ .Bool = !lt and !eq });
             },
             .Negate => {
                 const value = try self.pop();
