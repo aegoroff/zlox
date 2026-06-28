@@ -53,8 +53,9 @@ pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
     self.compilingChunk = chunk;
     self.lexer = scan.Lexer.init(source);
     try self.advance();
-    try self.expression();
-    try self.consume(.Eof, "Expect end of expression.");
+    while (!self.check(.Eof)) {
+        try self.declaration();
+    }
     try self.endCompiler();
 }
 
@@ -271,7 +272,7 @@ fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
     return try self.identifierConstant(&self.parser.previous);
 }
 
-fn defintVariable(self: *Compiler, global: usize) anyerror!usize {
+fn defintVariable(self: *Compiler, global: usize) anyerror!void {
     if (global > Chunk.MAX_SHORT_VALUE) {
         try self.emitOpcode(.DefineGlobalLong);
     } else {
@@ -319,7 +320,7 @@ fn expression(self: *Compiler) !void {
 fn varDeclaration(self: *Compiler) !void {
     const global = try self.parseVariable("Expect variable name.");
 
-    if (self.match(.Equal)) {
+    if (try self.match(.Equal)) {
         try self.expression();
     } else {
         try self.emitOpcode(.Nil);
@@ -329,7 +330,7 @@ fn varDeclaration(self: *Compiler) !void {
 }
 
 fn declaration(self: *Compiler) !void {
-    if (self.match(.Var)) {
+    if (try self.match(.Var)) {
         try self.varDeclaration();
     } else {
         try self.statement();
@@ -340,7 +341,7 @@ fn declaration(self: *Compiler) !void {
 }
 
 fn statement(self: *Compiler) !void {
-    if (self.match(.Print)) {
+    if (try self.match(.Print)) {
         try self.printStatement();
     } else {
         try self.expressionStatement();
