@@ -75,8 +75,7 @@ pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
     try self.writeOperand(@intFromEnum(code), line);
 }
 
-pub fn writeConstant(self: *Chunk, val: LoxValue, line: usize) !void {
-    const ix = try self.addConstant(val);
+pub fn writeConstant(self: *Chunk, ix: usize, line: usize) !void {
     if (ix > MAX_SHORT_VALUE) {
         try self.writeCode(.ConstantLong, line);
     } else {

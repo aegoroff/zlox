@@ -127,7 +127,8 @@ fn emitReturn(self: *Compiler) !void {
 }
 
 fn emitConstant(self: *Compiler, value: val.LoxValue) !void {
-    try self.currentChunk().writeConstant(value, self.parser.previous.line);
+    const ix = try self.currentChunk().addConstant(value);
+    try self.currentChunk().writeConstant(ix, self.parser.previous.line);
 }
 
 fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
