@@ -4,12 +4,19 @@ const std = @import("std");
 const scan = @import("scanner.zig");
 const Chunk = @import("chunk.zig");
 const val = @import("value.zig");
+const e = @import("error.zig");
 
 pub const Parser = struct {
     current: scan.Token,
     previous: scan.Token,
     hadError: bool,
     panicMode: bool,
+};
+
+pub const Local = struct {
+    name: []const u8,
+    depth: i16,
+    is_captured: bool,
 };
 
 const Precedence = enum(u8) {
@@ -26,12 +33,17 @@ const Precedence = enum(u8) {
     Primary = 10,
 };
 
+const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
+
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 lexer: scan.Lexer,
 compilingChunk: *Chunk,
 parser: Parser,
 print_code: bool,
+locals: [LOCALS_MAX]Local,
+localCount: usize,
+scopeDepth: i16,
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Compiler {
     return Compiler{
@@ -40,6 +52,9 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Co
         .print_code = print_code,
         .lexer = undefined,
         .compilingChunk = undefined,
+        .locals = undefined,
+        .localCount = 0,
+        .scopeDepth = 0,
         .parser = .{
             .current = undefined,
             .previous = undefined,
@@ -140,6 +155,18 @@ fn endCompiler(self: *Compiler) !void {
     try self.emitReturn();
     if (!self.parser.hadError and self.print_code) {
         try self.currentChunk().disassembly(self.writer, "main");
+    }
+}
+
+fn beginScope(self: *Compiler) void {
+    self.scopeDepth += 1;
+}
+
+fn endScope(self: *Compiler) !void {
+    self.scopeDepth -= 1;
+    while (self.localCount > 0 and self.locals[self.localCount - 1].depth > self.scopeDepth) {
+        try self.emitOpcode(.Pop);
+        self.localCount -= 1;
     }
 }
 
@@ -269,10 +296,17 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
 
 fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
     try self.consume(.Identifier, message);
+    try self.declareVariable();
+    if (self.scopeDepth > 0) {
+        return 0;
+    }
     return try self.identifierConstant(&self.parser.previous);
 }
 
-fn defintVariable(self: *Compiler, global: usize) anyerror!void {
+fn defineVariable(self: *Compiler, global: usize) anyerror!void {
+    if (self.scopeDepth > 0) {
+        return;
+    }
     if (global > Chunk.MAX_SHORT_VALUE) {
         try self.emitOpcode(.DefineGlobalLong);
     } else {
@@ -283,6 +317,38 @@ fn defintVariable(self: *Compiler, global: usize) anyerror!void {
 
 fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
     return try self.makeConstant(.{ .String = self.lexeme(token) });
+}
+
+fn addLocal(self: *Compiler, token: *scan.Token) !void {
+    if (self.localCount == LOCALS_MAX) {
+        self.errorAtPrev("Too many local variables in function.");
+        return e.Error.CompileError;
+    }
+    self.locals[self.localCount].name = self.lexeme(token);
+    self.locals[self.localCount].depth = self.scopeDepth;
+    self.localCount += 1;
+}
+
+fn declareVariable(self: *Compiler) !void {
+    if (self.scopeDepth == 0) {
+        return;
+    }
+    var i: usize = self.localCount;
+    while (i > 0) {
+        i -= 1;
+        const local = &self.locals[i];
+
+        if (local.depth != -1 and local.depth < self.scopeDepth) {
+            break;
+        }
+
+        const name = self.lexeme(&self.parser.previous);
+        if (std.mem.eql(u8, name, local.name)) {
+            self.errorAtPrev("Already a variable with this name in this scope.");
+        }
+    }
+
+    try self.addLocal(&self.parser.previous);
 }
 
 fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void {
@@ -317,6 +383,13 @@ fn expression(self: *Compiler) !void {
     try self.parsePrecedence(.Assignment);
 }
 
+fn block(self: *Compiler) anyerror!void {
+    while (!self.check(.Eof) and !self.check(.RightBrace)) {
+        try self.declaration();
+    }
+    try self.consume(.RightBrace, "Expect '}' after block.");
+}
+
 fn varDeclaration(self: *Compiler) !void {
     const global = try self.parseVariable("Expect variable name.");
 
@@ -326,7 +399,7 @@ fn varDeclaration(self: *Compiler) !void {
         try self.emitOpcode(.Nil);
     }
     try self.consume(.Semicolon, "Expect ';' after variable declaration.");
-    try self.defintVariable(global);
+    try self.defineVariable(global);
 }
 
 fn declaration(self: *Compiler) !void {
@@ -343,6 +416,10 @@ fn declaration(self: *Compiler) !void {
 fn statement(self: *Compiler) !void {
     if (try self.match(.Print)) {
         try self.printStatement();
+    } else if (try self.match(.LeftBrace)) {
+        self.beginScope();
+        try self.block();
+        try self.endScope();
     } else {
         try self.expressionStatement();
     }
