@@ -12,6 +12,7 @@ const STACK_MAX: usize = 256;
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 stack: [STACK_MAX]LoxValue,
+globals: std.StringHashMap(LoxValue),
 stack_top: usize,
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
@@ -19,11 +20,14 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
         .allocator = gpa,
         .writer = writer,
         .stack = undefined,
+        .globals = std.StringHashMap(LoxValue).init(gpa),
         .stack_top = 0,
     };
 }
 
-pub fn deinit(_: *VM) void {}
+pub fn deinit(self: *VM) void {
+    self.globals.deinit();
+}
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     var chunk = Chunk.init(self.allocator);
@@ -76,6 +80,14 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 const value = chunk.readConstantLong(ip);
                 ip += 3;
                 try self.push(value);
+            },
+            .DefineGlobal => {
+                try self.definGlobal(chunk, ip);
+                ip += 1;
+            },
+            .DefineGlobalLong => {
+                try self.definGlobal(chunk, ip);
+                ip += 3;
             },
             .Nil => {
                 try self.push(.Nil);
@@ -152,4 +164,12 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
             else => {},
         }
     }
+}
+
+fn definGlobal(self: *VM, chunk: *Chunk, ip: usize) !void {
+    const name_value = chunk.readConstant(ip);
+    const name = try name_value.tryString();
+    const value = try self.peek(0);
+    try self.globals.put(name, value);
+    _ = try self.pop();
 }

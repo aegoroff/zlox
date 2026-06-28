@@ -25,6 +25,13 @@ pub const LoxValue = union(enum) {
         };
     }
 
+    pub fn tryString(self: LoxValue) err.Error![]const u8 {
+        return switch (self) {
+            .String => |s| s,
+            else => return err.Error.RuntimeError,
+        };
+    }
+
     pub fn isFalsee(self: LoxValue) bool {
         return switch (self) {
             .Bool => |n| !n,
