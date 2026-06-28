@@ -78,35 +78,36 @@ fn advance(self: *Compiler) !void {
     self.parser.previous = self.parser.current;
     self.parser.current = self.lexer.scanToken() catch |err| {
         switch (err) {
-            error.UnexpectedCharacter => self.errorAtCurrent("Unexpected character found in source code."),
-            error.UnterminatedString => self.errorAtCurrent("Unterminated string literal."),
+            error.UnexpectedCharacter => try self.errorAtCurrent("Unexpected character found in source code."),
+            error.UnterminatedString => try self.errorAtCurrent("Unterminated string literal."),
         }
         return err;
     };
 }
 
-fn errorAtCurrent(self: *Compiler, message: []const u8) void {
-    self.errorAt(&self.parser.current, message);
+fn errorAtCurrent(self: *Compiler, message: []const u8) !void {
+    try self.errorAt(&self.parser.current, message);
 }
 
-fn errorAtPrev(self: *Compiler, message: []const u8) void {
-    self.errorAt(&self.parser.previous, message);
+fn errorAtPrev(self: *Compiler, message: []const u8) !void {
+    try self.errorAt(&self.parser.previous, message);
 }
 
-fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) void {
+fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
     if (self.parser.panicMode) {
         return;
     }
     self.parser.panicMode = true;
-    std.log.err("[line {d}] Error", .{token.line});
 
-    if (token.type == .Eof) {
-        std.log.err(" at end", .{});
-    } else {
-        std.log.err(" at '{s}'", .{self.lexeme(token)});
-    }
+    const location = if (token.type == .Eof)
+        try self.allocator.dupe(u8, " at end")
+    else
+        try std.fmt.allocPrint(self.allocator, " at '{s}'", .{self.lexeme(token)});
 
-    std.log.err(": {s}\n", .{message});
+    defer self.allocator.free(location);
+
+    std.log.err("[line {d}] Error{s}: {s}", .{ token.line, location, message });
+
     self.parser.hadError = true;
 }
 
@@ -115,7 +116,7 @@ fn consume(self: *Compiler, token: scan.TokenType, message: []const u8) !void {
         try self.advance();
         return;
     }
-    self.errorAtCurrent(message);
+    try self.errorAtCurrent(message);
 }
 
 fn match(self: *Compiler, token: scan.TokenType) !bool {
@@ -290,7 +291,7 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
         try self.callInfix(self.parser.previous.type, can_assign);
     }
     if (can_assign and try self.match(.Equal)) {
-        self.errorAtCurrent("Invalid assignment target.");
+        try self.errorAtCurrent("Invalid assignment target.");
     }
 }
 
@@ -321,7 +322,7 @@ fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
 
 fn addLocal(self: *Compiler, token: *scan.Token) !void {
     if (self.localCount == LOCALS_MAX) {
-        self.errorAtPrev("Too many local variables in function.");
+        try self.errorAtPrev("Too many local variables in function.");
         return e.Error.CompileError;
     }
     self.locals[self.localCount].name = self.lexeme(token);
@@ -344,7 +345,7 @@ fn declareVariable(self: *Compiler) !void {
 
         const name = self.lexeme(&self.parser.previous);
         if (std.mem.eql(u8, name, local.name)) {
-            self.errorAtPrev("Already a variable with this name in this scope.");
+            try self.errorAtPrev("Already a variable with this name in this scope.");
         }
     }
 
