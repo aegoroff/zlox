@@ -29,18 +29,31 @@ pub fn main(init: std.process.Init) !void {
 pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
     var config = try configuration.Config.init(gpa, io, argv);
     defer config.deinit();
-    if (config.getPathArgValue()) |path| {
+    const source = if (config.getPathArgValue()) |path| blk: {
         var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
         defer file.close(io);
         const stat = try file.stat(io);
         var file_buffer: [64 * 1024]u8 = undefined;
         var file_reader = file.reader(io, &file_buffer);
         const reader = &file_reader.interface;
-        const source = try reader.readAlloc(gpa, stat.size);
-        var virtualMachine = vm.init(gpa, writer);
-        defer virtualMachine.deinit();
-        try virtualMachine.interpret(source, config.printCode());
-    }
+        const file_content = try reader.readAlloc(gpa, stat.size);
+        break :blk file_content;
+    } else blk: {
+        var stdin_buffer: [64 * 1024]u8 = undefined;
+        var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
+
+        var memory = std.Io.Writer.Allocating.init(gpa);
+        defer memory.deinit();
+
+        const written = try stdin_reader.interface.streamRemaining(&memory.writer);
+        std.log.info("read bytes: {d}", .{written});
+
+        break :blk memory.written();
+    };
+
+    var virtualMachine = vm.init(gpa, writer);
+    defer virtualMachine.deinit();
+    try virtualMachine.interpret(source, config.printCode());
 }
 
 test {

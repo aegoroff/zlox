@@ -120,7 +120,10 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
             }
         },
         '"' => self.string(),
-        else => return LexerError.UnexpectedCharacter,
+        else => {
+            std.log.err("invalid char is: {X}", .{c});
+            return LexerError.UnexpectedCharacter;
+        },
     };
 }
 
