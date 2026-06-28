@@ -210,7 +210,7 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     var getOp: Chunk.OpCode = undefined;
     var setOp: Chunk.OpCode = undefined;
-    var arg = self.resolveLocal(&self.current, token);
+    var arg = try self.resolveLocal(&self.current, token);
     if (arg != null) {
         getOp = .GetLocal;
         setOp = .SetLocal;
@@ -246,13 +246,17 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     try self.emitOperand(arg.?);
 }
 
-fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) ?usize {
+fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
     var i: usize = compiler.localCount;
     while (i > 0) {
         i -= 1;
         const local = compiler.locals[i];
 
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
+            if (local.depth == -1) {
+                try self.errorAtCurrent("Can't read local variable in its own initializer.");
+                return e.Error.RuntimeError;
+            }
             return i;
         }
     }
@@ -339,10 +343,15 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     }
 }
 
+fn markInitialized(self: *Compiler) void {
+    self.current.locals[self.current.localCount - 1].depth = self.current.scopeDepth;
+}
+
 fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
     try self.consume(.Identifier, message);
     try self.declareVariable();
     if (self.current.scopeDepth > 0) {
+        self.markInitialized();
         return 0;
     }
     return try self.identifierConstant(&self.parser.previous);
@@ -369,9 +378,10 @@ fn addLocal(self: *Compiler, token: *scan.Token) !void {
         try self.errorAtPrev("Too many local variables in function.");
         return e.Error.CompileError;
     }
-    self.current.locals[self.current.localCount].name = self.lexeme(token);
-    self.current.locals[self.current.localCount].depth = self.current.scopeDepth;
+    var local = &self.current.locals[self.current.localCount];
     self.current.localCount += 1;
+    local.name = self.lexeme(token);
+    local.depth = -1; // Uninitialized
 }
 
 fn declareVariable(self: *Compiler) !void {
