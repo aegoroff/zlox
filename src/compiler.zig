@@ -163,16 +163,25 @@ fn string(self: *Compiler) !void {
     _ = try self.emitConstant(.{ .String = s });
 }
 
-fn variable(self: *Compiler, _: bool) !void {
-    try self.namedVariable(&self.parser.previous);
+fn variable(self: *Compiler, can_assign: bool) !void {
+    try self.namedVariable(&self.parser.previous, can_assign);
 }
 
-fn namedVariable(self: *Compiler, token: *scan.Token) !void {
+fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     const arg = try self.identifierConstant(token);
-    if (arg > Chunk.MAX_SHORT_VALUE) {
-        try self.emitOpcode(.GetGlobalLong);
+    if (can_assign and try self.match(.Equal)) {
+        try self.expression();
+        if (arg > Chunk.MAX_SHORT_VALUE) {
+            try self.emitOpcode(.SetGlobalLong);
+        } else {
+            try self.emitOpcode(.SetGlobal);
+        }
     } else {
-        try self.emitOpcode(.GetGlobal);
+        if (arg > Chunk.MAX_SHORT_VALUE) {
+            try self.emitOpcode(.GetGlobalLong);
+        } else {
+            try self.emitOpcode(.GetGlobal);
+        }
     }
     try self.emitOperand(arg);
 }
@@ -251,6 +260,9 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     while (@intFromEnum(getPrecedence(self.parser.current.type)) >= @intFromEnum(precedence)) {
         try self.advance();
         try self.callInfix(self.parser.previous.type, can_assign);
+    }
+    if (can_assign and try self.match(.Equal)) {
+        self.errorAtCurrent("Invalid assignment target.");
     }
 }
 

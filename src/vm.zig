@@ -8,6 +8,8 @@ const Compiler = @import("compiler.zig");
 
 const LoxValue = val.LoxValue;
 const STACK_MAX: usize = 256;
+const CONST_SIZE: usize = 1;
+const CONST_LONG_SIZE: usize = 3;
 
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
@@ -73,29 +75,37 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
         switch (opcode) {
             .Constant => {
                 const value = chunk.readConstant(ip);
-                ip += 1;
                 try self.push(value);
+                ip += CONST_SIZE;
             },
             .ConstantLong => {
                 const value = chunk.readConstantLong(ip);
-                ip += 3;
                 try self.push(value);
+                ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
                 try self.definGlobal(chunk, ip);
-                ip += 1;
+                ip += CONST_SIZE;
             },
             .DefineGlobalLong => {
                 try self.definGlobal(chunk, ip);
-                ip += 3;
+                ip += CONST_LONG_SIZE;
             },
             .GetGlobal => {
-                try self.getGlobal(chunk, ip, 1);
-                ip += 1;
+                try self.getGlobal(chunk, ip, CONST_SIZE);
+                ip += CONST_SIZE;
             },
             .GetGlobalLong => {
-                try self.getGlobal(chunk, ip, 3);
-                ip += 3;
+                try self.getGlobal(chunk, ip, CONST_LONG_SIZE);
+                ip += CONST_LONG_SIZE;
+            },
+            .SetGlobal => {
+                try self.setGlobal(chunk, ip, CONST_SIZE);
+                ip += CONST_SIZE;
+            },
+            .SetGlobalLong => {
+                try self.setGlobal(chunk, ip, CONST_LONG_SIZE);
+                ip += CONST_LONG_SIZE;
             },
             .Nil => {
                 try self.push(.Nil);
@@ -184,8 +194,8 @@ fn definGlobal(self: *VM, chunk: *Chunk, ip: usize) !void {
 
 fn getGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
     const name_value = switch (constant_size) {
-        1 => chunk.readConstant(ip),
-        3 => chunk.readConstantLong(ip),
+        CONST_SIZE => chunk.readConstant(ip),
+        CONST_LONG_SIZE => chunk.readConstantLong(ip),
         else => return err.Error.CompileError,
     };
     const name = try name_value.tryString();
@@ -194,4 +204,18 @@ fn getGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
     } else {
         return err.Error.RuntimeError;
     }
+}
+
+fn setGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
+    const name_value = switch (constant_size) {
+        CONST_SIZE => chunk.readConstant(ip),
+        CONST_LONG_SIZE => chunk.readConstantLong(ip),
+        else => return err.Error.CompileError,
+    };
+    const name = try name_value.tryString();
+    if (!self.globals.contains(name)) {
+        return err.Error.RuntimeError;
+    }
+    const new_value = try self.peek(0);
+    try self.globals.put(name, new_value);
 }
