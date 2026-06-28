@@ -221,3 +221,17 @@ fn setGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
     const new_value = try self.peek(0);
     try self.globals.put(name, new_value);
 }
+
+test "Simple add expression" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = init(std.testing.allocator, &writer.writer);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print 1 + 2;", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("3\n", writer.written());
+}
