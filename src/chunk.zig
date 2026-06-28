@@ -200,7 +200,7 @@ fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []c
 
 fn disassemblyByteInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
     const ix = self.readByte(offset + 1);
-    try writer.print("{s:<16} {d:4}", .{ name, ix });
+    try writer.print("{s:<16} {d:4}\n", .{ name, ix });
     return offset + 2;
 }
 

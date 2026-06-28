@@ -210,7 +210,7 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     var getOp: Chunk.OpCode = undefined;
     var setOp: Chunk.OpCode = undefined;
-    var arg = self.resolveLocal(&self.parser.current);
+    var arg = self.resolveLocal(token);
     if (arg != null) {
         getOp = .GetLocal;
         setOp = .SetLocal;
