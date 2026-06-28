@@ -161,7 +161,7 @@ fn number(self: *Compiler) !void {
 
 fn string(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
-    _ = try self.emitConstant(.{ .String = s });
+    _ = try self.emitConstant(.{ .String = s[1 .. s.len - 1] }); // trimming quotes
 }
 
 fn variable(self: *Compiler, can_assign: bool) !void {
