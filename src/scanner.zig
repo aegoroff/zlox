@@ -239,7 +239,7 @@ fn peek(self: *Lexer) u8 {
 }
 
 fn peekNext(self: *Lexer) u8 {
-    if (self.isAtEnd()) {
+    if (self.current + 1 >= self.source.len) {
         return '\x00';
     }
     return self.source[self.current + 1];
