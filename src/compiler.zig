@@ -33,17 +33,29 @@ const Precedence = enum(u8) {
     Primary = 10,
 };
 
+const Compile = struct {
+    locals: [LOCALS_MAX]Local,
+    localCount: usize,
+    scopeDepth: i16,
+
+    fn init() Compile {
+        return Compile{
+            .localCount = 0,
+            .scopeDepth = 0,
+            .locals = undefined,
+        };
+    }
+};
+
 const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
 
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 lexer: scan.Lexer,
 compilingChunk: *Chunk,
+current: Compile,
 parser: Parser,
 print_code: bool,
-locals: [LOCALS_MAX]Local,
-localCount: usize,
-scopeDepth: i16,
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Compiler {
     return Compiler{
@@ -52,9 +64,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Co
         .print_code = print_code,
         .lexer = undefined,
         .compilingChunk = undefined,
-        .locals = undefined,
-        .localCount = 0,
-        .scopeDepth = 0,
+        .current = undefined,
         .parser = .{
             .current = undefined,
             .previous = undefined,
@@ -66,6 +76,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Co
 
 pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
     self.compilingChunk = chunk;
+    self.current = Compile.init();
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     while (!self.check(.Eof)) {
@@ -160,14 +171,14 @@ fn endCompiler(self: *Compiler) !void {
 }
 
 fn beginScope(self: *Compiler) void {
-    self.scopeDepth += 1;
+    self.current.scopeDepth += 1;
 }
 
 fn endScope(self: *Compiler) !void {
-    self.scopeDepth -= 1;
-    while (self.localCount > 0 and self.locals[self.localCount - 1].depth > self.scopeDepth) {
+    self.current.scopeDepth -= 1;
+    while (self.current.localCount > 0 and self.current.locals[self.current.localCount - 1].depth > self.current.scopeDepth) {
         try self.emitOpcode(.Pop);
-        self.localCount -= 1;
+        self.current.localCount -= 1;
     }
 }
 
@@ -236,10 +247,10 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
 }
 
 fn resolveLocal(self: *Compiler, token: *scan.Token) ?usize {
-    var i: usize = self.localCount;
+    var i: usize = self.current.localCount;
     while (i > 0) {
         i -= 1;
-        const local = &self.locals[i];
+        const local = &self.current.locals[i];
 
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             return i;
@@ -331,14 +342,14 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
 fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
     try self.consume(.Identifier, message);
     try self.declareVariable();
-    if (self.scopeDepth > 0) {
+    if (self.current.scopeDepth > 0) {
         return 0;
     }
     return try self.identifierConstant(&self.parser.previous);
 }
 
 fn defineVariable(self: *Compiler, global: usize) anyerror!void {
-    if (self.scopeDepth > 0) {
+    if (self.current.scopeDepth > 0) {
         return;
     }
     if (global > Chunk.MAX_SHORT_VALUE) {
@@ -354,25 +365,25 @@ fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
 }
 
 fn addLocal(self: *Compiler, token: *scan.Token) !void {
-    if (self.localCount == LOCALS_MAX) {
+    if (self.current.localCount == LOCALS_MAX) {
         try self.errorAtPrev("Too many local variables in function.");
         return e.Error.CompileError;
     }
-    self.locals[self.localCount].name = self.lexeme(token);
-    self.locals[self.localCount].depth = self.scopeDepth;
-    self.localCount += 1;
+    self.current.locals[self.current.localCount].name = self.lexeme(token);
+    self.current.locals[self.current.localCount].depth = self.current.scopeDepth;
+    self.current.localCount += 1;
 }
 
 fn declareVariable(self: *Compiler) !void {
-    if (self.scopeDepth == 0) {
+    if (self.current.scopeDepth == 0) {
         return;
     }
-    var i: usize = self.localCount;
+    var i: usize = self.current.localCount;
     while (i > 0) {
         i -= 1;
-        const local = &self.locals[i];
+        const local = &self.current.locals[i];
 
-        if (local.depth != -1 and local.depth < self.scopeDepth) {
+        if (local.depth != -1 and local.depth < self.current.scopeDepth) {
             break;
         }
 
