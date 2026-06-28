@@ -107,6 +107,16 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 try self.setGlobal(chunk, ip, CONST_LONG_SIZE);
                 ip += CONST_LONG_SIZE;
             },
+            .GetLocal => {
+                const slot = chunk.readByte(ip);
+                try self.push(self.stack[slot]);
+                ip += 1;
+            },
+            .SetLocal => {
+                const slot = chunk.readByte(ip);
+                self.stack[slot] = try self.peek(slot);
+                ip += 1;
+            },
             .Nil => {
                 try self.push(.Nil);
             },

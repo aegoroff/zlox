@@ -197,22 +197,55 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 }
 
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
-    const arg = try self.identifierConstant(token);
+    var getOp: Chunk.OpCode = undefined;
+    var setOp: Chunk.OpCode = undefined;
+    var arg = self.resolveLocal(&self.parser.current);
+    if (arg != null) {
+        getOp = .GetLocal;
+        setOp = .SetLocal;
+    } else {
+        arg = try self.identifierConstant(token);
+        getOp = .GetGlobal;
+        setOp = .SetGlobal;
+    }
+
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        if (arg > Chunk.MAX_SHORT_VALUE) {
-            try self.emitOpcode(.SetGlobalLong);
+        if (arg.? > Chunk.MAX_SHORT_VALUE) {
+            if (setOp == .SetGlobal) {
+                try self.emitOpcode(.SetGlobalLong);
+            } else {
+                try self.emitOpcode(setOp);
+            }
         } else {
-            try self.emitOpcode(.SetGlobal);
+            try self.emitOpcode(setOp);
         }
     } else {
-        if (arg > Chunk.MAX_SHORT_VALUE) {
-            try self.emitOpcode(.GetGlobalLong);
+        if (arg.? > Chunk.MAX_SHORT_VALUE) {
+            if (setOp == .GetGlobal) {
+                try self.emitOpcode(.GetGlobalLong);
+            } else {
+                try self.emitOpcode(getOp);
+            }
         } else {
-            try self.emitOpcode(.GetGlobal);
+            try self.emitOpcode(getOp);
         }
     }
-    try self.emitOperand(arg);
+
+    try self.emitOperand(arg.?);
+}
+
+fn resolveLocal(self: *Compiler, token: *scan.Token) ?usize {
+    var i: usize = self.localCount;
+    while (i > 0) {
+        i -= 1;
+        const local = &self.locals[i];
+
+        if (std.mem.eql(u8, self.lexeme(token), local.name)) {
+            return i;
+        }
+    }
+    return null;
 }
 
 fn literal(self: *Compiler) !void {
