@@ -73,6 +73,14 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
         const opcode = chunk.readOpcode(ip);
         ip += 1;
         switch (opcode) {
+            .JumpIfFalse => {
+                const offset = chunk.readShort(ip);
+                const v = try self.peek(0);
+                ip += 2; // offset is two bytes
+                if (v.isFalsee()) {
+                    ip += offset;
+                }
+            },
             .Constant => {
                 const value = chunk.readConstant(ip);
                 try self.push(value);

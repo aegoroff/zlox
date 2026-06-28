@@ -150,6 +150,25 @@ fn emitOperand(self: *Compiler, value: usize) !void {
     try self.currentChunk().writeOperand(value, self.parser.previous.line);
 }
 
+fn emitJump(self: *Compiler, opcode: Chunk.OpCode) !usize {
+    try self.currentChunk().writeCode(opcode, self.parser.previous.line);
+    try self.currentChunk().writeOperand(0xFF, self.parser.previous.line);
+    try self.currentChunk().writeOperand(0xFF, self.parser.previous.line);
+    return self.currentChunk().code.items.len - 2;
+}
+
+fn patchJump(self: *Compiler, offset: usize) !void {
+    // -2 to adjust for the bytecode for the jump offset itself.
+    const jump = self.currentChunk().code.items.len - offset - 2;
+
+    if (jump > std.math.maxInt(u16)) {
+        try self.errorAtCurrent("Too much code to jump over.");
+    }
+
+    self.currentChunk().code.items[offset] = @truncate(jump & 0xff);
+    self.currentChunk().code.items[offset + 1] = @truncate((jump >> 8) & 0xff);
+}
+
 fn emitReturn(self: *Compiler) !void {
     try self.emitOpcode(.Return);
 }
@@ -438,6 +457,15 @@ fn expression(self: *Compiler) !void {
     try self.parsePrecedence(.Assignment);
 }
 
+fn ifStatement(self: *Compiler) anyerror!void {
+    try self.consume(.LeftParen, "Expect '(' after 'if'.");
+    try self.expression();
+    try self.consume(.RightParen, "Expect ')' after condition.");
+    const thenJump = try self.emitJump(.JumpIfFalse);
+    try self.statement();
+    try self.patchJump(thenJump);
+}
+
 fn block(self: *Compiler) anyerror!void {
     while (!self.check(.Eof) and !self.check(.RightBrace)) {
         try self.declaration();
@@ -471,6 +499,8 @@ fn declaration(self: *Compiler) !void {
 fn statement(self: *Compiler) !void {
     if (try self.match(.Print)) {
         try self.printStatement();
+    } else if (try self.match(.If)) {
+        try self.ifStatement();
     } else if (try self.match(.LeftBrace)) {
         self.beginScope();
         try self.block();

@@ -118,6 +118,12 @@ pub fn readByte(self: *Chunk, offset: usize) u8 {
     return self.code.items[offset];
 }
 
+pub fn readShort(self: *Chunk, offset: usize) usize {
+    const op1: usize = @intCast(self.readByte(offset)); // first operand defines constant index in the constant's vector
+    const op2: usize = @intCast(self.readByte(offset + 1)); // second operand defines constant index in the constant's vector
+    return op2 << 8 | op1;
+}
+
 pub fn readConstant(self: *Chunk, offset: usize) LoxValue {
     const ix = self.getConstantIx(offset, 1);
     return self.constants.items[ix];
@@ -182,6 +188,8 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
         .SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
+        .JumpIfFalse => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP_IF_FALSE", 1),
+        .Jump => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP", 1),
         else => {
             try writer.print("Unknown opcode {d}\n", .{opcode});
             return offset + 1;
@@ -213,6 +221,13 @@ fn disassemblyConstant(self: *Chunk, writer: *std.Io.Writer, offset: usize, name
     return offset + constant_size + 1; // + 1 for opcode itself
 }
 
+fn disassemblyJumpInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, sign: i32) !usize {
+    const jump = self.readShort(offset + 1);
+    const target_address = @as(i32, @intCast(offset)) + 3 + sign * @as(i32, @intCast(jump));
+    try writer.print("{s:<16} {d:>4} -> {d}\n", .{ name, offset, target_address });
+    return offset + 3;
+}
+
 fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
     return switch (constant_size) {
         1 => self.readByte(offset),
@@ -226,10 +241,4 @@ fn intoThreeBytes(val: usize) [3]u8 {
     const op2: u8 = @truncate((val & 0xFF00) >> 8);
     const op3: u8 = @truncate((val & 0x00FF_0000) >> 16);
     return [3]u8{ op1, op2, op3 };
-}
-
-fn intoTwoBytes(val: usize) [2]u8 {
-    const op1: u8 = @truncate(val & 0xFF);
-    const op2: u8 = @truncate((val & 0xFF00) >> 8);
-    return [2]u8{ op1, op2 };
 }
