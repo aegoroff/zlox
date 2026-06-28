@@ -246,7 +246,11 @@ fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
 }
 
 fn defintVariable(self: *Compiler, global: usize) anyerror!usize {
-    try self.emitOpcode(.DefineGlobal);
+    if (global > Chunk.MAX_SHORT_VALUE) {
+        try self.emitOpcode(.DefineGlobalLong);
+    } else {
+        try self.emitOpcode(.DefineGlobal);
+    }
     try self.emitOperand(global);
 }
 
