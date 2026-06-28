@@ -89,6 +89,14 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 try self.definGlobal(chunk, ip);
                 ip += 3;
             },
+            .GetGlobal => {
+                try self.getGlobal(chunk, ip, 1);
+                ip += 1;
+            },
+            .GetGlobalLong => {
+                try self.getGlobal(chunk, ip, 3);
+                ip += 3;
+            },
             .Nil => {
                 try self.push(.Nil);
             },
@@ -172,4 +180,18 @@ fn definGlobal(self: *VM, chunk: *Chunk, ip: usize) !void {
     const value = try self.peek(0);
     try self.globals.put(name, value);
     _ = try self.pop();
+}
+
+fn getGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
+    const name_value = switch (constant_size) {
+        1 => chunk.readConstant(ip),
+        3 => chunk.readConstantLong(ip),
+        else => return err.Error.CompileError,
+    };
+    const name = try name_value.tryString();
+    if (self.globals.get(name)) |constant_value| {
+        try self.push(constant_value);
+    } else {
+        return err.Error.RuntimeError;
+    }
 }

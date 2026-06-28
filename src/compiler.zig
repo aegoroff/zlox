@@ -163,6 +163,20 @@ fn string(self: *Compiler) !void {
     _ = try self.emitConstant(.{ .String = s });
 }
 
+fn variable(self: *Compiler, _: bool) !void {
+    try self.namedVariable(&self.parser.previous);
+}
+
+fn namedVariable(self: *Compiler, token: *scan.Token) !void {
+    const arg = try self.identifierConstant(token);
+    if (arg > Chunk.MAX_SHORT_VALUE) {
+        try self.emitOpcode(.GetGlobalLong);
+    } else {
+        try self.emitOpcode(.GetGlobal);
+    }
+    try self.emitOperand(arg);
+}
+
 fn literal(self: *Compiler) !void {
     switch (self.parser.previous.type) {
         .False => try self.emitOpcode(.False),
@@ -258,14 +272,13 @@ fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
     return try self.makeConstant(.{ .String = self.lexeme(token) });
 }
 
-fn callPrefix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
+fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void {
     switch (tokenType) {
         .Minus, .Bang => try self.unary(),
         .LeftParen => try self.grouping(),
         .Number => try self.number(),
         .String => try self.string(),
-
-        //.Identifier => |_| try self.variable(can_assign),
+        .Identifier => try self.variable(can_assign),
 
         //.This => try self.this(),
         //.Super => try self.super_(),
