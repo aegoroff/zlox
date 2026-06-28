@@ -235,3 +235,17 @@ test "Simple add expression" {
     // Assert
     try std.testing.expectEqualStrings("3\n", writer.written());
 }
+
+test "String concatentation" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = init(std.testing.allocator, &writer.writer);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print (\"a\" + \"b\") + \"c\";", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("abc\n", writer.written());
+}
