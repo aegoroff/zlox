@@ -84,11 +84,11 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
-                try self.definGlobal(chunk, ip);
+                try self.defineGlobal(chunk, ip);
                 ip += CONST_SIZE;
             },
             .DefineGlobalLong => {
-                try self.definGlobal(chunk, ip);
+                try self.defineGlobal(chunk, ip);
                 ip += CONST_LONG_SIZE;
             },
             .GetGlobal => {
@@ -196,7 +196,7 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
     }
 }
 
-fn definGlobal(self: *VM, chunk: *Chunk, ip: usize) !void {
+fn defineGlobal(self: *VM, chunk: *Chunk, ip: usize) !void {
     const name_value = chunk.readConstant(ip);
     const name = try name_value.tryString();
     const value = try self.peek(0);
