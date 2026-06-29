@@ -150,19 +150,32 @@ fn emitOperand(self: *Compiler, value: usize) !void {
     try self.currentChunk().writeOperand(value, self.parser.previous.line);
 }
 
+fn emitLoop(self: *Compiler, loopStart: usize) !void {
+    try self.emitOpcode(.Loop);
+    const offset = self.currentChunk().codeSize() - loopStart + 2;
+    if (offset > std.math.maxInt(u16)) {
+        try self.errorAtCurrent("Loop body too large.");
+        return e.Error.CompileError;
+    }
+
+    self.currentChunk().code.items[offset] = @truncate(offset & 0xff);
+    self.currentChunk().code.items[offset + 1] = @truncate((offset >> 8) & 0xff);
+}
+
 fn emitJump(self: *Compiler, opcode: Chunk.OpCode) !usize {
     try self.currentChunk().writeCode(opcode, self.parser.previous.line);
     try self.currentChunk().writeOperand(0xFF, self.parser.previous.line);
     try self.currentChunk().writeOperand(0xFF, self.parser.previous.line);
-    return self.currentChunk().code.items.len - 2;
+    return self.currentChunk().codeSize() - 2;
 }
 
 fn patchJump(self: *Compiler, offset: usize) !void {
     // -2 to adjust for the bytecode for the jump offset itself.
-    const jump = self.currentChunk().code.items.len - offset - 2;
+    const jump = self.currentChunk().codeSize() - offset - 2;
 
     if (jump > std.math.maxInt(u16)) {
         try self.errorAtCurrent("Too much code to jump over.");
+        return e.Error.CompileError;
     }
 
     self.currentChunk().code.items[offset] = @truncate(jump & 0xff);
@@ -491,6 +504,21 @@ fn ifStatement(self: *Compiler) anyerror!void {
     try self.patchJump(elseJump);
 }
 
+fn whileStatement(self: *Compiler) anyerror!void {
+    const loopStart = self.currentChunk().codeSize();
+    try self.consume(.LeftParen, "Expect '(' after 'while'.");
+    try self.expression();
+    try self.consume(.RightParen, "Expect ')' after condition.");
+
+    const exitJump = try self.emitJump(.JumpIfFalse);
+    try self.emitOpcode(.Pop);
+    try self.statement();
+    try self.emitLoop(loopStart);
+
+    try self.patchJump(exitJump);
+    try self.emitOpcode(.Pop);
+}
+
 fn block(self: *Compiler) anyerror!void {
     while (!self.check(.Eof) and !self.check(.RightBrace)) {
         try self.declaration();
@@ -526,6 +554,8 @@ fn statement(self: *Compiler) !void {
         try self.printStatement();
     } else if (try self.match(.If)) {
         try self.ifStatement();
+    } else if (try self.match(.While)) {
+        try self.whileStatement();
     } else if (try self.match(.LeftBrace)) {
         self.beginScope();
         try self.block();

@@ -71,6 +71,10 @@ pub fn deinit(self: *Chunk) void {
     self.lines.deinit(self.allocator);
 }
 
+pub fn codeSize(self: *Chunk) usize {
+    return self.code.items.len;
+}
+
 pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
     try self.writeOperand(@intFromEnum(code), line);
 }
@@ -104,7 +108,7 @@ pub fn writeOperand(self: *Chunk, val: usize, line: usize) !void {
 pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void {
     try writer.print("== {s} ==\n", .{name});
     var offset: usize = 0;
-    while (offset < self.code.items.len) {
+    while (offset < self.codeSize()) {
         offset = try self.disassemblyInstruction(writer, offset);
     }
 }
@@ -190,6 +194,7 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
         .JumpIfFalse => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP_IF_FALSE", 1),
         .Jump => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP", 1),
+        .Loop => try self.disassemblyJumpInstruction(writer, offset, "OP_LOOP", -1),
         else => {
             try writer.print("Unknown opcode {d}\n", .{opcode});
             return offset + 1;
