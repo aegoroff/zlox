@@ -37,14 +37,29 @@ const Compile = struct {
     locals: [LOCALS_MAX]Local,
     localCount: usize,
     scopeDepth: i16,
+    function: val.Function,
+    function_type: FunctionType,
 
-    fn init() Compile {
+    fn init(gpa: std.mem.Allocator, function_type: FunctionType) Compile {
         return Compile{
             .localCount = 0,
             .scopeDepth = 0,
             .locals = undefined,
+            .function = val.Function.init(gpa, "script"),
+            .function_type = function_type,
         };
     }
+
+    fn deinit(self: *Compile) void {
+        self.function.deinit();
+    }
+};
+
+pub const FunctionType = enum {
+    Function,
+    Script,
+    Method,
+    TypeInitializer,
 };
 
 const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
@@ -52,7 +67,6 @@ const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 lexer: scan.Lexer,
-compilingChunk: *Chunk,
 current: Compile,
 parser: Parser,
 print_code: bool,
@@ -63,7 +77,6 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Co
         .writer = writer,
         .print_code = print_code,
         .lexer = undefined,
-        .compilingChunk = undefined,
         .current = undefined,
         .parser = .{
             .current = undefined,
@@ -74,9 +87,12 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Co
     };
 }
 
-pub fn compile(self: *Compiler, source: []const u8, chunk: *Chunk) !void {
-    self.compilingChunk = chunk;
-    self.current = Compile.init();
+pub fn deinit(self: *Compiler) void {
+    self.current.deinit();
+}
+
+pub fn compile(self: *Compiler, source: []const u8) !void {
+    self.current = Compile.init(self.allocator, .Script);
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     while (!self.check(.Eof)) {
@@ -198,7 +214,7 @@ fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
 fn endCompiler(self: *Compiler) !void {
     try self.emitReturn();
     if (!self.parser.hadError and self.print_code) {
-        try self.currentChunk().disassembly(self.writer, "main");
+        try self.currentChunk().disassembly(self.writer, self.current.function.name);
     }
 }
 
@@ -485,7 +501,7 @@ fn callInfix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
 }
 
 fn currentChunk(self: *Compiler) *Chunk {
-    return self.compilingChunk;
+    return &self.current.function.chunk;
 }
 
 fn expression(self: *Compiler) !void {

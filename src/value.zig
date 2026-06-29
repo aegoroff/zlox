@@ -1,5 +1,6 @@
 const std = @import("std");
 const err = @import("error.zig");
+const Chunk = @import("chunk.zig");
 
 const ERROR_MARGIN = 0.000001;
 
@@ -86,5 +87,23 @@ pub const LoxValue = union(enum) {
             .Nil => false,
             else => false,
         };
+    }
+};
+
+pub const Function = struct {
+    arity: usize,
+    chunk: Chunk,
+    name: []const u8,
+
+    pub fn init(gpa: std.mem.Allocator, name: []const u8) Function {
+        return Function{
+            .arity = 0,
+            .chunk = Chunk.init(gpa),
+            .name = name,
+        };
+    }
+
+    pub fn deinit(self: *Function) void {
+        self.chunk.deinit();
     }
 };

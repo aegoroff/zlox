@@ -39,14 +39,14 @@ pub fn deinit(self: *VM) void {
 }
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
-    var chunk = Chunk.init(self.allocator);
-    defer chunk.deinit();
     var compile = Compiler.init(self.allocator, self.writer, print_code);
-    try compile.compile(source, &chunk);
+    defer compile.deinit();
+    try compile.compile(source);
     if (compile.parser.hadError) {
         return err.Error.CompileError;
     }
-    try self.run(&chunk);
+
+    try self.run(&compile.current.function.chunk);
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
