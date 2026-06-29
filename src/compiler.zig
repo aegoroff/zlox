@@ -388,6 +388,22 @@ fn defineVariable(self: *Compiler, global: usize) anyerror!void {
     try self.emitOperand(global);
 }
 
+fn and_(self: *Compiler) !void {
+    const endJump = try self.emitJump(.JumpIfFalse);
+    try self.emitOpcode(.Pop);
+    try self.parsePrecedence(.And);
+    try self.patchJump(endJump);
+}
+
+fn or_(self: *Compiler) !void {
+    const elseJump = try self.emitJump(.JumpIfFalse);
+    const endJump = try self.emitJump(.Jump);
+    try self.patchJump(elseJump);
+    try self.emitOpcode(.Pop);
+    try self.parsePrecedence(.Or);
+    try self.patchJump(endJump);
+}
+
 fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
     return try self.makeConstant(.{ .String = self.lexeme(token) });
 }
@@ -445,6 +461,8 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !voi
 fn callInfix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
     switch (tokenType) {
         .Minus, .Plus, .Slash, .Star, .BangEqual, .EqualEqual, .Greater, .GreaterEqual, .Less, .LessEqual => try self.binary(),
+        .And => try self.and_(),
+        .Or => try self.or_(),
         else => {},
     }
 }
