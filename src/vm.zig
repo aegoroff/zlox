@@ -16,6 +16,7 @@ writer: *std.Io.Writer,
 stack: [STACK_MAX]LoxValue,
 globals: std.StringHashMap(LoxValue),
 stack_top: usize,
+allocated_strings: std.ArrayList([]u8),
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
     return VM{
@@ -24,11 +25,17 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
         .stack = undefined,
         .globals = std.StringHashMap(LoxValue).init(gpa),
         .stack_top = 0,
+        .allocated_strings = .empty,
     };
 }
 
 pub fn deinit(self: *VM) void {
     self.globals.deinit();
+    // Free all allocated strings from concatenation operations
+    for (self.allocated_strings.items) |s| {
+        self.allocator.free(s);
+    }
+    self.allocated_strings.deinit(self.allocator);
 }
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
@@ -197,6 +204,7 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                     .String => |as| switch (b) {
                         .String => |bs| {
                             const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
+                            try self.allocated_strings.append(self.allocator, result);
                             try self.push(.{ .String = result });
                         },
                         else => return err.Error.RuntimeError,
