@@ -158,8 +158,8 @@ fn emitLoop(self: *Compiler, loopStart: usize) !void {
         return e.Error.CompileError;
     }
 
-    self.currentChunk().code.items[offset] = @truncate(offset & 0xff);
-    self.currentChunk().code.items[offset + 1] = @truncate((offset >> 8) & 0xff);
+    try self.emitOperand(offset & 0xff);
+    try self.emitOperand((offset >> 8) & 0xff);
 }
 
 fn emitJump(self: *Compiler, opcode: Chunk.OpCode) !usize {
