@@ -44,6 +44,7 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
     if (self.stack_top == STACK_MAX) {
+        std.log.err("Stack overflow. Current stack top: {d}", .{self.stack_top});
         return err.Error.RuntimeError;
     }
     self.stack[self.stack_top] = value;
@@ -52,6 +53,7 @@ fn push(self: *VM, value: LoxValue) err.Error!void {
 
 fn pop(self: *VM) err.Error!LoxValue {
     if (self.stack_top == 0) {
+        std.log.err("Stack underflow. Stack is empty", .{});
         return err.Error.RuntimeError;
     }
     const result = self.stack[self.stack_top - 1];
@@ -61,6 +63,7 @@ fn pop(self: *VM) err.Error!LoxValue {
 
 fn peek(self: *VM, distance: usize) err.Error!LoxValue {
     if (self.stack_top < distance + 1) {
+        std.log.err("Stack peek failed. Stack size is: {d} but requested distance is: {d}", .{ self.stack_top, distance });
         return err.Error.RuntimeError;
     }
     return self.stack[self.stack_top - 1 - distance];
