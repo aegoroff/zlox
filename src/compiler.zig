@@ -523,6 +523,50 @@ fn whileStatement(self: *Compiler) anyerror!void {
     try self.emitOpcode(.Pop);
 }
 
+fn forStatement(self: *Compiler) anyerror!void {
+    self.beginScope();
+    try self.consume(.LeftParen, "Expect '(' after 'for'.");
+
+    if (try self.match(.Semicolon)) {
+        // no initializer
+    } else if (try self.match(.Var)) {
+        try self.varDeclaration();
+    } else {
+        try self.expressionStatement();
+    }
+
+    var loopStart = self.currentChunk().codeSize();
+    var exitJump: ?usize = null;
+    if (!try self.match(.Semicolon)) {
+        try self.expression();
+        try self.consume(.Semicolon, "Expect ';' after loop condition.");
+
+        // Jump out of the loop if the condition is false.
+        exitJump = try self.emitJump(.JumpIfFalse);
+        try self.emitOpcode(.Pop); // Condition.
+    }
+
+    if (!try self.match(.RightParen)) {
+        const bodyJump = try self.emitJump(.Jump);
+        const incrementStart = self.currentChunk().codeSize();
+        try self.expression();
+        try self.emitOpcode(.Pop);
+        try self.consume(.RightParen, "Expect ')' after for clauses.");
+        try self.emitLoop(loopStart);
+        loopStart = incrementStart;
+        try self.patchJump(bodyJump);
+    }
+
+    try self.statement();
+    try self.emitLoop(loopStart);
+    if (exitJump != null) {
+        try self.patchJump(exitJump.?);
+        try self.emitOpcode(.Pop); // Condition.
+    }
+
+    try self.endScope();
+}
+
 fn block(self: *Compiler) anyerror!void {
     while (!self.check(.Eof) and !self.check(.RightBrace)) {
         try self.declaration();
@@ -560,6 +604,8 @@ fn statement(self: *Compiler) !void {
         try self.ifStatement();
     } else if (try self.match(.While)) {
         try self.whileStatement();
+    } else if (try self.match(.For)) {
+        try self.forStatement();
     } else if (try self.match(.LeftBrace)) {
         self.beginScope();
         try self.block();
