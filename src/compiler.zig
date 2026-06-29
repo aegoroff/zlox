@@ -164,8 +164,8 @@ fn emitLoop(self: *Compiler, loopStart: usize) !void {
 
 fn emitJump(self: *Compiler, opcode: Chunk.OpCode) !usize {
     try self.currentChunk().writeCode(opcode, self.parser.previous.line);
-    try self.currentChunk().writeOperand(0xFF, self.parser.previous.line);
-    try self.currentChunk().writeOperand(0xFF, self.parser.previous.line);
+    try self.emitOperand(0xFF, self.parser.previous.line);
+    try self.emitOperand(0xFF, self.parser.previous.line);
     return self.currentChunk().codeSize() - 2;
 }
 
