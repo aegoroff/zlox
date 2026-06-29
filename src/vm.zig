@@ -81,6 +81,11 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                     ip += offset;
                 }
             },
+            .Jump => {
+                const offset = chunk.readShort(ip);
+                ip += 2; // offset is two bytes
+                ip += offset;
+            },
             .Constant => {
                 const value = chunk.readConstant(ip);
                 try self.push(value);

@@ -462,8 +462,15 @@ fn ifStatement(self: *Compiler) anyerror!void {
     try self.expression();
     try self.consume(.RightParen, "Expect ')' after condition.");
     const thenJump = try self.emitJump(.JumpIfFalse);
+    try self.emitOpcode(.Pop);
     try self.statement();
+    const elseJump = try self.emitJump(.Jump);
     try self.patchJump(thenJump);
+    try self.emitOpcode(.Pop);
+    if (try self.match(.Else)) {
+        try self.statement();
+    }
+    try self.patchJump(elseJump);
 }
 
 fn block(self: *Compiler) anyerror!void {
