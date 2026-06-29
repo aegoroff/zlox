@@ -36,6 +36,9 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     defer chunk.deinit();
     var compile = Compiler.init(self.allocator, self.writer, print_code);
     try compile.compile(source, &chunk);
+    if (compile.parser.hadError) {
+        return err.Error.CompileError;
+    }
     try self.run(&chunk);
 }
 
@@ -130,10 +133,20 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 try self.push(self.stack[slot]);
                 ip += 1;
             },
+            .GetLocalLong => {
+                const slot = chunk.readThreeBytes(ip);
+                try self.push(self.stack[slot]);
+                ip += CONST_LONG_SIZE;
+            },
             .SetLocal => {
                 const slot = chunk.readByte(ip);
                 self.stack[slot] = try self.peek(slot);
                 ip += 1;
+            },
+            .SetLocalLong => {
+                const slot = chunk.readThreeBytes(ip);
+                self.stack[slot] = try self.peek(slot);
+                ip += CONST_LONG_SIZE;
             },
             .Nil => {
                 try self.push(.Nil);

@@ -257,6 +257,8 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
         if (arg.? > Chunk.MAX_SHORT_VALUE) {
             if (setOp == .SetGlobal) {
                 try self.emitOpcode(.SetGlobalLong);
+            } else if (setOp == .SetLocal) {
+                try self.emitOpcode(.SetLocalLong);
             } else {
                 try self.emitOpcode(setOp);
             }
@@ -267,6 +269,8 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
         if (arg.? > Chunk.MAX_SHORT_VALUE) {
             if (getOp == .GetGlobal) {
                 try self.emitOpcode(.GetGlobalLong);
+            } else if (getOp == .GetLocal) {
+                try self.emitOpcode(.GetLocalLong);
             } else {
                 try self.emitOpcode(getOp);
             }
