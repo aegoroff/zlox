@@ -43,7 +43,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
         _ = try stdin_reader.interface.streamRemaining(&memory.writer);
     }
 
-    var virtualMachine = vm.init(gpa, writer, io);
+    var virtualMachine = try vm.init(gpa, writer, io);
     defer virtualMachine.deinit();
     try virtualMachine.interpret(memory.written(), config.printCode());
 }

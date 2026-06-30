@@ -69,7 +69,7 @@ const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 lexer: scan.Lexer,
-current: Compile,
+current: *Compile,
 parser: Parser,
 print_code: bool,
 
@@ -89,12 +89,23 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Co
     };
 }
 
+fn initCurrent(self: *Compiler, function_type: FunctionType) !void {
+    const compile_ptr = try self.allocator.create(Compile);
+    compile_ptr.* = Compile.init(self.allocator, function_type);
+    self.current = compile_ptr;
+}
+
 pub fn deinit(self: *Compiler) void {
-    self.current.deinit();
+    var current = self.current;
+    while (current.enclosing) |enclosing| {
+        self.allocator.destroy(current);
+        current = enclosing;
+    }
+    self.allocator.destroy(current);
 }
 
 pub fn compile(self: *Compiler, source: []const u8) !val.Function {
-    self.current = Compile.init(self.allocator, .Script);
+    try self.initCurrent(.Script);
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     while (!self.check(.Eof)) {
@@ -220,8 +231,8 @@ fn endCompiler(self: *Compiler) !val.Function {
         try self.currentChunk().disassembly(self.writer, fun.name);
     }
     if (self.current.enclosing) |c| {
-        self.current = c.*;
-        self.allocator.destroy(c);
+        self.allocator.destroy(self.current);
+        self.current = c;
     }
     return fun;
 }
@@ -266,7 +277,7 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     var getOp: Chunk.OpCode = undefined;
     var setOp: Chunk.OpCode = undefined;
-    var arg = try self.resolveLocal(&self.current, token);
+    var arg = try self.resolveLocal(self.current, token);
     if (arg != null) {
         getOp = .GetLocal;
         setOp = .SetLocal;
@@ -602,12 +613,15 @@ fn block(self: *Compiler) anyerror!void {
 }
 
 fn function(self: *Compiler, function_type: FunctionType) !void {
+    const old_compiler = self.current;
     var compiler = Compile.init(self.allocator, function_type);
     const enclosing = try self.allocator.create(Compile);
-    enclosing.* = self.current;
+    enclosing.* = old_compiler.*;
     compiler.enclosing = enclosing;
     compiler.function.name = self.lexeme(&self.parser.previous);
-    self.current = compiler;
+    const new_compile = try self.allocator.create(Compile);
+    new_compile.* = compiler;
+    self.current = new_compile;
 
     self.beginScope();
     try self.consume(.LeftParen, "Expect '(' after function name.");
