@@ -17,7 +17,7 @@ pub const LoxValue = union(enum) {
             .Number => |n| try writer.print("{d}", .{n}),
             .Bool => |b| try writer.print("{}", .{b}),
             .String => |s| try writer.print("{s}", .{s}),
-            .Function => |f| try writer.print("<{s}>", .{f.name}),
+            .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
         }
     }
 
