@@ -215,15 +215,15 @@ fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
 
 fn endCompiler(self: *Compiler) !val.Function {
     try self.emitReturn();
+    const fun = self.current.function;
     if (!self.parser.hadError and self.print_code) {
-        try self.currentChunk().disassembly(self.writer, self.current.function.name);
+        try self.currentChunk().disassembly(self.writer, fun.name);
     }
     if (self.current.enclosing) |c| {
         self.current = c.*;
         self.allocator.destroy(c);
     }
-
-    return self.current.function;
+    return fun;
 }
 
 fn beginScope(self: *Compiler) void {
