@@ -115,6 +115,7 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
         };
         self.frame_count += 1;
         try self.run();
+        self.frame_count -= 1;
         return true;
     }
 
@@ -305,7 +306,7 @@ pub fn run(self: *VM) !void {
                 if (!try self.callValue(value, arg_count)) {
                     return err.Error.RuntimeError;
                 }
-                // After call returns, frame_count is already decremented by Return
+                // After call returns, frame_count is already decremented by call
                 // Continue with next instruction
             },
             .Return => break,
