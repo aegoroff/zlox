@@ -55,7 +55,7 @@ pub fn deinit(self: *VM) void {
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     var compiler = Compiler.init(self.allocator, self.writer, print_code);
-    const func = compiler.compile(source) catch |compile_err| {
+    var func = compiler.compile(source) catch |compile_err| {
         compiler.deinit();
         return compile_err;
     };
@@ -65,11 +65,10 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     }
     compiler.deinit();
 
+    try self.push(.{ .Function = func });
     _ = try self.call(func, 0);
-
-    // Clean up the frame after successful execution
-    // Return opcode already decremented frame_count
-    self.frames[self.frame_count].function.deinit();
+    _ = try self.pop();
+    func.deinit();
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
