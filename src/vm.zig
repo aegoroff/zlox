@@ -111,6 +111,14 @@ fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
 fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
         .Function => |f| try self.call(f, arg_count),
+        .Native => |f| {
+            const stack_len = self.stack.len;
+            const args_start = stack_len - arg_count;
+            const result = f(self.io, self.stack[args_start..]);
+            self.stack_top -= arg_count + 1;
+            try self.push(result);
+            return true;
+        },
         else => {
             std.log.err("Can only call functions and classes.", .{});
             return err.Error.RuntimeError;
