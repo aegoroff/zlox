@@ -91,14 +91,14 @@ pub fn deinit(self: *Compiler) void {
     self.current.deinit();
 }
 
-pub fn compile(self: *Compiler, source: []const u8) !void {
+pub fn compile(self: *Compiler, source: []const u8) !val.Function {
     self.current = Compile.init(self.allocator, .Script);
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     while (!self.check(.Eof)) {
         try self.declaration();
     }
-    try self.endCompiler();
+    return try self.endCompiler();
 }
 
 fn advance(self: *Compiler) !void {
@@ -211,11 +211,12 @@ fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
     return try self.currentChunk().addConstant(value);
 }
 
-fn endCompiler(self: *Compiler) !void {
+fn endCompiler(self: *Compiler) !val.Function {
     try self.emitReturn();
     if (!self.parser.hadError and self.print_code) {
         try self.currentChunk().disassembly(self.writer, self.current.function.name);
     }
+    return self.current.function;
 }
 
 fn beginScope(self: *Compiler) void {
