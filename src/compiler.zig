@@ -330,7 +330,7 @@ fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             if (local.depth == -1) {
                 try self.errorAtCurrent("Can't read local variable in its own initializer.");
-                return e.Error.RuntimeError;
+                return e.Error.CompileError;
             }
             return i;
         }
@@ -619,9 +619,7 @@ fn block(self: *Compiler) anyerror!void {
 fn function(self: *Compiler, function_type: FunctionType) !void {
     const old_compiler = self.current;
     var compiler = Compile.init(self.allocator, function_type);
-    const enclosing = try self.allocator.create(Compile);
-    enclosing.* = old_compiler.*;
-    compiler.enclosing = enclosing;
+    compiler.enclosing = old_compiler;
     compiler.function.name = self.lexeme(&self.parser.previous);
     const new_compile = try self.allocator.create(Compile);
     new_compile.* = compiler;
@@ -647,10 +645,13 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.consume(.LeftBrace, "Expect '{' before function body.");
     try self.block();
     const func = try self.endCompiler();
-    
-    // Restore current to the enclosing compiler so defineVariable works correctly
+
+    // Restore current to the enclosing compiler so defineVariable works correctly.
     self.current = old_compiler;
-    
+
+    new_compile.deinit();
+    self.allocator.destroy(new_compile);
+
     try self.emitConstant(.{ .Function = func });
 }
 

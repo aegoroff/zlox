@@ -55,7 +55,10 @@ pub fn deinit(self: *VM) void {
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     var compiler = Compiler.init(self.allocator, self.writer, print_code);
-    const func = try compiler.compile(source);
+    const func = compiler.compile(source) catch |compile_err| {
+        compiler.deinit();
+        return compile_err;
+    };
     if (compiler.parser.hadError) {
         compiler.deinit();
         return err.Error.CompileError;
