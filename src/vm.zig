@@ -7,22 +7,33 @@ const val = @import("value.zig");
 const Compiler = @import("compiler.zig");
 
 const LoxValue = val.LoxValue;
-const STACK_MAX: usize = 256;
+const FRAMES_MAX: usize = 64;
+const STACK_MAX: usize = 256 * FRAMES_MAX;
 const CONST_SIZE: usize = 1;
 const CONST_LONG_SIZE: usize = 3;
 
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 stack: [STACK_MAX]LoxValue,
-globals: std.StringHashMap(LoxValue),
 stack_top: usize,
+globals: std.StringHashMap(LoxValue),
+frames: [FRAMES_MAX]CallFrame,
+frame_count: usize,
+
 allocated_strings: std.ArrayList([]u8),
+
+pub const CallFrame = struct {
+    function: val.Function,
+    slots_offset: usize, // points to vm's value's stack first value it can use
+};
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
     return VM{
         .allocator = gpa,
         .writer = writer,
         .stack = undefined,
+        .frames = undefined,
+        .frame_count = 0,
         .globals = std.StringHashMap(LoxValue).init(gpa),
         .stack_top = 0,
         .allocated_strings = .empty,
@@ -46,7 +57,12 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
         return err.Error.CompileError;
     }
 
-    try self.run(&func.chunk);
+    self.frames[self.frame_count] = CallFrame{
+        .function = func,
+        .slots_offset = func.chunk.codeSize(),
+    };
+    self.frame_count += 1;
+    try self.run();
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -76,18 +92,26 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
+fn frame(self: *VM) *CallFrame {
+    return &self.frames[self.frame_count - 1];
+}
+
+fn chunk(self: *VM) *Chunk {
+    return &self.frame().function.chunk;
+}
+
 fn println(self: *VM) !void {
     try self.writer.print("\n", .{});
 }
 
-pub fn run(self: *VM, chunk: *Chunk) !void {
+pub fn run(self: *VM) !void {
     var ip: usize = 0;
-    while (ip < chunk.code.items.len) {
-        const opcode = chunk.readOpcode(ip);
+    while (ip < self.chunk().code.items.len) {
+        const opcode = self.chunk().readOpcode(ip);
         ip += 1;
         switch (opcode) {
             .JumpIfFalse => {
-                const offset = chunk.readShort(ip);
+                const offset = self.chunk().readShort(ip);
                 const v = try self.peek(0);
                 ip += 2; // offset is two bytes
                 if (v.isFalsee()) {
@@ -95,67 +119,71 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
                 }
             },
             .Jump => {
-                const offset = chunk.readShort(ip);
+                const offset = self.chunk().readShort(ip);
                 ip += 2; // offset is two bytes
                 ip += offset;
             },
             .Loop => {
-                const offset = chunk.readShort(ip);
+                const offset = self.chunk().readShort(ip);
                 ip += 2; // offset is two bytes
                 ip -= offset;
             },
             .Constant => {
-                const value = chunk.readConstant(ip);
+                const value = self.chunk().readConstant(ip);
                 try self.push(value);
                 ip += CONST_SIZE;
             },
             .ConstantLong => {
-                const value = chunk.readConstantLong(ip);
+                const value = self.chunk().readConstantLong(ip);
                 try self.push(value);
                 ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
-                try self.defineGlobal(chunk, ip);
+                try self.defineGlobal(ip);
                 ip += CONST_SIZE;
             },
             .DefineGlobalLong => {
-                try self.defineGlobal(chunk, ip);
+                try self.defineGlobal(ip);
                 ip += CONST_LONG_SIZE;
             },
             .GetGlobal => {
-                try self.getGlobal(chunk, ip, CONST_SIZE);
+                try self.getGlobal(ip, CONST_SIZE);
                 ip += CONST_SIZE;
             },
             .GetGlobalLong => {
-                try self.getGlobal(chunk, ip, CONST_LONG_SIZE);
+                try self.getGlobal(ip, CONST_LONG_SIZE);
                 ip += CONST_LONG_SIZE;
             },
             .SetGlobal => {
-                try self.setGlobal(chunk, ip, CONST_SIZE);
+                try self.setGlobal(ip, CONST_SIZE);
                 ip += CONST_SIZE;
             },
             .SetGlobalLong => {
-                try self.setGlobal(chunk, ip, CONST_LONG_SIZE);
+                try self.setGlobal(ip, CONST_LONG_SIZE);
                 ip += CONST_LONG_SIZE;
             },
             .GetLocal => {
-                const slot = chunk.readByte(ip);
-                try self.push(self.stack[slot]);
+                const slots_offset = self.frame().slots_offset;
+                const frame_offset = self.chunk().readByte(ip);
+                try self.push(self.stack[slots_offset + frame_offset - 1]);
                 ip += 1;
             },
             .GetLocalLong => {
-                const slot = chunk.readThreeBytes(ip);
-                try self.push(self.stack[slot]);
+                const slots_offset = self.frame().slots_offset;
+                const frame_offset = self.chunk().readThreeBytes(ip);
+                try self.push(self.stack[slots_offset + frame_offset - 1]);
                 ip += CONST_LONG_SIZE;
             },
             .SetLocal => {
-                const slot = chunk.readByte(ip);
-                self.stack[slot] = try self.peek(slot);
+                const slots_offset = self.frame().slots_offset;
+                const frame_offset = self.chunk().readByte(ip);
+                self.stack[slots_offset + frame_offset - 1] = try self.peek(0);
                 ip += 1;
             },
             .SetLocalLong => {
-                const slot = chunk.readThreeBytes(ip);
-                self.stack[slot] = try self.peek(slot);
+                const slots_offset = self.frame().slots_offset;
+                const frame_offset = self.chunk().readThreeBytes(ip);
+                self.stack[slots_offset + frame_offset - 1] = try self.peek(0);
                 ip += CONST_LONG_SIZE;
             },
             .Nil => {
@@ -238,18 +266,18 @@ pub fn run(self: *VM, chunk: *Chunk) !void {
     }
 }
 
-fn defineGlobal(self: *VM, chunk: *Chunk, ip: usize) !void {
-    const name_value = chunk.readConstant(ip);
+fn defineGlobal(self: *VM, ip: usize) !void {
+    const name_value = self.chunk().readConstant(ip);
     const name = try name_value.tryString();
     const value = try self.peek(0);
     try self.globals.put(name, value);
     _ = try self.pop();
 }
 
-fn getGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
+fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name_value = switch (constant_size) {
-        CONST_SIZE => chunk.readConstant(ip),
-        CONST_LONG_SIZE => chunk.readConstantLong(ip),
+        CONST_SIZE => self.chunk().readConstant(ip),
+        CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
         else => return err.Error.CompileError,
     };
     const name = try name_value.tryString();
@@ -260,10 +288,10 @@ fn getGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
     }
 }
 
-fn setGlobal(self: *VM, chunk: *Chunk, ip: usize, constant_size: usize) !void {
+fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name_value = switch (constant_size) {
-        CONST_SIZE => chunk.readConstant(ip),
-        CONST_LONG_SIZE => chunk.readConstantLong(ip),
+        CONST_SIZE => self.chunk().readConstant(ip),
+        CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
         else => return err.Error.CompileError,
     };
     const name = try name_value.tryString();
