@@ -647,6 +647,10 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.consume(.LeftBrace, "Expect '{' before function body.");
     try self.block();
     const func = try self.endCompiler();
+    
+    // Restore current to the enclosing compiler so defineVariable works correctly
+    self.current = old_compiler;
+    
     try self.emitConstant(.{ .Function = func });
 }
 
