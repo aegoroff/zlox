@@ -215,6 +215,7 @@ fn patchJump(self: *Compiler, offset: usize) !void {
 }
 
 fn emitReturn(self: *Compiler) !void {
+    try self.emitOpcode(.Nil);
     try self.emitOpcode(.Return);
 }
 
@@ -576,6 +577,16 @@ fn ifStatement(self: *Compiler) anyerror!void {
     try self.patchJump(elseJump);
 }
 
+fn returnStatement(self: *Compiler) anyerror!void {
+    if (try self.match(.Semicolon)) {
+        try self.emitReturn();
+    } else {
+        try self.expression();
+        try self.consume(.Semicolon, "Expect ';' after return value.");
+        try self.emitOpcode(.Return);
+    }
+}
+
 fn whileStatement(self: *Compiler) anyerror!void {
     const loopStart = self.currentChunk().codeSize();
     try self.consume(.LeftParen, "Expect '(' after 'while'.");
@@ -718,6 +729,8 @@ fn statement(self: *Compiler) !void {
         try self.printStatement();
     } else if (try self.match(.If)) {
         try self.ifStatement();
+    } else if (try self.match(.Return)) {
+        try self.returnStatement();
     } else if (try self.match(.While)) {
         try self.whileStatement();
     } else if (try self.match(.For)) {
