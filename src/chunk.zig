@@ -107,8 +107,9 @@ pub fn writeOperand(self: *Chunk, val: usize, line: usize) !void {
     }
 }
 
-pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: []const u8) !void {
-    try writer.print("== {s} ==\n", .{name});
+pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: ?[]const u8) !void {
+    const function_name = name orelse "<script>";
+    try writer.print("== {s} ==\n", .{function_name});
     var offset: usize = 0;
     while (offset < self.codeSize()) {
         offset = try self.disassemblyInstruction(writer, offset);

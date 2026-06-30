@@ -97,9 +97,9 @@ pub const LoxValue = union(enum) {
 pub const Function = struct {
     arity: usize,
     chunk: Chunk,
-    name: []const u8,
+    name: ?[]const u8,
 
-    pub fn init(gpa: std.mem.Allocator, name: []const u8) Function {
+    pub fn init(gpa: std.mem.Allocator, name: ?[]const u8) Function {
         return Function{
             .arity = 0,
             .chunk = Chunk.init(gpa),

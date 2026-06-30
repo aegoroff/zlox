@@ -45,7 +45,7 @@ const Compile = struct {
             .localCount = 0,
             .scopeDepth = 0,
             .locals = undefined,
-            .function = val.Function.init(gpa, "script"),
+            .function = val.Function.init(gpa, null),
             .function_type = function_type,
         };
     }
