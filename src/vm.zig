@@ -305,6 +305,7 @@ pub fn run(self: *VM) !void {
                 if (!try self.callValue(value, arg_count)) {
                     return err.Error.RuntimeError;
                 }
+                ip += 1;
                 // After call returns, frame_count is already decremented by call
                 // Continue with next instruction
             },
