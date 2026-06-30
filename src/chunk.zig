@@ -69,6 +69,13 @@ pub fn init(gpa: std.mem.Allocator) Chunk {
 
 pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
+    // Free any Function constants before deinitializing the ArrayList
+    for (self.constants.items) |constant| {
+        if (constant == .Function) {
+            var func = constant.Function;
+            func.deinit();
+        }
+    }
     self.constants.deinit(self.allocator);
     self.lines.deinit(self.allocator);
 }
