@@ -463,7 +463,7 @@ fn argumentList(self: *Compiler) anyerror!usize {
                 return e.Error.CompileError;
             }
             arg_count += 1;
-            if (try self.match(.Comma)) {
+            if (!try self.match(.Comma)) {
                 break;
             }
         }
