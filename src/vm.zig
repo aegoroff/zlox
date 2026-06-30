@@ -74,10 +74,10 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
         self.frame_count -= 1;
         self.frames[self.frame_count].function.deinit();
     }
-    _ = try self.call(func, 0);
+    try self.run();
 
     // Clean up the frame after successful execution
-    self.frame_count -= 1;
+    // Return opcode already decremented frame_count
     self.frames[self.frame_count].function.deinit();
 }
 
@@ -115,7 +115,6 @@ fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
     };
     self.frame_count += 1;
     try self.run();
-    self.frame_count -= 1;
     return true;
 }
 
@@ -310,13 +309,16 @@ pub fn run(self: *VM) !void {
                 // Continue with next instruction
             },
             .Return => {
-                const value = try self.pop();
                 self.frame_count -= 1;
-                if (self.frame_count == 0) {
-                    _ = try self.pop();
-                    return;
+                if (self.frame_count > 0) {
+                    // Pop the return value if there is one, otherwise push nil
+                    if (self.stack_top > self.frame().slots_offset) {
+                        const value = try self.pop();
+                        try self.push(value);
+                    } else {
+                        try self.push(.Nil);
+                    }
                 }
-                try self.push(value);
                 break;
             },
             else => {},
