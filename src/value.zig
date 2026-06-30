@@ -9,6 +9,7 @@ pub const LoxValue = union(enum) {
     Number: f64,
     Bool: bool,
     String: []const u8,
+    Function: Function,
 
     pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
         switch (self) {
@@ -16,6 +17,7 @@ pub const LoxValue = union(enum) {
             .Number => |n| try writer.print("{d}", .{n}),
             .Bool => |b| try writer.print("{}", .{b}),
             .String => |s| try writer.print("{s}", .{s}),
+            .Function => |f| try writer.print("<{s}>", .{f.name}),
         }
     }
 
@@ -60,6 +62,7 @@ pub const LoxValue = union(enum) {
             .String => |l| std.mem.eql(u8, l, other.String),
             .Bool => |l| l == other.Bool,
             .Nil => true,
+            .Function => false,
         };
     }
 
@@ -67,17 +70,18 @@ pub const LoxValue = union(enum) {
         return switch (self) {
             .Number => |l| switch (other) {
                 .Number => |r| l < r,
-                else => err.Error.RuntimeError,
+                else => err.Error.CompileError,
             },
             .String => |l| switch (other) {
                 .String => |r| std.mem.lessThan(u8, l, r),
-                else => err.Error.RuntimeError,
+                else => err.Error.CompileError,
             },
             .Bool => |l| switch (other) {
                 .Bool => |r| !l and r,
-                else => err.Error.RuntimeError,
+                else => err.Error.CompileError,
             },
-            .Nil => err.Error.RuntimeError,
+            .Nil => err.Error.CompileError,
+            .Function => err.Error.CompileError,
         };
     }
 

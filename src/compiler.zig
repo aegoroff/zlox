@@ -397,6 +397,9 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
 }
 
 fn markInitialized(self: *Compiler) void {
+    if (self.current.scopeDepth == 0) {
+        return;
+    }
     self.current.locals[self.current.localCount - 1].depth = self.current.scopeDepth;
 }
 
@@ -591,6 +594,25 @@ fn block(self: *Compiler) anyerror!void {
     try self.consume(.RightBrace, "Expect '}' after block.");
 }
 
+fn function(self: *Compiler, function_type: FunctionType) !void {
+    const compiler = Compile.init(self.allocator, function_type);
+    self.current = compiler;
+    self.beginScope();
+    try self.consume(.LeftParen, "Expect '(' after function name.");
+    try self.consume(.RightParen, "Expect ')' after parameters.");
+    try self.consume(.LeftBrace, "Expect '{' before function body.");
+    try self.block();
+    const func = try self.endCompiler();
+    try self.emitConstant(.{ .Function = func });
+}
+
+fn funDeclaration(self: *Compiler) !void {
+    const global = try self.parseVariable("Expect function name.");
+    self.markInitialized();
+    try self.function(.Function);
+    try self.defineVariable(global);
+}
+
 fn varDeclaration(self: *Compiler) !void {
     const global = try self.parseVariable("Expect variable name.");
 
@@ -604,7 +626,9 @@ fn varDeclaration(self: *Compiler) !void {
 }
 
 fn declaration(self: *Compiler) !void {
-    if (try self.match(.Var)) {
+    if (try self.match(.Fun)) {
+        try self.funDeclaration();
+    } else if (try self.match(.Var)) {
         try self.varDeclaration();
     } else {
         try self.statement();
