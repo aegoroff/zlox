@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
         .options = options,
     };
 
-    const exe = b.addExecutable(.{
+    var exe = b.addExecutable(.{
         .name = "zlox",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
@@ -27,6 +27,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    if (optimize == .ReleaseFast) {
+        exe.root_module.strip = true;
+    }
     deps.applyTo(exe.root_module);
 
     b.installArtifact(exe);
