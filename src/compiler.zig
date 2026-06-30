@@ -391,6 +391,12 @@ fn binary(self: *Compiler) !void {
     }
 }
 
+fn call(self: *Compiler, _: bool) !void {
+    const args_count = try self.argumentList();
+    try self.emitOpcode(.Call);
+    try self.emitOperand(args_count);
+}
+
 fn getPrecedence(tokenType: scan.TokenType) Precedence {
     return switch (tokenType) {
         .Minus, .Plus => .Term,
@@ -445,6 +451,25 @@ fn defineVariable(self: *Compiler, global: usize) anyerror!void {
         try self.emitOpcode(.DefineGlobal);
     }
     try self.emitOperand(global);
+}
+
+fn argumentList(self: *Compiler) anyerror!usize {
+    var arg_count: usize = 0;
+    if (!self.check(.RightParen)) {
+        while (true) {
+            try self.expression();
+            if (arg_count == 255) {
+                try self.errorAtPrev("Can't have more than 255 arguments.");
+                return e.Error.CompileError;
+            }
+            arg_count += 1;
+            if (try self.match(.Comma)) {
+                break;
+            }
+        }
+    }
+    try self.consume(.RightParen, "Expect ')' after arguments.");
+    return arg_count;
 }
 
 fn and_(self: *Compiler) !void {
@@ -517,11 +542,12 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !voi
     }
 }
 
-fn callInfix(self: *Compiler, tokenType: scan.TokenType, _: bool) !void {
+fn callInfix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void {
     switch (tokenType) {
         .Minus, .Plus, .Slash, .Star, .BangEqual, .EqualEqual, .Greater, .GreaterEqual, .Less, .LessEqual => try self.binary(),
         .And => try self.and_(),
         .Or => try self.or_(),
+        .LeftParen => try self.call(can_assign),
         else => {},
     }
 }

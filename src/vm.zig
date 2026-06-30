@@ -74,10 +74,7 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
         self.frame_count -= 1;
         self.frames[self.frame_count].function.deinit();
     }
-    try self.run();
-    // Free the function after execution - VM owns it now
-    self.frame_count -= 1;
-    self.frames[self.frame_count].function.deinit();
+    _ = try self.call(func, 0);
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -105,6 +102,25 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
         return err.Error.RuntimeError;
     }
     return self.stack[self.stack_top - 1 - distance];
+}
+
+fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
+    var call_frame = self.frames[self.frame_count];
+    self.frame_count += 1;
+    call_frame.function = function;
+    call_frame.slots_offset = self.stack_top - arg_count;
+    try self.run();
+    return true;
+}
+
+fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
+    return switch (value) {
+        .Function => |f| try self.call(f, arg_count),
+        else => {
+            std.log.err("Can only call functions and classes.", .{});
+            return err.Error.RuntimeError;
+        },
+    };
 }
 
 fn frame(self: *VM) *CallFrame {
@@ -277,6 +293,15 @@ pub fn run(self: *VM) !void {
             },
             .Pop => {
                 _ = try self.pop();
+            },
+            .Call => {
+                const arg_count = self.chunk().readByte(ip);
+                const value = try self.peek(arg_count);
+                if (!try self.callValue(value, arg_count)) {
+                    return err.Error.RuntimeError;
+                }
+                self.frame_count -= 1;
+                self.frames[self.frame_count].function.deinit();
             },
             .Return => break,
             else => {},
