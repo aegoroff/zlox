@@ -34,6 +34,7 @@ const Precedence = enum(u8) {
 };
 
 const Compile = struct {
+    enclosing: ?*Compile,
     locals: [LOCALS_MAX]Local,
     localCount: usize,
     scopeDepth: i16,
@@ -47,6 +48,7 @@ const Compile = struct {
             .locals = undefined,
             .function = val.Function.init(gpa, null),
             .function_type = function_type,
+            .enclosing = null,
         };
     }
 
@@ -93,6 +95,7 @@ pub fn deinit(self: *Compiler) void {
 
 pub fn compile(self: *Compiler, source: []const u8) !val.Function {
     self.current = Compile.init(self.allocator, .Script);
+    self.current.enclosing = &self.current;
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     while (!self.check(.Eof)) {
@@ -216,6 +219,7 @@ fn endCompiler(self: *Compiler) !val.Function {
     if (!self.parser.hadError and self.print_code) {
         try self.currentChunk().disassembly(self.writer, self.current.function.name);
     }
+    self.current = self.current.enclosing.?.*;
     return self.current.function;
 }
 
@@ -595,8 +599,10 @@ fn block(self: *Compiler) anyerror!void {
 }
 
 fn function(self: *Compiler, function_type: FunctionType) !void {
-    const compiler = Compile.init(self.allocator, function_type);
+    var compiler = Compile.init(self.allocator, function_type);
+    compiler.enclosing = &self.current;
     self.current = compiler;
+    
     self.beginScope();
     try self.consume(.LeftParen, "Expect '(' after function name.");
     try self.consume(.RightParen, "Expect ')' after parameters.");
