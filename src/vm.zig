@@ -373,7 +373,8 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 fn clockNative(io: std.Io, args: []const LoxValue) LoxValue {
     _ = args;
     const ts = std.Io.Clock.real.now(io);
-    return .{ .Number = @floatFromInt(ts.toSeconds()) };
+    const ns: f64 = @floatFromInt(ts.toNanoseconds());
+    return .{ .Number = ns / 1_000_000_000.0 };
 }
 
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
