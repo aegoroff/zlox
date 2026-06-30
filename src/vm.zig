@@ -75,6 +75,10 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
         self.frames[self.frame_count].function.deinit();
     }
     _ = try self.call(func, 0);
+    
+    // Clean up the frame after successful execution
+    self.frame_count -= 1;
+    self.frames[self.frame_count].function.deinit();
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -104,14 +108,15 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
-fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
-    var call_frame = self.frames[self.frame_count];
-    self.frame_count += 1;
-    call_frame.function = function;
-    call_frame.slots_offset = self.stack_top - arg_count;
-    try self.run();
-    return true;
-}
+    fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
+        self.frames[self.frame_count] = CallFrame{
+            .function = function,
+            .slots_offset = self.stack_top - arg_count,
+        };
+        self.frame_count += 1;
+        try self.run();
+        return true;
+    }
 
 fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
@@ -300,8 +305,8 @@ pub fn run(self: *VM) !void {
                 if (!try self.callValue(value, arg_count)) {
                     return err.Error.RuntimeError;
                 }
-                self.frame_count -= 1;
-                self.frames[self.frame_count].function.deinit();
+                // After call returns, frame_count is already decremented by Return
+                // Continue with next instruction
             },
             .Return => break,
             else => {},
