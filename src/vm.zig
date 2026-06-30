@@ -260,6 +260,9 @@ pub fn run(self: *VM) !void {
                 try value.print(self.writer);
                 try self.println();
             },
+            .Pop => {
+                _ = try self.pop();
+            },
             .Return => break,
             else => {},
         }
