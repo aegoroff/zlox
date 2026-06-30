@@ -323,7 +323,7 @@ test "Simple add expression" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -337,7 +337,7 @@ test "String concatentation" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -351,7 +351,7 @@ test "string equal false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -365,7 +365,7 @@ test "string not equal" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -379,7 +379,7 @@ test "string equal true" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -393,7 +393,7 @@ test "string greater false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -407,7 +407,7 @@ test "string greater true" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -421,7 +421,7 @@ test "string greater or equal true" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -435,7 +435,7 @@ test "string less or equal false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -449,7 +449,7 @@ test "number equal false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -463,7 +463,7 @@ test "number equal true" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -477,7 +477,7 @@ test "number greater or equal" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -491,7 +491,7 @@ test "number greater or equal two" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -505,7 +505,7 @@ test "number less or equal false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -519,7 +519,7 @@ test "expression less or equal false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -533,7 +533,7 @@ test "comparison with equal" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -547,7 +547,7 @@ test "number less or equal equal" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -561,7 +561,7 @@ test "number less or equal" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -575,7 +575,7 @@ test "not nil" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -589,7 +589,7 @@ test "not number" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -603,7 +603,7 @@ test "not string" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -617,7 +617,7 @@ test "two ands + or" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -631,7 +631,7 @@ test "three ands" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -645,7 +645,7 @@ test "decrement prefix" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -659,7 +659,7 @@ test "subtract same numbers" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -673,7 +673,7 @@ test "subtract negative result" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -687,7 +687,7 @@ test "subtract positive result" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -701,7 +701,7 @@ test "add numbers" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -715,7 +715,7 @@ test "add and subtract" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -729,7 +729,7 @@ test "add and divide" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -743,7 +743,7 @@ test "parentheses add and divide" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -757,7 +757,7 @@ test "divide numbers" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -771,7 +771,7 @@ test "divide by one" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -785,7 +785,7 @@ test "divide by negative" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -799,7 +799,7 @@ test "nested expression one" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -813,7 +813,7 @@ test "nested expression two" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -827,7 +827,7 @@ test "nested expression three" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -841,7 +841,7 @@ test "nested expression four" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -855,7 +855,7 @@ test "variables assignment and print" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -869,7 +869,7 @@ test "multiple prints" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -883,7 +883,7 @@ test "print with block" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -897,7 +897,7 @@ test "block scope variable" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -911,7 +911,7 @@ test "block scope shadow" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -925,7 +925,7 @@ test "nested blocks" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -939,7 +939,7 @@ test "if positive" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -953,7 +953,7 @@ test "if negative" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -967,7 +967,7 @@ test "if else positive" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -981,7 +981,7 @@ test "if else negative" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -995,7 +995,7 @@ test "while test" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -1009,7 +1009,7 @@ test "for test" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
@@ -1023,7 +1023,7 @@ test "for test without initializer" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer);
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
     defer virtualMachine.deinit();
 
     // Act
