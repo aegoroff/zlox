@@ -52,14 +52,14 @@ pub fn deinit(self: *VM) void {
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     var compiler = Compiler.init(self.allocator, self.writer, print_code);
     defer compiler.deinit();
-    var func = try compiler.compile(source);
+    const func = try compiler.compile(source);
     if (compiler.parser.hadError) {
         return err.Error.CompileError;
     }
 
     self.frames[self.frame_count] = CallFrame{
         .function = func,
-        .slots_offset = func.chunk.codeSize(),
+        .slots_offset = self.stack_top,
     };
     self.frame_count += 1;
     try self.run();
@@ -165,25 +165,25 @@ pub fn run(self: *VM) !void {
             .GetLocal => {
                 const slots_offset = self.frame().slots_offset;
                 const frame_offset = self.chunk().readByte(ip);
-                try self.push(self.stack[slots_offset + frame_offset - 1]);
+                try self.push(self.stack[slots_offset + frame_offset]);
                 ip += 1;
             },
             .GetLocalLong => {
                 const slots_offset = self.frame().slots_offset;
                 const frame_offset = self.chunk().readThreeBytes(ip);
-                try self.push(self.stack[slots_offset + frame_offset - 1]);
+                try self.push(self.stack[slots_offset + frame_offset]);
                 ip += CONST_LONG_SIZE;
             },
             .SetLocal => {
                 const slots_offset = self.frame().slots_offset;
                 const frame_offset = self.chunk().readByte(ip);
-                self.stack[slots_offset + frame_offset - 1] = try self.peek(0);
+                self.stack[slots_offset + frame_offset] = try self.peek(0);
                 ip += 1;
             },
             .SetLocalLong => {
                 const slots_offset = self.frame().slots_offset;
                 const frame_offset = self.chunk().readThreeBytes(ip);
-                self.stack[slots_offset + frame_offset - 1] = try self.peek(0);
+                self.stack[slots_offset + frame_offset] = try self.peek(0);
                 ip += CONST_LONG_SIZE;
             },
             .Nil => {
