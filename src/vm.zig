@@ -65,16 +65,7 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     }
     compiler.deinit();
 
-    self.frames[self.frame_count] = CallFrame{
-        .function = func,
-        .slots_offset = self.stack_top,
-    };
-    self.frame_count += 1;
-    errdefer {
-        self.frame_count -= 1;
-        self.frames[self.frame_count].function.deinit();
-    }
-    try self.run();
+    _ = try self.call(func, 0);
 
     // Clean up the frame after successful execution
     // Return opcode already decremented frame_count
@@ -301,25 +292,28 @@ pub fn run(self: *VM) !void {
             },
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
+                ip += 1;
                 const value = try self.peek(arg_count);
                 if (!try self.callValue(value, arg_count)) {
                     return err.Error.RuntimeError;
                 }
-                ip += 1;
-                // After call returns, frame_count is already decremented by call
+                // After call returns, frame_count is already decremented by Return
                 // Continue with next instruction
             },
             .Return => {
+                // Get the return value if there is one
+                const result = if (self.stack_top > 0) try self.pop() else .Nil;
                 self.frame_count -= 1;
-                if (self.frame_count > 0) {
-                    // Pop the return value if there is one, otherwise push nil
-                    if (self.stack_top > self.frame().slots_offset) {
-                        const value = try self.pop();
-                        try self.push(value);
-                    } else {
-                        try self.push(.Nil);
-                    }
+                if (self.frame_count == 0) {
+                    // Main script finished
+                    return;
                 }
+                // Reset stack to the beginning of the current frame
+                // slots_offset points to first argument, function is at slots_offset - 1
+                // We want to remove function, arguments, and all locals, leaving only result
+                const slots_offset = self.frames[self.frame_count].slots_offset;
+                self.stack_top = slots_offset - 1; // Position of the function
+                try self.push(result);
                 break;
             },
             else => {},
