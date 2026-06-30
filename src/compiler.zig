@@ -220,6 +220,7 @@ fn endCompiler(self: *Compiler) !val.Function {
     }
     if (self.current.enclosing) |c| {
         self.current = c.*;
+        self.allocator.destroy(c);
     }
 
     return self.current.function;
@@ -602,7 +603,9 @@ fn block(self: *Compiler) anyerror!void {
 
 fn function(self: *Compiler, function_type: FunctionType) !void {
     var compiler = Compile.init(self.allocator, function_type);
-    compiler.enclosing = &self.current;
+    const enclosing = try self.allocator.create(Compile);
+    enclosing.* = self.current;
+    compiler.enclosing = enclosing;
     compiler.function.name = self.lexeme(&self.parser.previous);
     self.current = compiler;
 
