@@ -67,11 +67,14 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
         .slots_offset = self.stack_top,
     };
     self.frame_count += 1;
+    errdefer {
+        self.frame_count -= 1;
+        self.frames[self.frame_count].function.deinit();
+    }
     try self.run();
     // Free the function after execution - VM owns it now
     self.frame_count -= 1;
     self.frames[self.frame_count].function.deinit();
-    self.frame_count = 0;
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
