@@ -1094,3 +1094,157 @@ test "for test without initializer" {
     // Assert
     try std.testing.expectEqualStrings("0\n1\n2\n", writer.written());
 }
+
+test "function call no arguments" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun sayHi() { print \"hi\"; } sayHi();", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("hi\n", writer.written());
+}
+
+test "function call with arguments" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun add(a, b) { return a + b; } print add(3, 4);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("7\n", writer.written());
+}
+
+test "function call with multiple arguments" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun sum(a, b, c) { return a + b + c; } print sum(1, 2, 3);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("6\n", writer.written());
+}
+
+test "function return value" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun double(x) { return x * 2; } print double(5);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("10\n", writer.written());
+}
+
+test "function nested calls" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun inner() { return 5; } fun outer() { return inner() * 2; } print outer();", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("10\n", writer.written());
+}
+
+test "function with early return" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun check(x) { if (x > 0) return 1; return -1; } print check(5); print check(-5);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("1\n-1\n", writer.written());
+}
+
+test "function without return statement" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun noReturn() { var x = 5; } print noReturn();", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("nil\n", writer.written());
+}
+
+test "function recursion factorial" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun fact(n) { if (n <= 1) return 1; return n * fact(n - 1); } print fact(5);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("120\n", writer.written());
+}
+
+test "function recursion fibonacci" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2); } print fib(6);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("8\n", writer.written());
+}
+
+test "native function clock" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print clock() > 0;", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("true\n", writer.written());
+}
+
+test "function as argument" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("fun apply(f, x) { return f(x); } fun negate(x) { return -x; } print apply(negate, 42);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("-42\n", writer.written());
+}
