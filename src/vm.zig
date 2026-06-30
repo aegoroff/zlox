@@ -55,11 +55,12 @@ pub fn deinit(self: *VM) void {
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     var compiler = Compiler.init(self.allocator, self.writer, print_code);
-    defer compiler.deinit();
     const func = try compiler.compile(source);
     if (compiler.parser.hadError) {
+        compiler.deinit();
         return err.Error.CompileError;
     }
+    compiler.deinit();
 
     self.frames[self.frame_count] = CallFrame{
         .function = func,
@@ -67,6 +68,10 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     };
     self.frame_count += 1;
     try self.run();
+    // Free the function after execution - VM owns it now
+    self.frame_count -= 1;
+    self.frames[self.frame_count].function.deinit();
+    self.frame_count = 0;
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {

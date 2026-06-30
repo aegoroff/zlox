@@ -98,9 +98,12 @@ fn initCurrent(self: *Compiler, function_type: FunctionType) !void {
 pub fn deinit(self: *Compiler) void {
     var current = self.current;
     while (current.enclosing) |enclosing| {
+        current.deinit();
         self.allocator.destroy(current);
         current = enclosing;
     }
+    // Free the top-level compile struct and its function
+    current.deinit();
     self.allocator.destroy(current);
 }
 
@@ -230,10 +233,11 @@ fn endCompiler(self: *Compiler) !val.Function {
     if (!self.parser.hadError and self.print_code) {
         try self.currentChunk().disassembly(self.writer, fun.name);
     }
-    if (self.current.enclosing) |c| {
-        self.allocator.destroy(self.current);
-        self.current = c;
-    }
+    // Ownership transfers to caller (VM), nullify the function in compiler
+    // to prevent double-free when compiler is deinitialized
+    self.current.function.name = null;
+    self.current.function.chunk = Chunk.init(self.allocator);
+    self.current.function.arity = 0;
     return fun;
 }
 
