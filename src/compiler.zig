@@ -603,10 +603,25 @@ fn block(self: *Compiler) anyerror!void {
 fn function(self: *Compiler, function_type: FunctionType) !void {
     var compiler = Compile.init(self.allocator, function_type);
     compiler.enclosing = &self.current;
+    compiler.function.name = self.lexeme(&self.parser.previous);
     self.current = compiler;
 
     self.beginScope();
     try self.consume(.LeftParen, "Expect '(' after function name.");
+
+    if (!self.check(.RightParen)) {
+        while (true) {
+            self.current.function.arity += 1;
+            if (self.current.function.arity > 255) {
+                try self.errorAtCurrent("Can't have more than 255 parameters.");
+            }
+            const constant = try self.parseVariable("Expect parameter name.");
+            try self.defineVariable(constant);
+
+            if (!try self.match(.Comma)) break;
+        }
+    }
+
     try self.consume(.RightParen, "Expect ')' after parameters.");
     try self.consume(.LeftBrace, "Expect '{' before function body.");
     try self.block();
