@@ -14,6 +14,7 @@ const CONST_LONG_SIZE: usize = 3;
 
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
+io: std.Io,
 stack: [STACK_MAX]LoxValue,
 stack_top: usize,
 globals: std.StringHashMap(LoxValue),
@@ -27,9 +28,10 @@ pub const CallFrame = struct {
     slots_offset: usize, // points to vm's value's stack first value it can use
 };
 
-pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
-    return VM{
+pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) VM {
+    var vm = VM{
         .allocator = gpa,
+        .io = io,
         .writer = writer,
         .stack = undefined,
         .frames = undefined,
@@ -38,6 +40,8 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer) VM {
         .stack_top = 0,
         .allocated_strings = .empty,
     };
+    try vm.defineNative("clock", clockNative);
+    return vm;
 }
 
 pub fn deinit(self: *VM) void {
@@ -303,6 +307,16 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     }
     const new_value = try self.peek(0);
     try self.globals.put(name, new_value);
+}
+
+fn clockNative(io: std.Io, args: []const LoxValue) LoxValue {
+    _ = args;
+    const ts = std.Io.Clock.real.now(io);
+    return .{ .Number = @floatFromInt(ts.toSeconds()) };
+}
+
+fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
+    try self.globals.put(name, .{ .Native = function });
 }
 
 test "Simple add expression" {

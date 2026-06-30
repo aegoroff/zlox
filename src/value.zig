@@ -4,12 +4,15 @@ const Chunk = @import("chunk.zig");
 
 const ERROR_MARGIN = 0.000001;
 
+pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) LoxValue;
+
 pub const LoxValue = union(enum) {
     Nil,
     Number: f64,
     Bool: bool,
     String: []const u8,
     Function: Function,
+    Native: NativeFn,
 
     pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
         switch (self) {
@@ -18,6 +21,7 @@ pub const LoxValue = union(enum) {
             .Bool => |b| try writer.print("{}", .{b}),
             .String => |s| try writer.print("{s}", .{s}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
+            .Native => try writer.print("<native fn>", .{}),
         }
     }
 
@@ -63,6 +67,7 @@ pub const LoxValue = union(enum) {
             .Bool => |l| l == other.Bool,
             .Nil => true,
             .Function => false,
+            .Native => false,
         };
     }
 
@@ -82,6 +87,7 @@ pub const LoxValue = union(enum) {
             },
             .Nil => err.Error.CompileError,
             .Function => err.Error.CompileError,
+            .Native => err.Error.CompileError,
         };
     }
 
