@@ -381,16 +381,15 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
 
 fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
     var i: usize = compiler.localCount;
-    while (i > 0) {
-        i -= 1;
-        const local = compiler.locals[i];
+    while (i > 0) : (i -= 1) {
+        const local = compiler.locals[i - 1];
 
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             if (local.depth == -1) {
                 try self.errorAtCurrent("Can't read local variable in its own initializer.");
                 return e.Error.CompileError;
             }
-            return i;
+            return i - 1;
         }
     }
     return null;

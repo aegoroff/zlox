@@ -98,6 +98,12 @@ pub fn writeConstant(self: *Chunk, ix: usize, line: usize) !void {
 }
 
 pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
+    // Check if the constant already exists to avoid duplicates
+    for (self.constants.items, 0..) |existing, ix| {
+        if (existing.equal(val)) {
+            return ix;
+        }
+    }
     try self.constants.append(self.allocator, val);
     return self.constants.items.len - 1;
 }
