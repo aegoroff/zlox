@@ -697,7 +697,8 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     self.allocator.destroy(new_compile);
 
     try self.emitOpcode(.Closure);
-    try self.emitConstant(.{ .Function = func });
+    const ix = try self.currentChunk().addConstant(.{ .Function = func });
+    try self.emitOperand(ix);
 }
 
 fn funDeclaration(self: *Compiler) !void {
