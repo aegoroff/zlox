@@ -13,6 +13,7 @@ pub const LoxValue = union(enum) {
     String: []const u8,
     Function: Function,
     Native: NativeFn,
+    NaN,
 
     pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
         switch (self) {
@@ -22,12 +23,14 @@ pub const LoxValue = union(enum) {
             .String => |s| try writer.print("{s}", .{s}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
             .Native => try writer.print("<native fn>", .{}),
+            .NaN => try writer.print("NaN", .{}),
         }
     }
 
     pub fn tryNumber(self: LoxValue) err.Error!f64 {
         return switch (self) {
             .Number => |n| n,
+            .NaN => std.math.nan(f64),
             else => return err.Error.RuntimeError,
         };
     }
@@ -68,6 +71,7 @@ pub const LoxValue = union(enum) {
             .Nil => true,
             .Function => false,
             .Native => false,
+            .NaN => true,
         };
     }
 
@@ -75,6 +79,12 @@ pub const LoxValue = union(enum) {
         return switch (self) {
             .Number => |l| switch (other) {
                 .Number => |r| l < r,
+                .NaN => false,
+                else => err.Error.CompileError,
+            },
+            .NaN => switch (other) {
+                .Number => false,
+                .NaN => false,
                 else => err.Error.CompileError,
             },
             .String => |l| switch (other) {
@@ -95,6 +105,7 @@ pub const LoxValue = union(enum) {
         return switch (self) {
             .Bool => |b| b,
             .Nil => false,
+            .NaN => false,
             else => false,
         };
     }

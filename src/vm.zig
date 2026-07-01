@@ -294,7 +294,13 @@ pub fn run(self: *VM) !void {
             .Divide => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Number = try a.tryNumber() / try b.tryNumber() });
+                const bn = try b.tryNumber();
+                if (bn == 0) {
+                    try self.push(.NaN);
+                } else {
+                    const an = try a.tryNumber();
+                    try self.push(.{ .Number = an / bn });
+                }
             },
             .Print => {
                 const value = try self.pop();
@@ -851,6 +857,20 @@ test "divide by negative" {
 
     // Assert
     try std.testing.expectEqualStrings("-5\n", writer.written());
+}
+
+test "divide by zero" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print 5 / 0;", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("NaN\n", writer.written());
 }
 
 test "nested expression one" {
