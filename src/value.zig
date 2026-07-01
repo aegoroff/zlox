@@ -115,16 +115,22 @@ pub const LoxValue = union(enum) {
     }
 };
 
+pub const Upvalue = union(enum) {
+    Location: usize,
+};
+
 pub const Function = struct {
     arity: usize,
     chunk: Chunk,
     name: ?[]const u8,
+    upvalue_count: usize,
 
     pub fn init(gpa: std.mem.Allocator, name: ?[]const u8) Function {
         return Function{
             .arity = 0,
             .chunk = Chunk.init(gpa),
             .name = name,
+            .upvalue_count = 0,
         };
     }
 
@@ -135,12 +141,12 @@ pub const Function = struct {
 
 pub const Closure = struct {
     function: Function,
-    upvalue_count: usize,
+    upvalues: std.ArrayList(Upvalue),
 
-    pub fn init(function: Function, upvalue_count: usize) Closure {
+    pub fn init(function: Function) Closure {
         return Closure{
             .function = function,
-            .upvalue_count = upvalue_count,
+            .upvalues = .empty,
         };
     }
 };

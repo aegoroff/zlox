@@ -260,7 +260,7 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
         const closure = val.Closure;
         try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, closure.function.name orelse "script" });
         var i: usize = 0;
-        while (i < closure.upvalue_count) : (i += 1) {
+        while (i < closure.upvalues.items.len) : (i += 1) {
             const is_local = self.readByte(current_offset);
             const is_local_str = if (is_local == 1) "local" else "upvalue";
             const index = self.readByte(current_offset + 1);

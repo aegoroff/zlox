@@ -89,7 +89,7 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     }
     compiler.deinit();
 
-    const closure = val.Closure.init(func, 0);
+    const closure = val.Closure.init(func);
 
     try self.push(.{ .Closure = closure });
     _ = try self.call(closure, 0);
@@ -153,6 +153,10 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
             return err.Error.RuntimeError;
         },
     };
+}
+
+fn captureUpvalue(value: usize) val.Upvalue {
+    return .{ .Location = value };
 }
 
 fn frame(self: *VM) *CallFrame {
@@ -249,6 +253,18 @@ pub fn run(self: *VM) !void {
                 self.stack[slots_offset + frame_offset] = try self.peek(0);
                 ip += CONST_LONG_SIZE;
             },
+            .GetUpvalue => {
+                const slot = self.chunk().readByte(ip);
+                const location = self.frame().closure.upvalues.items[slot].Location;
+                try self.push(self.stack[location]);
+                ip += 1;
+            },
+            .SetUpvalue => {
+                const slot = self.chunk().readByte(ip);
+                const value = try self.peek(0);
+                self.frame().closure.upvalues.items[slot].Location = value;
+                ip += 1;
+            },
             .Nil => {
                 try self.push(.Nil);
             },
@@ -335,7 +351,16 @@ pub fn run(self: *VM) !void {
             .Closure => {
                 const function = self.chunk().readConstant(ip).Function;
                 ip += CONST_SIZE;
-                const closure = val.Closure.init(function, 0);
+                var closure = val.Closure.init(function);
+
+                const slots_offset = self.frame().slots_offset;
+                for (0..function.upvalue_count) |_| {
+                    const is_local = self.chunk().readByte(ip);
+                    const index = self.chunk().readByte(ip + 1);
+                    ip += 2;
+                    const upvalue = if (is_local == 1) captureUpvalue(slots_offset + index) else closure.upvalues.items[index];
+                    try closure.upvalues.append(self.allocator, upvalue);
+                }
                 try self.push(.{ .Closure = closure });
             },
             .Call => {

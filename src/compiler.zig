@@ -23,6 +23,11 @@ pub const Local = struct {
     is_captured: bool,
 };
 
+const Upvalue = struct {
+    index: usize,
+    is_local: bool,
+};
+
 const Precedence = enum(u8) {
     None = 0,
     Assignment = 1,
@@ -44,6 +49,7 @@ const Compile = struct {
     scopeDepth: i16,
     function: val.Function,
     function_type: FunctionType,
+    upvalues: [LOCALS_MAX]Upvalue,
 
     fn init(gpa: std.mem.Allocator, function_type: FunctionType) Compile {
         return Compile{
@@ -53,6 +59,7 @@ const Compile = struct {
             .function = val.Function.init(gpa, null),
             .function_type = function_type,
             .enclosing = null,
+            .upvalues = undefined,
         };
     }
 
@@ -293,6 +300,9 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     if (arg != null) {
         getOp = .GetLocal;
         setOp = .SetLocal;
+    } else if (try self.resolveUpvalue(self.current, token)) |_| {
+        getOp = .GetUpvalue;
+        setOp = .SetUpvalue;
     } else {
         arg = try self.identifierConstant(token);
         getOp = .GetGlobal;
@@ -327,6 +337,41 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     }
 
     try self.emitOperand(arg.?);
+}
+
+fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
+    if (compiler.enclosing) |enclosing| {
+        if (try self.resolveLocal(enclosing, token)) |local| {
+            return try self.addUpvalue(compiler, local, true);
+        } else {
+            if (try self.resolveUpvalue(compiler.enclosing.?, token)) |upvalue| {
+                return try self.addUpvalue(compiler, upvalue, false);
+            } else {
+                return null;
+            }
+        }
+    } else {
+        return null;
+    }
+}
+
+fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool) !usize {
+    const upvalueCount = compiler.function.upvalue_count;
+    for (0..upvalueCount) |ix| {
+        if (compiler.upvalues[ix].index == ix and compiler.upvalues[ix].is_local == is_local) {
+            return ix;
+        }
+    }
+
+    if (upvalueCount == LOCALS_MAX) {
+        try self.errorAtPrev("Too many closure variables in function.");
+        return 0;
+    }
+
+    compiler.upvalues[upvalueCount].is_local = is_local;
+    compiler.upvalues[upvalueCount].index = index;
+    compiler.function.upvalue_count += 1;
+    return upvalueCount;
 }
 
 fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
@@ -699,6 +744,11 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.emitOpcode(.Closure);
     const ix = try self.currentChunk().addConstant(.{ .Function = func });
     try self.emitOperand(ix);
+    for (0..func.upvalue_count) |i| {
+        const is_local: usize = if (self.current.upvalues[i].is_local) 1 else 0;
+        try self.emitOperand(is_local);
+        try self.emitOperand(self.current.upvalues[i].index);
+    }
 }
 
 fn funDeclaration(self: *Compiler) !void {
