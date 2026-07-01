@@ -12,6 +12,7 @@ pub const LoxValue = union(enum) {
     Bool: bool,
     String: []const u8,
     Function: Function,
+    Closure: Closure,
     Native: NativeFn,
     NaN,
 
@@ -22,6 +23,7 @@ pub const LoxValue = union(enum) {
             .Bool => |b| try writer.print("{}", .{b}),
             .String => |s| try writer.print("{s}", .{s}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
+            .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
             .Native => try writer.print("<native fn>", .{}),
             .NaN => try writer.print("NaN", .{}),
         }
@@ -70,6 +72,7 @@ pub const LoxValue = union(enum) {
             .Bool => |l| l == other.Bool,
             .Nil => true,
             .Function => false,
+            .Closure => false,
             .Native => false,
             .NaN => true,
         };
@@ -97,6 +100,7 @@ pub const LoxValue = union(enum) {
             },
             .Nil => err.Error.CompileError,
             .Function => err.Error.CompileError,
+            .Closure => err.Error.CompileError,
             .Native => err.Error.CompileError,
         };
     }
@@ -126,5 +130,17 @@ pub const Function = struct {
 
     pub fn deinit(self: *Function) void {
         self.chunk.deinit();
+    }
+};
+
+pub const Closure = struct {
+    function: Function,
+    upvalue_count: usize,
+
+    pub fn init(function: Function, upvalue_count: usize) Closure {
+        return Closure{
+            .function = function,
+            .upvalue_count = upvalue_count,
+        };
     }
 };

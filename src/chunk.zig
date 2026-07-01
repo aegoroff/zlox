@@ -203,6 +203,7 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
         .SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
+        .Closure => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE"),
         .JumpIfFalse => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP_IF_FALSE", 1),
         .Jump => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP", 1),
         .Loop => try self.disassemblyJumpInstruction(writer, offset, "OP_LOOP", -1),
@@ -248,6 +249,31 @@ fn disassemblyJumpInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
     const target_address = @as(i32, @intCast(offset)) + 3 + sign * @as(i32, @intCast(jump));
     try writer.print("{s:<16} {d:>4} -> {d}\n", .{ name, offset, target_address });
     return offset + 3;
+}
+
+fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
+    const function_ix = self.readByte(offset + 1);
+    var current_offset = offset + 2;
+
+    const val = self.constants.items[function_ix];
+    if (val == .Closure) {
+        const closure = val.Closure;
+        try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, closure.function.name orelse "script" });
+        var i: usize = 0;
+        while (i < closure.upvalue_count) : (i += 1) {
+            const is_local = self.readByte(current_offset);
+            const is_local_str = if (is_local == 1) "local" else "upvalue";
+            const index = self.readByte(current_offset + 1);
+            try writer.print("{d:04}    |                     {s} {d}\n", .{ current_offset, is_local_str, index });
+            current_offset += 2;
+        }
+    } else if (val == .Function) {
+        const func = val.Function;
+        try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, func.name orelse "script" });
+    } else {
+        try writer.print("{s:<16} {d:4}\n", .{ name, function_ix });
+    }
+    return current_offset;
 }
 
 fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {

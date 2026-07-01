@@ -696,6 +696,7 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     new_compile.deinit();
     self.allocator.destroy(new_compile);
 
+    try self.emitOpcode(.Closure);
     try self.emitConstant(.{ .Function = func });
 }
 
