@@ -360,8 +360,6 @@ pub fn run(self: *VM) !void {
                     const upvalue: val.Upvalue = if (is_local == 1)
                         try captureUpvalue(slots_offset + index)
                     else blk: {
-                        // Когда захватываем upvalue из enclosing closure,
-                        // получаем значение и создаём новый закрытый upvalue
                         const enclosing_upvalue = current_frame.closure.upvalues.items[index];
                         break :blk .{ .location = null, .value = enclosing_upvalue.get(self.stack) };
                     };
