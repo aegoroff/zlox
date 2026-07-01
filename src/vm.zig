@@ -363,12 +363,16 @@ fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     if (self.globals.get(name)) |constant_value| {
         try self.push(constant_value);
     } else {
-        std.log.err("Unknown global: {s}. Current globals are:", .{name});
+        var globals_list = std.ArrayList(u8).empty;
+        defer globals_list.deinit(self.allocator);
+
         var iterator = self.globals.iterator();
         while (iterator.next()) |e| {
-            std.log.err(" - {s}", .{e.key_ptr.*});
+            try globals_list.appendSlice(self.allocator, "\n - ");
+            try globals_list.appendSlice(self.allocator, e.key_ptr.*);
         }
 
+        std.log.err("Unknown global: {s}. Current globals are:{s}", .{ name, globals_list.items });
         return err.Error.RuntimeError;
     }
 }
