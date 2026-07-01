@@ -146,15 +146,6 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
     }
     self.parser.panicMode = true;
 
-    // const location = if (token.type == .Eof)
-    //     try self.allocator.dupe(u8, " at end")
-    // else
-    //     try std.fmt.allocPrint(self.allocator, " at '{s}'", .{self.lexeme(token)});
-
-    // defer self.allocator.free(location);
-
-    // std.log.err("[line {d}] Error{s}: {s}", .{ token.line, location, message });
-
     var reporter = ErrorReporter.init(self.allocator);
 
     defer reporter.deinit();

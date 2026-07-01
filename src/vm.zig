@@ -16,10 +16,10 @@ const CONST_LONG_SIZE: usize = 3;
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 io: std.Io,
-stack: [STACK_MAX]LoxValue,
+stack: []LoxValue,
 stack_top: usize,
 globals: std.StringHashMap(LoxValue),
-frames: [FRAMES_MAX]CallFrame,
+frames: []CallFrame,
 frame_count: usize,
 
 allocated_strings: std.ArrayList([]u8),
@@ -30,17 +30,27 @@ pub const CallFrame = struct {
 };
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
+    const stack = try gpa.alloc(LoxValue, STACK_MAX);
+    @memset(stack, .Nil);
+    
+    const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
+    @memset(frames, CallFrame{ .function = undefined, .slots_offset = 0 });
+    
     var vm = VM{
         .allocator = gpa,
         .io = io,
         .writer = writer,
-        .stack = undefined,
-        .frames = undefined,
+        .stack = stack,
+        .frames = frames,
         .frame_count = 0,
         .globals = std.StringHashMap(LoxValue).init(gpa),
         .stack_top = 0,
         .allocated_strings = .empty,
     };
+    errdefer {
+        gpa.free(stack);
+        gpa.free(frames);
+    }
     try vm.defineNative("clock", builtin.clock);
     try vm.defineNative("max", builtin.max);
     try vm.defineNative("min", builtin.min);
@@ -55,6 +65,8 @@ pub fn deinit(self: *VM) void {
         self.allocator.free(s);
     }
     self.allocated_strings.deinit(self.allocator);
+    self.allocator.free(self.stack);
+    self.allocator.free(self.frames);
 }
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
