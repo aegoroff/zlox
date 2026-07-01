@@ -4,7 +4,7 @@ const Chunk = @import("chunk.zig");
 
 const ERROR_MARGIN = 0.000001;
 
-pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) LoxValue;
+pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) err.Error!LoxValue;
 
 pub const LoxValue = union(enum) {
     Nil,

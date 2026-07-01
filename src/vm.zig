@@ -4,6 +4,7 @@ const std = @import("std");
 const Chunk = @import("chunk.zig");
 const err = @import("error.zig");
 const val = @import("value.zig");
+const builtin = @import("builtin.zig");
 const Compiler = @import("compiler.zig");
 
 const LoxValue = val.LoxValue;
@@ -40,7 +41,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .stack_top = 0,
         .allocated_strings = .empty,
     };
-    try vm.defineNative("clock", clockNative);
+    try vm.defineNative("clock", builtin.clock);
+    try vm.defineNative("max", builtin.max);
+    try vm.defineNative("min", builtin.min);
+    try vm.defineNative("sqrt", builtin.sqrt);
     return vm;
 }
 
@@ -69,6 +73,10 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
     _ = try self.call(func, 0);
     _ = try self.pop();
     func.deinit();
+}
+
+fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
+    try self.globals.put(name, .{ .Native = function });
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -111,9 +119,9 @@ fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
 fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
         .Function => |f| try self.call(f, arg_count),
-        .Native => |f| {
+        .Native => |native_fn| {
             const args_start = self.stack.len - arg_count;
-            const result = f(self.io, self.stack[args_start..]);
+            const result = try native_fn(self.io, self.stack[args_start..]);
             self.stack_top -= arg_count + 1;
             try self.push(result);
             return true;
@@ -367,17 +375,6 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     }
     const new_value = try self.peek(0);
     try self.globals.put(name, new_value);
-}
-
-fn clockNative(io: std.Io, args: []const LoxValue) LoxValue {
-    _ = args;
-    const ts = std.Io.Clock.real.now(io);
-    const ns: f64 = @floatFromInt(ts.toNanoseconds());
-    return .{ .Number = ns / 1_000_000_000.0 };
-}
-
-fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
-    try self.globals.put(name, .{ .Native = function });
 }
 
 test "Simple add expression" {
