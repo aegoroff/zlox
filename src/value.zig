@@ -166,4 +166,8 @@ pub const Closure = struct {
             .upvalues = .empty,
         };
     }
+
+    pub fn deinit(self: *Closure, gpa: std.mem.Allocator) void {
+        self.upvalues.deinit(gpa);
+    }
 };

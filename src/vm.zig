@@ -89,11 +89,12 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     }
     compiler.deinit();
 
-    const closure = val.Closure.init(func);
+    var closure = val.Closure.init(func);
 
     try self.push(.{ .Closure = closure });
     _ = try self.call(closure, 0);
     _ = try self.pop();
+    closure.deinit(self.allocator);
     func.deinit();
 }
 
@@ -386,7 +387,7 @@ pub fn run(self: *VM) !void {
                 const result = if (self.stack_top > 0) try self.pop() else .Nil;
 
                 // Close all upvalues that reference this frame's stack slots before popping the frame
-                const current_frame = self.frame();
+                var current_frame = self.frame();
                 const frame_start = current_frame.slots_offset;
                 const frame_end = self.stack_top;
                 for (current_frame.closure.upvalues.items) |*upvalue| {
@@ -399,6 +400,9 @@ pub fn run(self: *VM) !void {
                         }
                     }
                 }
+
+                // Deinit the closure before removing the frame
+                current_frame.closure.deinit(self.allocator);
 
                 self.frame_count -= 1;
                 if (self.frame_count == 0) {

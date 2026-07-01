@@ -256,22 +256,19 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
     var current_offset = offset + 2;
 
     const val = self.constants.items[function_ix];
-    if (val == .Closure) {
-        const closure = val.Closure;
-        try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, closure.function.name orelse "script" });
-        var i: usize = 0;
-        while (i < closure.upvalues.items.len) : (i += 1) {
-            const is_local = self.readByte(current_offset);
-            const is_local_str = if (is_local == 1) "local" else "upvalue";
-            const index = self.readByte(current_offset + 1);
-            try writer.print("{d:04}    |                     {s} {d}\n", .{ current_offset, is_local_str, index });
-            current_offset += 2;
-        }
-    } else if (val == .Function) {
-        const func = val.Function;
-        try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, func.name orelse "script" });
-    } else {
-        try writer.print("{s:<16} {d:4}\n", .{ name, function_ix });
+    const func = if (val == .Function) val.Function else if (val == .Closure) val.Closure.function else null;
+    const func_name = func.?.name orelse "script";
+    const upvalue_count = if (func) |f| f.upvalue_count else 0;
+
+    try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, func_name });
+
+    var i: usize = 0;
+    while (i < upvalue_count) : (i += 1) {
+        const is_local = self.readByte(current_offset);
+        const is_local_str = if (is_local == 1) "local" else "upvalue";
+        const index = self.readByte(current_offset + 1);
+        try writer.print("{d:04}    |                     {s} {d}\n", .{ current_offset, is_local_str, index });
+        current_offset += 2;
     }
     return current_offset;
 }
