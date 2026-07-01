@@ -1404,3 +1404,30 @@ test "function as argument" {
     // Assert
     try std.testing.expectEqualStrings("-42\n", writer.written());
 }
+
+test "closures capture outer variable" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\var x = "global";
+        \\fun outer() {
+        \\  var x = "outer";
+        \\  fun inner() {
+        \\    print x;
+        \\  }
+        \\  inner();
+        \\}
+        \\outer();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("outer\n", writer.written());
+}
