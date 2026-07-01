@@ -25,7 +25,7 @@ frame_count: usize,
 allocated_strings: std.ArrayList([]u8),
 
 pub const CallFrame = struct {
-    function: val.Function,
+    closure: val.Closure,
     slots_offset: usize, // points to vm's value's stack first value it can use
 };
 
@@ -34,7 +34,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     @memset(stack, .Nil);
 
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
-    @memset(frames, CallFrame{ .function = undefined, .slots_offset = 0 });
+    @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0 });
 
     var vm = VM{
         .allocator = gpa,
@@ -130,7 +130,7 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
 
 fn call(self: *VM, closure: val.Closure, arg_count: usize) anyerror!bool {
     self.frames[self.frame_count] = CallFrame{
-        .function = closure.function,
+        .closure = closure,
         .slots_offset = self.stack_top - arg_count,
     };
     self.frame_count += 1;
@@ -160,7 +160,7 @@ fn frame(self: *VM) *CallFrame {
 }
 
 fn chunk(self: *VM) *Chunk {
-    return &self.frame().function.chunk;
+    return &self.frame().closure.function.chunk;
 }
 
 fn println(self: *VM) !void {
