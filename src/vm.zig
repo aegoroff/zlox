@@ -120,8 +120,8 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
         .Function => |f| try self.call(f, arg_count),
         .Native => |native_fn| {
-            const args_start = self.stack.len - arg_count;
-            const result = try native_fn(self.io, self.stack[args_start..]);
+            const args_start = self.stack_top - arg_count;
+            const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
             self.stack_top -= arg_count + 1;
             try self.push(result);
             return true;
@@ -1229,6 +1229,146 @@ test "native function clock" {
 
     // Assert
     try std.testing.expectEqualStrings("true\n", writer.written());
+}
+
+test "native function sqrt" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print sqrt(16);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("4\n", writer.written());
+}
+
+test "native function sqrt of two" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print sqrt(2);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("1.4142135623730951\n", writer.written());
+}
+
+test "native function min" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print min(5, 3);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("3\n", writer.written());
+}
+
+test "native function min reversed" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print min(3, 5);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("3\n", writer.written());
+}
+
+test "native function min equal" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print min(4, 4);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("4\n", writer.written());
+}
+
+test "native function max" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print max(5, 3);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("5\n", writer.written());
+}
+
+test "native function max reversed" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print max(3, 5);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("5\n", writer.written());
+}
+
+test "native function max equal" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print max(4, 4);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("4\n", writer.written());
+}
+
+test "native functions composition" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print sqrt(max(9, 4));", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("3\n", writer.written());
+}
+
+test "native functions nested min max" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print min(max(3, 5), 4);", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("4\n", writer.written());
 }
 
 test "function as argument" {
