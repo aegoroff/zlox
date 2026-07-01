@@ -115,8 +115,25 @@ pub const LoxValue = union(enum) {
     }
 };
 
-pub const Upvalue = union(enum) {
-    Location: usize,
+pub const Upvalue = struct {
+    location: ?usize = null, // индекс в стеке, если upvalue ещё открыт
+    value: LoxValue = .Nil, // значение, когда upvalue закрыт
+
+    pub fn get(self: *const Upvalue, stack: []const LoxValue) LoxValue {
+        if (self.location) |loc| {
+            return stack[loc];
+        } else {
+            return self.value;
+        }
+    }
+
+    pub fn set(self: *Upvalue, stack: []LoxValue, val: LoxValue) void {
+        if (self.location) |loc| {
+            stack[loc] = val;
+        } else {
+            self.value = val;
+        }
+    }
 };
 
 pub const Function = struct {

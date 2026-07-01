@@ -155,8 +155,8 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     };
 }
 
-fn captureUpvalue(value: usize) val.Upvalue {
-    return .{ .Location = value };
+fn captureUpvalue(value: usize) !val.Upvalue {
+    return .{ .location = value };
 }
 
 fn frame(self: *VM) *CallFrame {
@@ -255,14 +255,14 @@ pub fn run(self: *VM) !void {
             },
             .GetUpvalue => {
                 const slot = self.chunk().readByte(ip);
-                const location = self.frame().closure.upvalues.items[slot].Location;
-                try self.push(self.stack[location]);
+                const upvalue = self.frame().closure.upvalues.items[slot];
+                try self.push(upvalue.get(self.stack));
                 ip += 1;
             },
             .SetUpvalue => {
                 const slot = self.chunk().readByte(ip);
                 const value = try self.peek(0);
-                self.frame().closure.upvalues.items[slot].Location = value;
+                self.frame().closure.upvalues.items[slot].set(self.stack, value);
                 ip += 1;
             },
             .Nil => {
@@ -353,12 +353,20 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
                 var closure = val.Closure.init(function);
 
-                const slots_offset = self.frame().slots_offset;
+                const current_frame = self.frame();
+                const slots_offset = current_frame.slots_offset;
                 for (0..function.upvalue_count) |_| {
                     const is_local = self.chunk().readByte(ip);
                     const index = self.chunk().readByte(ip + 1);
                     ip += 2;
-                    const upvalue = if (is_local == 1) captureUpvalue(slots_offset + index) else closure.upvalues.items[index];
+                    const upvalue: val.Upvalue = if (is_local == 1)
+                        try captureUpvalue(slots_offset + index)
+                    else blk: {
+                        // Когда захватываем upvalue из enclosing closure,
+                        // получаем значение и создаём новый закрытый upvalue
+                        const enclosing_upvalue = current_frame.closure.upvalues.items[index];
+                        break :blk .{ .location = null, .value = enclosing_upvalue.get(self.stack) };
+                    };
                     try closure.upvalues.append(self.allocator, upvalue);
                 }
                 try self.push(.{ .Closure = closure });
@@ -376,6 +384,22 @@ pub fn run(self: *VM) !void {
             .Return => {
                 // Get the return value if there is one
                 const result = if (self.stack_top > 0) try self.pop() else .Nil;
+
+                // Close all upvalues that reference this frame's stack slots before popping the frame
+                const current_frame = self.frame();
+                const frame_start = current_frame.slots_offset;
+                const frame_end = self.stack_top;
+                for (current_frame.closure.upvalues.items) |*upvalue| {
+                    if (upvalue.location) |loc| {
+                        // Check if this upvalue references a slot in the current frame
+                        if (loc >= frame_start and loc < frame_end) {
+                            // Close the upvalue by copying the value and clearing the location
+                            upvalue.value = self.stack[loc];
+                            upvalue.location = null;
+                        }
+                    }
+                }
+
                 self.frame_count -= 1;
                 if (self.frame_count == 0) {
                     // Main script finished

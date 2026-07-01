@@ -296,13 +296,15 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     var getOp: Chunk.OpCode = undefined;
     var setOp: Chunk.OpCode = undefined;
-    var arg = try self.resolveLocal(self.current, token);
-    if (arg != null) {
+    var arg: ?usize = null;
+    if (try self.resolveLocal(self.current, token)) |local| {
         getOp = .GetLocal;
         setOp = .SetLocal;
-    } else if (try self.resolveUpvalue(self.current, token)) |_| {
+        arg = local;
+    } else if (try self.resolveUpvalue(self.current, token)) |upvalue| {
         getOp = .GetUpvalue;
         setOp = .SetUpvalue;
+        arg = upvalue;
     } else {
         arg = try self.identifierConstant(token);
         getOp = .GetGlobal;
@@ -358,7 +360,7 @@ fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usi
 fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool) !usize {
     const upvalueCount = compiler.function.upvalue_count;
     for (0..upvalueCount) |ix| {
-        if (compiler.upvalues[ix].index == ix and compiler.upvalues[ix].is_local == is_local) {
+        if (compiler.upvalues[ix].index == index and compiler.upvalues[ix].is_local == is_local) {
             return ix;
         }
     }
@@ -735,6 +737,13 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.block();
     const func = try self.endCompiler();
 
+    // Copy upvalues before destroying new_compile
+    var upvalues: [LOCALS_MAX]Upvalue = undefined;
+    const upvalue_count = new_compile.function.upvalue_count;
+    for (0..upvalue_count) |i| {
+        upvalues[i] = new_compile.upvalues[i];
+    }
+
     // Restore current to the enclosing compiler so defineVariable works correctly.
     self.current = old_compiler;
 
@@ -744,10 +753,10 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.emitOpcode(.Closure);
     const ix = try self.currentChunk().addConstant(.{ .Function = func });
     try self.emitOperand(ix);
-    for (0..func.upvalue_count) |i| {
-        const is_local: usize = if (self.current.upvalues[i].is_local) 1 else 0;
+    for (0..upvalue_count) |i| {
+        const is_local: usize = if (upvalues[i].is_local) 1 else 0;
         try self.emitOperand(is_local);
-        try self.emitOperand(self.current.upvalues[i].index);
+        try self.emitOperand(upvalues[i].index);
     }
 }
 
