@@ -75,27 +75,24 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 
 pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, filename: []const u8) !void {
     var compiler = Compiler.init(self.allocator, self.writer, print_code, filename);
+    defer compiler.deinit();
 
     var func = compiler.compile(source) catch |compile_err| {
-        compiler.deinit();
         return compile_err;
     };
-    errdefer func.deinit();
 
     if (compiler.parser.hadError) {
-        compiler.deinit();
         func.deinit();
         return err.Error.CompileError;
     }
-    compiler.deinit();
+    defer func.deinit();
 
     var closure = val.Closure.init(func);
+    defer closure.deinit(self.allocator);
 
     try self.push(.{ .Closure = closure });
     _ = try self.call(closure, 0);
     _ = try self.pop();
-    closure.deinit(self.allocator);
-    func.deinit();
 }
 
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {

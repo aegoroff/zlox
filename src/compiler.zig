@@ -156,13 +156,16 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
     self.parser.panicMode = true;
 
     var reporter = ErrorReporter.init(self.allocator);
-
     defer reporter.deinit();
 
     try reporter.addSource(self.filename, self.lexer.source);
 
+    // For single-character tokens, use the same start and end columns
+    const col_start = token.col_start;
+    const col_end = if (token.col_end > token.col_start) token.col_end else token.col_start;
+
     const diagnostic = Diagnostic.init(.err, message)
-        .withRange(SourceRange.span(self.filename, token.line, token.col_start, token.line, token.col_end));
+        .withRange(SourceRange.span(self.filename, token.line, col_start, token.line, col_end));
 
     reporter.report(diagnostic);
     self.parser.hadError = true;

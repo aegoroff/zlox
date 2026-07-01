@@ -81,7 +81,17 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
     self.start = self.current;
     self.start_col = self.col;
     if (self.isAtEnd()) {
-        return self.makeToken(.Eof);
+        // For EOF token, use the position at the end of the file
+        // col_start and col_end should point to the end of the last line
+        const eof_col = if (self.col > 1) self.col - 1 else 1;
+        return Token{
+            .type = .Eof,
+            .start = self.current,
+            .length = 0,
+            .line = self.line,
+            .col_start = eof_col,
+            .col_end = eof_col,
+        };
     }
     const c = self.advance();
     return switch (c) {
