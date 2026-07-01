@@ -1431,3 +1431,32 @@ test "closures capture outer variable" {
     // Assert
     try std.testing.expectEqualStrings("outer\n", writer.written());
 }
+
+test "closures multiple instances with different captured values" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\fun makeClosure(value) {
+        \\  fun closure() {
+        \\    print value;
+        \\  }
+        \\  return closure;
+        \\}
+        \\
+        \\var doughnut = makeClosure("doughnut");
+        \\var bagel = makeClosure("bagel");
+        \\doughnut();
+        \\bagel();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("doughnut\nbagel\n", writer.written());
+}
