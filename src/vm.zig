@@ -32,10 +32,10 @@ pub const CallFrame = struct {
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     const stack = try gpa.alloc(LoxValue, STACK_MAX);
     @memset(stack, .Nil);
-    
+
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
     @memset(frames, CallFrame{ .function = undefined, .slots_offset = 0 });
-    
+
     var vm = VM{
         .allocator = gpa,
         .io = io,
@@ -89,8 +89,10 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     }
     compiler.deinit();
 
-    try self.push(.{ .Function = func });
-    _ = try self.call(func, 0);
+    const closure = val.Closure.init(func, 0);
+
+    try self.push(.{ .Closure = closure });
+    _ = try self.call(closure, 0);
     _ = try self.pop();
     func.deinit();
 }
@@ -126,9 +128,9 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
-fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
+fn call(self: *VM, closure: val.Closure, arg_count: usize) anyerror!bool {
     self.frames[self.frame_count] = CallFrame{
-        .function = function,
+        .function = closure.function,
         .slots_offset = self.stack_top - arg_count,
     };
     self.frame_count += 1;
@@ -138,7 +140,7 @@ fn call(self: *VM, function: val.Function, arg_count: usize) anyerror!bool {
 
 fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
-        .Function => |f| try self.call(f, arg_count),
+        .Closure => |f| try self.call(f, arg_count),
         .Native => |native_fn| {
             const args_start = self.stack_top - arg_count;
             const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
@@ -329,6 +331,12 @@ pub fn run(self: *VM) !void {
             },
             .Pop => {
                 _ = try self.pop();
+            },
+            .Closure => {
+                const function = self.chunk().readConstant(ip).Function;
+                ip += CONST_SIZE;
+                const closure = val.Closure.init(function, 0);
+                try self.push(.{ .Closure = closure });
             },
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
