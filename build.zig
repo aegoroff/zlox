@@ -11,25 +11,27 @@ pub fn build(b: *std.Build) void {
 
     const version_opt = b.option([]const u8, "version", "The version of the app") orelse "0.1.0-dev";
     options.addOption([]const u8, "version", version_opt);
+
     const yazap = b.dependency("yazap", .{});
+    const fehler = b.dependency("fehler", .{});
 
     const deps = ModuleDeps{
         .b = b,
         .yazap = yazap,
+        .fehler = fehler,
         .options = options,
     };
 
-    var exe = b.addExecutable(.{
+    const strip = optimize != .Debug;
+    const exe = b.addExecutable(.{
         .name = "zlox",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .strip = strip,
         }),
     });
-    if (optimize == .ReleaseFast) {
-        exe.root_module.strip = true;
-    }
     deps.applyTo(exe.root_module);
 
     b.installArtifact(exe);
@@ -68,10 +70,12 @@ pub fn build(b: *std.Build) void {
 const ModuleDeps = struct {
     b: *std.Build,
     yazap: *std.Build.Dependency,
+    fehler: *std.Build.Dependency,
     options: *std.Build.Step.Options,
 
     fn applyTo(self: ModuleDeps, mod: *std.Build.Module) void {
         mod.addImport("yazap", self.yazap.module("yazap"));
+        mod.addImport("fehler", self.fehler.module("fehler"));
         mod.addImport("build_options", self.options.createModule());
     }
 };

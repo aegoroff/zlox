@@ -5,6 +5,10 @@ const scan = @import("scanner.zig");
 const Chunk = @import("chunk.zig");
 const val = @import("value.zig");
 const e = @import("error.zig");
+const ErrorReporter = @import("fehler").ErrorReporter;
+const Diagnostic = @import("fehler").Diagnostic;
+const Severity = @import("fehler").Severity;
+const SourceRange = @import("fehler").SourceRange;
 
 pub const Parser = struct {
     current: scan.Token,
@@ -142,15 +146,25 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
     }
     self.parser.panicMode = true;
 
-    const location = if (token.type == .Eof)
-        try self.allocator.dupe(u8, " at end")
-    else
-        try std.fmt.allocPrint(self.allocator, " at '{s}'", .{self.lexeme(token)});
+    // const location = if (token.type == .Eof)
+    //     try self.allocator.dupe(u8, " at end")
+    // else
+    //     try std.fmt.allocPrint(self.allocator, " at '{s}'", .{self.lexeme(token)});
 
-    defer self.allocator.free(location);
+    // defer self.allocator.free(location);
 
-    std.log.err("[line {d}] Error{s}: {s}", .{ token.line, location, message });
+    // std.log.err("[line {d}] Error{s}: {s}", .{ token.line, location, message });
 
+    var reporter = ErrorReporter.init(self.allocator);
+
+    defer reporter.deinit();
+
+    try reporter.addSource("example.zig", self.lexer.source);
+
+    const diagnostic = Diagnostic.init(.err, message)
+        .withRange(SourceRange.single("example.zig", token.line, 1));
+
+    reporter.report(diagnostic);
     self.parser.hadError = true;
 }
 
