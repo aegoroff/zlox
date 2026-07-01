@@ -54,12 +54,16 @@ pub const Token = struct {
     start: usize,
     length: usize,
     line: usize,
+    col_start: usize,
+    col_end: usize,
 };
 
 source: []const u8,
 start: usize,
 current: usize,
 line: usize,
+col: usize,
+start_col: usize,
 
 pub fn init(source: []const u8) Lexer {
     return Lexer{
@@ -67,12 +71,15 @@ pub fn init(source: []const u8) Lexer {
         .start = 0,
         .current = 0,
         .line = 1,
+        .col = 1,
+        .start_col = 1,
     };
 }
 
 pub fn scanToken(self: *Lexer) LexerError!Token {
     self.skipWhitespace();
     self.start = self.current;
+    self.start_col = self.col;
     if (self.isAtEnd()) {
         return self.makeToken(.Eof);
     }
@@ -129,10 +136,12 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
 
 fn makeToken(self: *Lexer, tokenType: TokenType) Token {
     return Token{
-        .start = self.start,
         .type = tokenType,
+        .start = self.start,
         .length = self.current - self.start,
         .line = self.line,
+        .col_start = self.start_col,
+        .col_end = self.col - 1,
     };
 }
 
@@ -231,6 +240,7 @@ fn match(self: *Lexer, expected: u8) bool {
 
 fn advance(self: *Lexer) u8 {
     self.current += 1;
+    self.col += 1;
     return self.source[self.current - 1];
 }
 
@@ -255,6 +265,7 @@ fn skipWhitespace(self: *Lexer) void {
             ' ', '\r', '\t' => _ = self.advance(),
             '\n' => {
                 self.line += 1;
+                self.col = 1;
                 _ = self.advance();
             },
             '/' => {
@@ -275,6 +286,7 @@ fn string(self: *Lexer) !Token {
     while (self.peek() != '"') {
         if (self.peek() == '\n') {
             self.line += 1;
+            self.col = 1;
         }
         _ = self.advance();
     }

@@ -153,7 +153,7 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
     try reporter.addSource("example.zig", self.lexer.source);
 
     const diagnostic = Diagnostic.init(.err, message)
-        .withRange(SourceRange.single("example.zig", token.line, 1));
+        .withRange(SourceRange.span("example.zig", token.line, token.col_start, token.line, token.col_end));
 
     reporter.report(diagnostic);
     self.parser.hadError = true;
