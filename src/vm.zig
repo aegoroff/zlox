@@ -70,7 +70,11 @@ pub fn deinit(self: *VM) void {
 }
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
-    var compiler = Compiler.init(self.allocator, self.writer, print_code);
+    return self.interpretWithFilename(source, print_code, "<stdin>");
+}
+
+pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, filename: []const u8) !void {
+    var compiler = Compiler.init(self.allocator, self.writer, print_code, filename);
 
     var func = compiler.compile(source) catch |compile_err| {
         compiler.deinit();

@@ -31,7 +31,10 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     defer config.deinit();
     var memory = std.Io.Writer.Allocating.init(gpa);
     defer memory.deinit();
+
+    var filename: []const u8 = "";
     if (config.getPathArgValue()) |path| {
+        filename = path;
         var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
         defer file.close(io);
         var file_buffer: [64 * 1024]u8 = undefined;
@@ -45,7 +48,8 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
 
     var virtualMachine = try vm.init(gpa, writer, io);
     defer virtualMachine.deinit();
-    try virtualMachine.interpret(memory.written(), config.printCode());
+    const fname = if (filename.len == 0) "<stdin>" else filename;
+    try virtualMachine.interpretWithFilename(memory.written(), config.printCode(), fname);
 }
 
 test {

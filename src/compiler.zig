@@ -76,12 +76,14 @@ lexer: scan.Lexer,
 current: *Compile,
 parser: Parser,
 print_code: bool,
+filename: []const u8,
 
-pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool) Compiler {
+pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool, filename: []const u8) Compiler {
     return Compiler{
         .allocator = gpa,
         .writer = writer,
         .print_code = print_code,
+        .filename = filename,
         .lexer = undefined,
         .current = undefined,
         .parser = .{
@@ -150,10 +152,10 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
 
     defer reporter.deinit();
 
-    try reporter.addSource("example.zig", self.lexer.source);
+    try reporter.addSource(self.filename, self.lexer.source);
 
     const diagnostic = Diagnostic.init(.err, message)
-        .withRange(SourceRange.span("example.zig", token.line, token.col_start, token.line, token.col_end));
+        .withRange(SourceRange.span(self.filename, token.line, token.col_start, token.line, token.col_end));
 
     reporter.report(diagnostic);
     self.parser.hadError = true;
