@@ -266,7 +266,11 @@ fn beginScope(self: *Compiler) void {
 fn endScope(self: *Compiler) !void {
     self.current.scopeDepth -= 1;
     while (self.current.localCount > 0 and self.current.locals[self.current.localCount - 1].depth > self.current.scopeDepth) {
-        try self.emitOpcode(.Pop);
+        if (self.current.locals[self.current.localCount - 1].is_captured) {
+            try self.emitOpcode(.CloseUpvalue);
+        } else {
+            try self.emitOpcode(.Pop);
+        }
         self.current.localCount -= 1;
     }
 }
@@ -347,6 +351,7 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
 fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
     if (compiler.enclosing) |enclosing| {
         if (try self.resolveLocal(enclosing, token)) |local| {
+            compiler.enclosing.?.locals[local].is_captured = true;
             return try self.addUpvalue(compiler, local, true);
         } else {
             if (try self.resolveUpvalue(compiler.enclosing.?, token)) |upvalue| {
