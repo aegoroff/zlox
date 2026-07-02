@@ -183,8 +183,7 @@ pub const Closure = struct {
     upvalue_count: usize,
     marked: bool = false,
 
-    pub fn init(gpa: std.mem.Allocator, function: *Function) Closure {
-        _ = gpa;
+    pub fn init(function: *Function) Closure {
         return Closure{
             .function = function,
             .upvalues = [_]*Upvalue{undefined} ** UPVALUE_MAX,

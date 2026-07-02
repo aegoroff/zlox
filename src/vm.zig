@@ -88,7 +88,7 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     compiler.current.function = null;
 
     const closure_ptr = try self.allocator.create(val.Closure);
-    closure_ptr.* = val.Closure.init(self.allocator, func);
+    closure_ptr.* = val.Closure.init(func);
     try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
     try self.push(.{ .Closure = closure_ptr });
@@ -410,7 +410,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
 
                 const closure_ptr = try self.allocator.create(val.Closure);
-                closure_ptr.* = val.Closure.init(self.allocator, function);
+                closure_ptr.* = val.Closure.init(function);
                 try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
                 const current_frame = self.frame();
