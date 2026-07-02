@@ -4,6 +4,7 @@ const std = @import("std");
 const Chunk = @import("chunk.zig");
 const err = @import("error.zig");
 const val = @import("value.zig");
+const mem = @import("memory.zig");
 const builtin = @import("builtin.zig");
 const Compiler = @import("compiler.zig");
 
@@ -22,13 +23,11 @@ globals: std.StringHashMap(LoxValue),
 frames: []CallFrame,
 frame_count: usize,
 
-allocated_strings: std.ArrayList([]u8),
+heap: mem.Heap,
 open_upvalues: ?*val.Upvalue,
-allocated_upvalues: std.ArrayList(*val.Upvalue),
-allocated_closures: std.ArrayList(val.Closure),
 
 pub const CallFrame = struct {
-    closure: val.Closure,
+    closure: *val.Closure,
     slots_offset: usize, // points to vm's value's stack first value it can use
 };
 
@@ -48,10 +47,8 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .frame_count = 0,
         .globals = std.StringHashMap(LoxValue).init(gpa),
         .stack_top = 0,
-        .allocated_strings = .empty,
+        .heap = mem.Heap.init(gpa),
         .open_upvalues = null,
-        .allocated_upvalues = .empty,
-        .allocated_closures = .empty,
     };
     errdefer {
         gpa.free(stack);
@@ -65,20 +62,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
 }
 
 pub fn deinit(self: *VM) void {
+    // Don't free functions/closures from globals - heap.deinit() will do it
     self.globals.deinit();
-    // Free all allocated strings from concatenation operations
-    for (self.allocated_strings.items) |s| {
-        self.allocator.free(s);
-    }
-    self.allocated_strings.deinit(self.allocator);
-    for (self.allocated_upvalues.items) |upvalue| {
-        self.allocator.destroy(upvalue);
-    }
-    self.allocated_upvalues.deinit(self.allocator);
-    for (self.allocated_closures.items) |*closure| {
-        closure.deinit(self.allocator);
-    }
-    self.allocated_closures.deinit(self.allocator);
+
+    self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
 }
@@ -91,22 +78,36 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     var compiler = Compiler.init(self.allocator, self.writer, print_code, filename);
     defer compiler.deinit();
 
-    var func = compiler.compile(source) catch |compile_err| {
+    const func = compiler.compile(source) catch |compile_err| {
         return compile_err;
     };
 
     if (compiler.parser.hadError) {
-        func.deinit();
+        // Function will be freed in compiler.deinit()
         return err.Error.CompileError;
     }
-    defer func.deinit();
 
-    const closure = val.Closure.init(func);
-    try self.allocated_closures.append(self.allocator, closure);
+    // func is already on heap, add to heap tracking
+    try self.trackFunctionRecursively(func);
 
-    try self.push(.{ .Closure = closure });
-    _ = try self.call(closure, 0);
+    // Cancel function free in compiler.deinit() - set to null
+    compiler.current.function = null;
+
+    // Allocate closure on heap
+    const closure_ptr = try self.allocator.create(val.Closure);
+    closure_ptr.* = val.Closure.init(self.allocator, func);
+    try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
+
+    try self.push(.{ .Closure = closure_ptr });
+    _ = try self.call(closure_ptr, 0);
     _ = try self.pop();
+}
+
+fn trackFunctionRecursively(self: *VM, func: *val.Function) !void {
+    try self.heap.trackObject(.{ .function = func }, @sizeOf(val.Function));
+    for (func.chunk.constants.items) |c| {
+        if (c == .Function) try self.trackFunctionRecursively(c.Function);
+    }
 }
 
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
@@ -140,7 +141,7 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
-fn call(self: *VM, closure: val.Closure, arg_count: usize) anyerror!bool {
+fn call(self: *VM, closure: *val.Closure, arg_count: usize) anyerror!bool {
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
         .slots_offset = self.stack_top - arg_count,
@@ -187,8 +188,9 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
         .location = slot,
         .closed = .Nil,
         .next = null,
+        .marked = false,
     };
-    try self.allocated_upvalues.append(self.allocator, created);
+    try self.heap.trackObject(.{ .upvalue = created }, @sizeOf(val.Upvalue));
 
     if (prev) |p| {
         created.next = p.next;
@@ -308,14 +310,14 @@ pub fn run(self: *VM) !void {
             },
             .GetUpvalue => {
                 const slot = self.chunk().readByte(ip);
-                const upvalue = self.frame().closure.upvalues.items[slot];
+                const upvalue = self.frame().closure.upvalues[slot];
                 try self.push(upvalue.get());
                 ip += 1;
             },
             .SetUpvalue => {
                 const slot = self.chunk().readByte(ip);
                 const value = try self.peek(0);
-                self.frame().closure.upvalues.items[slot].set(value);
+                self.frame().closure.upvalues[slot].set(value);
                 ip += 1;
             },
             .Nil => {
@@ -364,8 +366,14 @@ pub fn run(self: *VM) !void {
                     .String => |as| switch (b) {
                         .String => |bs| {
                             const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
-                            try self.allocated_strings.append(self.allocator, result);
-                            try self.push(.{ .String = result });
+                            const heap_str = try mem.HeapString.init(self.allocator, result);
+                            try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
+                            try self.push(.{ .String = heap_str.data });
+
+                            // Check if we need to run GC
+                            if (self.heap.shouldCollect()) {
+                                try self.collectGarbage();
+                            }
                         },
                         else => return err.Error.RuntimeError,
                     },
@@ -404,7 +412,10 @@ pub fn run(self: *VM) !void {
             .Closure => {
                 const function = self.chunk().readConstant(ip).Function;
                 ip += CONST_SIZE;
-                var closure = val.Closure.init(function);
+
+                const closure_ptr = try self.allocator.create(val.Closure);
+                closure_ptr.* = val.Closure.init(self.allocator, function);
+                try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
                 const current_frame = self.frame();
                 const slots_offset = current_frame.slots_offset;
@@ -415,11 +426,11 @@ pub fn run(self: *VM) !void {
                     const upvalue: *val.Upvalue = if (is_local == 1)
                         try self.captureUpvalue(slots_offset + index)
                     else
-                        current_frame.closure.upvalues.items[index];
-                    try closure.upvalues.append(self.allocator, upvalue);
+                        current_frame.closure.upvalues[index];
+                    closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
+                    closure_ptr.upvalue_count += 1;
                 }
-                try self.allocated_closures.append(self.allocator, closure);
-                try self.push(.{ .Closure = closure });
+                try self.push(.{ .Closure = closure_ptr });
             },
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
@@ -499,6 +510,77 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     }
     const new_value = try self.peek(0);
     try self.globals.put(name, new_value);
+}
+
+// ============================================
+// Garbage Collection
+// ============================================
+
+fn markValue(self: *VM, value: LoxValue) void {
+    switch (value) {
+        .Closure => |c| {
+            if (!c.marked) {
+                c.marked = true;
+                // Рекурсивно помечаем upvalues
+                for (c.upvalues[0..c.upvalue_count]) |up| {
+                    self.markUpvalue(up);
+                }
+            }
+        },
+        .Function => |f| {
+            if (!f.marked) {
+                f.marked = true;
+                // Mark constants from chunk (may contain Function/Closure)
+                for (f.chunk.constants.items) |const_val| {
+                    self.markValue(const_val);
+                }
+            }
+        },
+        .String => {},
+        else => {},
+    }
+}
+
+fn markUpvalue(self: *VM, upvalue: *val.Upvalue) void {
+    if (!upvalue.marked) {
+        upvalue.marked = true;
+        // If upvalue is closed, mark the value inside
+        if (upvalue.isClosed()) {
+            self.markValue(upvalue.closed);
+        }
+    }
+}
+
+fn markRoots(self: *VM) void {
+    // 1. Stack
+    for (self.stack[0..self.stack_top]) |slot| {
+        self.markValue(slot);
+    }
+
+    // 2. Globals
+    var it = self.globals.iterator();
+    while (it.next()) |entry| {
+        self.markValue(entry.value_ptr.*);
+    }
+
+    // 3. Call frames
+    for (self.frames[0..self.frame_count]) |f| {
+        self.markValue(.{ .Closure = f.closure });
+    }
+
+    // 4. Open upvalues
+    var upvalue = self.open_upvalues;
+    while (upvalue) |up| {
+        self.markUpvalue(up);
+        upvalue = up.next;
+    }
+}
+
+pub fn collectGarbage(self: *VM) !void {
+    // Mark phase
+    self.markRoots();
+    // Sweep phase
+    try self.heap.collectGarbage();
 }
 
 test "Simple add expression" {

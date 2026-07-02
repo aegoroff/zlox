@@ -43,20 +43,24 @@ const Precedence = enum(u8) {
 };
 
 const Compile = struct {
+    allocator: std.mem.Allocator,
     enclosing: ?*Compile,
     locals: [LOCALS_MAX]Local,
     localCount: usize,
     scopeDepth: i16,
-    function: val.Function,
+    function: ?*val.Function,
     function_type: FunctionType,
     upvalues: [LOCALS_MAX]Upvalue,
 
-    fn init(gpa: std.mem.Allocator, function_type: FunctionType) Compile {
+    fn init(gpa: std.mem.Allocator, function_type: FunctionType) !Compile {
+        const func = try gpa.create(val.Function);
+        func.* = val.Function.init(gpa, null);
         return Compile{
+            .allocator = gpa,
             .localCount = 0,
             .scopeDepth = 0,
             .locals = undefined,
-            .function = val.Function.init(gpa, null),
+            .function = func,
             .function_type = function_type,
             .enclosing = null,
             .upvalues = undefined,
@@ -64,7 +68,10 @@ const Compile = struct {
     }
 
     fn deinit(self: *Compile) void {
-        self.function.deinit();
+        if (self.function) |func| {
+            func.deinit();
+            self.allocator.destroy(func);
+        }
     }
 };
 
@@ -103,8 +110,9 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool, fi
 }
 
 fn initCurrent(self: *Compiler, function_type: FunctionType) !void {
+    const compile_inst = try Compile.init(self.allocator, function_type);
     const compile_ptr = try self.allocator.create(Compile);
-    compile_ptr.* = Compile.init(self.allocator, function_type);
+    compile_ptr.* = compile_inst;
     self.current = compile_ptr;
 }
 
@@ -116,11 +124,12 @@ pub fn deinit(self: *Compiler) void {
         current = enclosing;
     }
     // Free the top-level compile struct and its function
+    // Function already freed in endCompiler or will be freed by VM
     current.deinit();
     self.allocator.destroy(current);
 }
 
-pub fn compile(self: *Compiler, source: []const u8) !val.Function {
+pub fn compile(self: *Compiler, source: []const u8) !*val.Function {
     try self.initCurrent(.Script);
     self.lexer = scan.Lexer.init(source);
     try self.advance();
@@ -245,18 +254,16 @@ fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
     return try self.currentChunk().addConstant(value);
 }
 
-fn endCompiler(self: *Compiler) !val.Function {
+fn endCompiler(self: *Compiler) !*val.Function {
     try self.emitReturn();
-    const fun = self.current.function;
+    const fun_ptr = self.current.function.?;
     if (!self.parser.hadError and self.print_code) {
-        try self.currentChunk().disassembly(self.writer, fun.name);
+        try self.currentChunk().disassembly(self.writer, fun_ptr.name);
     }
     // Ownership transfers to caller (VM), nullify the function in compiler
     // to prevent double-free when compiler is deinitialized
-    self.current.function.name = null;
-    self.current.function.chunk = Chunk.init(self.allocator);
-    self.current.function.arity = 0;
-    return fun;
+    self.current.function = null;
+    return fun_ptr;
 }
 
 fn beginScope(self: *Compiler) void {
@@ -366,7 +373,7 @@ fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usi
 }
 
 fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool) !usize {
-    const upvalueCount = compiler.function.upvalue_count;
+    const upvalueCount = compiler.function.?.upvalue_count;
     for (0..upvalueCount) |ix| {
         if (compiler.upvalues[ix].index == index and compiler.upvalues[ix].is_local == is_local) {
             return ix;
@@ -380,7 +387,7 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
 
     compiler.upvalues[upvalueCount].is_local = is_local;
     compiler.upvalues[upvalueCount].index = index;
-    compiler.function.upvalue_count += 1;
+    compiler.function.?.upvalue_count += 1;
     return upvalueCount;
 }
 
@@ -616,7 +623,7 @@ fn callInfix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void
 }
 
 fn currentChunk(self: *Compiler) *Chunk {
-    return &self.current.function.chunk;
+    return &self.current.function.?.chunk;
 }
 
 fn expression(self: *Compiler) !void {
@@ -717,9 +724,9 @@ fn block(self: *Compiler) anyerror!void {
 
 fn function(self: *Compiler, function_type: FunctionType) !void {
     const old_compiler = self.current;
-    var compiler = Compile.init(self.allocator, function_type);
+    var compiler = try Compile.init(self.allocator, function_type);
     compiler.enclosing = old_compiler;
-    compiler.function.name = self.lexeme(&self.parser.previous);
+    compiler.function.?.name = self.lexeme(&self.parser.previous);
     const new_compile = try self.allocator.create(Compile);
     new_compile.* = compiler;
     self.current = new_compile;
@@ -729,8 +736,8 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
 
     if (!self.check(.RightParen)) {
         while (true) {
-            self.current.function.arity += 1;
-            if (self.current.function.arity > 255) {
+            self.current.function.?.arity += 1;
+            if (self.current.function.?.arity > 255) {
                 try self.errorAtCurrent("Can't have more than 255 parameters.");
             }
             const constant = try self.parseVariable("Expect parameter name.");
@@ -743,14 +750,15 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.consume(.RightParen, "Expect ')' after parameters.");
     try self.consume(.LeftBrace, "Expect '{' before function body.");
     try self.block();
-    const func = try self.endCompiler();
 
-    // Copy upvalues before destroying new_compile
+    // Save upvalue_count before calling endCompiler (which nullifies function)
+    const upvalue_count = new_compile.function.?.upvalue_count;
     var upvalues: [LOCALS_MAX]Upvalue = undefined;
-    const upvalue_count = new_compile.function.upvalue_count;
     for (0..upvalue_count) |i| {
         upvalues[i] = new_compile.upvalues[i];
     }
+
+    const func = try self.endCompiler();
 
     // Restore current to the enclosing compiler so defineVariable works correctly.
     self.current = old_compiler;

@@ -69,13 +69,7 @@ pub fn init(gpa: std.mem.Allocator) Chunk {
 
 pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
-    // Free any Function constants before deinitializing the ArrayList
-    for (self.constants.items) |constant| {
-        if (constant == .Function) {
-            var func = constant.Function;
-            func.deinit();
-        }
-    }
+    // Function constants are now in heap and managed by GC, don't free them here
     self.constants.deinit(self.allocator);
     self.lines.deinit(self.allocator);
 }
@@ -262,7 +256,7 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
     var current_offset = offset + 2;
 
     const val = self.constants.items[function_ix];
-    const func = if (val == .Function) val.Function else if (val == .Closure) val.Closure.function else null;
+    const func = if (val == .Function) val.Function.* else if (val == .Closure) val.Closure.function.* else null;
     const func_name = func.?.name orelse "script";
     const upvalue_count = if (func) |f| f.upvalue_count else 0;
 

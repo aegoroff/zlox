@@ -11,8 +11,8 @@ pub const LoxValue = union(enum) {
     Number: f64,
     Bool: bool,
     String: []const u8,
-    Function: Function,
-    Closure: Closure,
+    Function: *Function,
+    Closure: *Closure,
     Native: NativeFn,
     NaN,
 
@@ -119,6 +119,7 @@ pub const Upvalue = struct {
     location: *LoxValue,
     closed: LoxValue = .Nil,
     next: ?*Upvalue = null,
+    marked: bool = false,
 
     pub fn get(self: *const Upvalue) LoxValue {
         return self.location.*;
@@ -143,6 +144,7 @@ pub const Function = struct {
     chunk: Chunk,
     name: ?[]const u8,
     upvalue_count: usize,
+    marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, name: ?[]const u8) Function {
         return Function{
@@ -158,18 +160,21 @@ pub const Function = struct {
     }
 };
 
-pub const Closure = struct {
-    function: Function,
-    upvalues: std.ArrayList(*Upvalue),
+const UPVALUE_MAX: usize = 256;
 
-    pub fn init(function: Function) Closure {
+pub const Closure = struct {
+    function: *Function,
+    upvalues: [UPVALUE_MAX]*Upvalue,
+    upvalue_count: usize,
+    marked: bool = false,
+
+    pub fn init(gpa: std.mem.Allocator, function: *Function) Closure {
+        _ = gpa;
         return Closure{
             .function = function,
-            .upvalues = .empty,
+            .upvalues = [_]*Upvalue{undefined} ** UPVALUE_MAX,
+            .upvalue_count = 0,
+            .marked = false,
         };
-    }
-
-    pub fn deinit(self: *Closure, gpa: std.mem.Allocator) void {
-        self.upvalues.deinit(gpa);
     }
 };
