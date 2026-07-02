@@ -62,9 +62,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
 }
 
 pub fn deinit(self: *VM) void {
-    // Don't free functions/closures from globals - heap.deinit() will do it
     self.globals.deinit();
-
     self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
@@ -83,17 +81,12 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     };
 
     if (compiler.parser.hadError) {
-        // Function will be freed in compiler.deinit()
         return err.Error.CompileError;
     }
 
-    // func is already on heap, add to heap tracking
-    try self.trackFunctionRecursively(func);
-
-    // Cancel function free in compiler.deinit() - set to null
+    try self.trackConstantsRecursively(func);
     compiler.current.function = null;
 
-    // Allocate closure on heap
     const closure_ptr = try self.allocator.create(val.Closure);
     closure_ptr.* = val.Closure.init(self.allocator, func);
     try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
@@ -103,10 +96,14 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     _ = try self.pop();
 }
 
-fn trackFunctionRecursively(self: *VM, func: *val.Function) !void {
+fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
     try self.heap.trackObject(.{ .function = func }, @sizeOf(val.Function));
     for (func.chunk.constants.items) |c| {
-        if (c == .Function) try self.trackFunctionRecursively(c.Function);
+        switch (c) {
+            .Function => |nested| try self.trackConstantsRecursively(nested),
+            .String => |s| try self.heap.trackObject(.{ .string = s }, @sizeOf(mem.HeapString) + s.data.len),
+            else => {},
+        }
     }
 }
 
@@ -365,12 +362,11 @@ pub fn run(self: *VM) !void {
                     },
                     .String => |as| switch (b) {
                         .String => |bs| {
-                            const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
+                            const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
                             const heap_str = try mem.HeapString.init(self.allocator, result);
                             try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
-                            try self.push(.{ .String = heap_str.data });
+                            try self.push(.{ .String = heap_str });
 
-                            // Check if we need to run GC
                             if (self.heap.shouldCollect()) {
                                 try self.collectGarbage();
                             }
@@ -521,7 +517,7 @@ fn markValue(self: *VM, value: LoxValue) void {
         .Closure => |c| {
             if (!c.marked) {
                 c.marked = true;
-                // Рекурсивно помечаем upvalues
+                self.markValue(.{ .Function = c.function });
                 for (c.upvalues[0..c.upvalue_count]) |up| {
                     self.markUpvalue(up);
                 }
@@ -530,13 +526,14 @@ fn markValue(self: *VM, value: LoxValue) void {
         .Function => |f| {
             if (!f.marked) {
                 f.marked = true;
-                // Mark constants from chunk (may contain Function/Closure)
                 for (f.chunk.constants.items) |const_val| {
                     self.markValue(const_val);
                 }
             }
         },
-        .String => {},
+        .String => |s| {
+            s.marked = true;
+        },
         else => {},
     }
 }

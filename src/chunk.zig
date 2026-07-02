@@ -95,6 +95,10 @@ pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
     // Check if the constant already exists to avoid duplicates
     for (self.constants.items, 0..) |existing, ix| {
         if (existing.equal(val)) {
+            if (val == .String) {
+                self.allocator.free(val.String.data);
+                self.allocator.destroy(val.String);
+            }
             return ix;
         }
     }

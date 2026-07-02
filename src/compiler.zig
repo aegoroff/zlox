@@ -300,7 +300,12 @@ fn number(self: *Compiler) !void {
 
 fn string(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
-    _ = try self.emitConstant(.{ .String = s[1 .. s.len - 1] }); // trimming quotes
+    _ = try self.emitConstant(.{
+        .String = try val.HeapString.init(
+            self.allocator,
+            try self.allocator.dupe(u8, s[1 .. s.len - 1]),
+        ),
+    }); // trimming quotes
 }
 
 fn variable(self: *Compiler, can_assign: bool) !void {
@@ -558,7 +563,12 @@ fn or_(self: *Compiler) !void {
 }
 
 fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
-    return try self.makeConstant(.{ .String = self.lexeme(token) });
+    return try self.makeConstant(.{
+        .String = try val.HeapString.init(
+            self.allocator,
+            try self.allocator.dupe(u8, self.lexeme(token)),
+        ),
+    });
 }
 
 fn addLocal(self: *Compiler, token: *scan.Token) !void {

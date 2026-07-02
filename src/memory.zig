@@ -4,21 +4,7 @@ const val = @import("value.zig");
 pub const Upvalue = val.Upvalue;
 pub const Closure = val.Closure;
 pub const Function = val.Function;
-
-/// Wrapper for strings with GC header
-pub const HeapString = struct {
-    marked: bool = false,
-    data: []const u8,
-
-    pub fn init(allocator: std.mem.Allocator, bytes: []const u8) !*HeapString {
-        const self = try allocator.create(HeapString);
-        self.* = .{
-            .marked = false,
-            .data = bytes,
-        };
-        return self;
-    }
-};
+pub const HeapString = val.HeapString;
 
 /// Unified type for all heap objects
 pub const HeapObj = union(enum) {

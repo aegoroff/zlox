@@ -10,7 +10,7 @@ pub const LoxValue = union(enum) {
     Nil,
     Number: f64,
     Bool: bool,
-    String: []const u8,
+    String: *HeapString,
     Function: *Function,
     Closure: *Closure,
     Native: NativeFn,
@@ -21,7 +21,7 @@ pub const LoxValue = union(enum) {
             .Nil => try writer.print("nil", .{}),
             .Number => |n| try writer.print("{d}", .{n}),
             .Bool => |b| try writer.print("{}", .{b}),
-            .String => |s| try writer.print("{s}", .{s}),
+            .String => |s| try writer.print("{s}", .{s.data}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
             .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
             .Native => try writer.print("<native fn>", .{}),
@@ -39,7 +39,7 @@ pub const LoxValue = union(enum) {
 
     pub fn tryString(self: LoxValue) err.Error![]const u8 {
         return switch (self) {
-            .String => |s| s,
+            .String => |s| s.data,
             else => return err.Error.RuntimeError,
         };
     }
@@ -68,7 +68,7 @@ pub const LoxValue = union(enum) {
 
         return switch (self) {
             .Number => |l| @abs(l - other.Number) < ERROR_MARGIN,
-            .String => |l| std.mem.eql(u8, l, other.String),
+            .String => |l| std.mem.eql(u8, l.data, other.String.data),
             .Bool => |l| l == other.Bool,
             .Nil => true,
             .Function => false,
@@ -91,7 +91,7 @@ pub const LoxValue = union(enum) {
                 else => err.Error.CompileError,
             },
             .String => |l| switch (other) {
-                .String => |r| std.mem.lessThan(u8, l, r),
+                .String => |r| std.mem.lessThan(u8, l.data, r.data),
                 else => err.Error.CompileError,
             },
             .Bool => |l| switch (other) {
@@ -112,6 +112,17 @@ pub const LoxValue = union(enum) {
             .NaN => false,
             else => false,
         };
+    }
+};
+
+pub const HeapString = struct {
+    marked: bool = false,
+    data: []const u8,
+
+    pub fn init(allocator: std.mem.Allocator, bytes: []const u8) !*HeapString {
+        const self = try allocator.create(HeapString);
+        self.* = .{ .marked = false, .data = bytes };
+        return self;
     }
 };
 
