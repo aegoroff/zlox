@@ -23,6 +23,9 @@ frames: []CallFrame,
 frame_count: usize,
 
 allocated_strings: std.ArrayList([]u8),
+open_upvalues: ?*val.Upvalue,
+allocated_upvalues: std.ArrayList(*val.Upvalue),
+allocated_closures: std.ArrayList(val.Closure),
 
 pub const CallFrame = struct {
     closure: val.Closure,
@@ -46,6 +49,9 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .globals = std.StringHashMap(LoxValue).init(gpa),
         .stack_top = 0,
         .allocated_strings = .empty,
+        .open_upvalues = null,
+        .allocated_upvalues = .empty,
+        .allocated_closures = .empty,
     };
     errdefer {
         gpa.free(stack);
@@ -65,6 +71,14 @@ pub fn deinit(self: *VM) void {
         self.allocator.free(s);
     }
     self.allocated_strings.deinit(self.allocator);
+    for (self.allocated_upvalues.items) |upvalue| {
+        self.allocator.destroy(upvalue);
+    }
+    self.allocated_upvalues.deinit(self.allocator);
+    for (self.allocated_closures.items) |*closure| {
+        closure.deinit(self.allocator);
+    }
+    self.allocated_closures.deinit(self.allocator);
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
 }
@@ -87,8 +101,8 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     }
     defer func.deinit();
 
-    var closure = val.Closure.init(func);
-    defer closure.deinit(self.allocator);
+    const closure = val.Closure.init(func);
+    try self.allocated_closures.append(self.allocator, closure);
 
     try self.push(.{ .Closure = closure });
     _ = try self.call(closure, 0);
@@ -153,8 +167,49 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     };
 }
 
-fn captureUpvalue(value: usize) !val.Upvalue {
-    return .{ .location = value };
+fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
+    const slot = &self.stack[location];
+
+    var prev: ?*val.Upvalue = null;
+    var current = self.open_upvalues;
+    while (current) |upvalue| {
+        if (upvalue.location == slot) {
+            return upvalue;
+        } else if (@intFromPtr(upvalue.location) < @intFromPtr(slot)) {
+            break;
+        }
+        prev = upvalue;
+        current = upvalue.next;
+    }
+
+    const created = try self.allocator.create(val.Upvalue);
+    created.* = .{
+        .location = slot,
+        .closed = .Nil,
+        .next = null,
+    };
+    try self.allocated_upvalues.append(self.allocator, created);
+
+    if (prev) |p| {
+        created.next = p.next;
+        p.next = created;
+    } else {
+        created.next = self.open_upvalues;
+        self.open_upvalues = created;
+    }
+
+    return created;
+}
+
+fn closeUpvalues(self: *VM, last: usize) void {
+    while (self.open_upvalues) |upvalue| {
+        if (@intFromPtr(upvalue.location) >= last) {
+            self.open_upvalues = upvalue.next;
+            upvalue.close();
+        } else {
+            break;
+        }
+    }
 }
 
 fn frame(self: *VM) *CallFrame {
@@ -254,13 +309,13 @@ pub fn run(self: *VM) !void {
             .GetUpvalue => {
                 const slot = self.chunk().readByte(ip);
                 const upvalue = self.frame().closure.upvalues.items[slot];
-                try self.push(upvalue.get(self.stack));
+                try self.push(upvalue.get());
                 ip += 1;
             },
             .SetUpvalue => {
                 const slot = self.chunk().readByte(ip);
                 const value = try self.peek(0);
-                self.frame().closure.upvalues.items[slot].set(self.stack, value);
+                self.frame().closure.upvalues.items[slot].set(value);
                 ip += 1;
             },
             .Nil => {
@@ -357,14 +412,13 @@ pub fn run(self: *VM) !void {
                     const is_local = self.chunk().readByte(ip);
                     const index = self.chunk().readByte(ip + 1);
                     ip += 2;
-                    const upvalue: val.Upvalue = if (is_local == 1)
-                        try captureUpvalue(slots_offset + index)
-                    else blk: {
-                        const enclosing_upvalue = current_frame.closure.upvalues.items[index];
-                        break :blk .{ .location = null, .value = enclosing_upvalue.get(self.stack) };
-                    };
+                    const upvalue: *val.Upvalue = if (is_local == 1)
+                        try self.captureUpvalue(slots_offset + index)
+                    else
+                        current_frame.closure.upvalues.items[index];
                     try closure.upvalues.append(self.allocator, upvalue);
                 }
+                try self.allocated_closures.append(self.allocator, closure);
                 try self.push(.{ .Closure = closure });
             },
             .Call => {
@@ -378,39 +432,23 @@ pub fn run(self: *VM) !void {
                 // Continue with next instruction
             },
             .Return => {
-                // Get the return value if there is one
                 const result = if (self.stack_top > 0) try self.pop() else .Nil;
 
-                // Close all upvalues that reference this frame's stack slots before popping the frame
-                var current_frame = self.frame();
-                const frame_start = current_frame.slots_offset;
-                const frame_end = self.stack_top;
-                for (current_frame.closure.upvalues.items) |*upvalue| {
-                    if (upvalue.location) |loc| {
-                        // Check if this upvalue references a slot in the current frame
-                        if (loc >= frame_start and loc < frame_end) {
-                            // Close the upvalue by copying the value and clearing the location
-                            upvalue.value = self.stack[loc];
-                            upvalue.location = null;
-                        }
-                    }
-                }
-
-                // Deinit the closure before removing the frame
-                current_frame.closure.deinit(self.allocator);
+                const slots_offset = self.frame().slots_offset;
+                self.closeUpvalues(@intFromPtr(&self.stack[slots_offset]));
 
                 self.frame_count -= 1;
                 if (self.frame_count == 0) {
-                    // Main script finished
                     return;
                 }
-                // Reset stack to the beginning of the current frame
-                // slots_offset points to first argument, function is at slots_offset - 1
-                // We want to remove function, arguments, and all locals, leaving only result
-                const slots_offset = self.frames[self.frame_count].slots_offset;
-                self.stack_top = slots_offset - 1; // Position of the function
+                const caller_slots_offset = self.frames[self.frame_count].slots_offset;
+                self.stack_top = caller_slots_offset - 1;
                 try self.push(result);
                 break;
+            },
+            .CloseUpvalue => {
+                self.closeUpvalues(@intFromPtr(&self.stack[self.stack_top - 1]));
+                _ = try self.pop();
             },
             else => {},
         }
@@ -1539,4 +1577,83 @@ test "closures multiple instances with different captured values" {
 
     // Assert
     try std.testing.expectEqualStrings("doughnut\nbagel\n", writer.written());
+}
+
+test "closures mutate captured variable" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\fun makeCounter() {
+        \\  var count = 0;
+        \\  fun increment() {
+        \\    count = count + 1;
+        \\    return count;
+        \\  }
+        \\  return increment;
+        \\}
+        \\
+        \\var counter = makeCounter();
+        \\print counter();
+        \\print counter();
+        \\print counter();
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+    try std.testing.expectEqualStrings("1\n2\n3\n", writer.written());
+}
+
+test "closures survive after enclosing function returns" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\fun makeAdder(n) {
+        \\  fun adder(x) {
+        \\    return x + n;
+        \\  }
+        \\  return adder;
+        \\}
+        \\
+        \\var add5 = makeAdder(5);
+        \\var add10 = makeAdder(10);
+        \\print add5(3);
+        \\print add10(3);
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+    try std.testing.expectEqualStrings("8\n13\n", writer.written());
+}
+
+test "nested closures share mutable outer variable" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\fun outer() {
+        \\  var x = 1;
+        \\  fun middle() {
+        \\    fun inner() {
+        \\      x = x + 1;
+        \\      print x;
+        \\    }
+        \\    inner();
+        \\    inner();
+        \\  }
+        \\  middle();
+        \\}
+        \\outer();
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+    try std.testing.expectEqualStrings("2\n3\n", writer.written());
 }

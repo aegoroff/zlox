@@ -563,6 +563,7 @@ fn addLocal(self: *Compiler, token: *scan.Token) !void {
     self.current.localCount += 1;
     local.name = self.lexeme(token);
     local.depth = -1; // Uninitialized
+    local.is_captured = false;
 }
 
 fn declareVariable(self: *Compiler) !void {

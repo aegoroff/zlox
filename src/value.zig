@@ -116,23 +116,25 @@ pub const LoxValue = union(enum) {
 };
 
 pub const Upvalue = struct {
-    location: ?usize = null, // индекс в стеке, если upvalue ещё открыт
-    value: LoxValue = .Nil, // значение, когда upvalue закрыт
+    location: *LoxValue,
+    closed: LoxValue = .Nil,
+    next: ?*Upvalue = null,
 
-    pub fn get(self: *const Upvalue, stack: []const LoxValue) LoxValue {
-        if (self.location) |loc| {
-            return stack[loc];
-        } else {
-            return self.value;
-        }
+    pub fn get(self: *const Upvalue) LoxValue {
+        return self.location.*;
     }
 
-    pub fn set(self: *Upvalue, stack: []LoxValue, val: LoxValue) void {
-        if (self.location) |loc| {
-            stack[loc] = val;
-        } else {
-            self.value = val;
-        }
+    pub fn set(self: *Upvalue, val: LoxValue) void {
+        self.location.* = val;
+    }
+
+    pub fn close(self: *Upvalue) void {
+        self.closed = self.location.*;
+        self.location = &self.closed;
+    }
+
+    pub fn isClosed(self: *const Upvalue) bool {
+        return self.location == &self.closed;
     }
 };
 
@@ -158,7 +160,7 @@ pub const Function = struct {
 
 pub const Closure = struct {
     function: Function,
-    upvalues: std.ArrayList(Upvalue),
+    upvalues: std.ArrayList(*Upvalue),
 
     pub fn init(function: Function) Closure {
         return Closure{
