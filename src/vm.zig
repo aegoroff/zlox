@@ -1670,6 +1670,7 @@ test "closures multiple instances with different captured values" {
 }
 
 test "closures mutate captured variable" {
+    // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
     var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
@@ -1692,11 +1693,15 @@ test "closures mutate captured variable" {
         \\
     ;
 
+    // Act
     try virtualMachine.interpret(code, false);
+
+    // Assert
     try std.testing.expectEqualStrings("1\n2\n3\n", writer.written());
 }
 
 test "closures survive after enclosing function returns" {
+    // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
     var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
@@ -1717,11 +1722,15 @@ test "closures survive after enclosing function returns" {
         \\
     ;
 
+    // Act
     try virtualMachine.interpret(code, false);
+
+    // Assert
     try std.testing.expectEqualStrings("8\n13\n", writer.written());
 }
 
 test "nested closures share mutable outer variable" {
+    // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
     var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
@@ -1744,6 +1753,29 @@ test "nested closures share mutable outer variable" {
         \\
     ;
 
+    // Act
     try virtualMachine.interpret(code, false);
+
+    // Assert
     try std.testing.expectEqualStrings("2\n3\n", writer.written());
+}
+
+test "class declaration and print" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {}
+        \\print Foo;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("Foo\n", writer.written());
 }
