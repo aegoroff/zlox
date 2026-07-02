@@ -786,6 +786,17 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     }
 }
 
+fn classDeclaration(self: *Compiler) !void {
+    try self.consume(.Identifier, "Expect class name.");
+    const nameConstant = try self.identifierConstant(&self.parser.previous);
+    try self.declareVariable();
+    try self.emitOpcode(.Class);
+    try self.emitOperand(nameConstant);
+    try self.defineVariable(nameConstant);
+    try self.consume(.LeftBrace, "Expect '{' before class body.");
+    try self.consume(.RightBrace, "Expect '}' after class body.");
+}
+
 fn funDeclaration(self: *Compiler) !void {
     const global = try self.parseVariable("Expect function name.");
     self.markInitialized();
@@ -806,7 +817,9 @@ fn varDeclaration(self: *Compiler) !void {
 }
 
 fn declaration(self: *Compiler) !void {
-    if (try self.match(.Fun)) {
+    if (try self.match(.Class)) {
+        try self.classDeclaration();
+    } else if (try self.match(.Fun)) {
         try self.funDeclaration();
     } else if (try self.match(.Var)) {
         try self.varDeclaration();

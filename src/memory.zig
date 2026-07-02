@@ -5,12 +5,14 @@ pub const Upvalue = val.Upvalue;
 pub const Closure = val.Closure;
 pub const Function = val.Function;
 pub const HeapString = val.HeapString;
+pub const Class = val.Class;
 
 /// Unified type for all heap objects
 pub const HeapObj = union(enum) {
     string: *HeapString,
     upvalue: *Upvalue,
     closure: *Closure,
+    class: *Class,
     function: *Function,
 
     pub fn isMarked(self: HeapObj) bool {
@@ -19,6 +21,7 @@ pub const HeapObj = union(enum) {
             .upvalue => |u| u.marked,
             .closure => |c| c.marked,
             .function => |f| f.marked,
+            .class => |f| f.marked,
         };
     }
 
@@ -36,6 +39,9 @@ pub const HeapObj = union(enum) {
             .function => |f| {
                 f.marked = marked;
             },
+            .class => |c| {
+                c.marked = marked;
+            },
         }
     }
 
@@ -44,6 +50,9 @@ pub const HeapObj = union(enum) {
             .string => |s| {
                 allocator.free(s.data);
                 allocator.destroy(s);
+            },
+            .class => |cl| {
+                allocator.destroy(cl);
             },
             .upvalue => |u| {
                 allocator.destroy(u);
@@ -107,6 +116,7 @@ pub const Heap = struct {
                 // Object unreachable - free it
                 const size = switch (obj.*) {
                     .string => |s| @sizeOf(HeapString) + s.data.len,
+                    .class => @sizeOf(Class),
                     .upvalue => @sizeOf(Upvalue),
                     .closure => @sizeOf(Closure),
                     .function => |f| @sizeOf(Function) + f.chunk.code.items.len + f.chunk.constants.items.len * @sizeOf(val.LoxValue) + f.chunk.lines.items.len * @sizeOf(usize),

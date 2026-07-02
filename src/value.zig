@@ -13,6 +13,7 @@ pub const LoxValue = union(enum) {
     String: *HeapString,
     Function: *Function,
     Closure: *Closure,
+    Class: *Class,
     Native: NativeFn,
     NaN,
 
@@ -23,6 +24,7 @@ pub const LoxValue = union(enum) {
             .Bool => |b| try writer.print("{}", .{b}),
             .String => |s| try writer.print("{s}", .{s.data}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
+            .Class => |f| try writer.print("{s}", .{f.name}),
             .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
             .Native => try writer.print("<native fn>", .{}),
             .NaN => try writer.print("NaN", .{}),
@@ -73,6 +75,7 @@ pub const LoxValue = union(enum) {
             .Nil => true,
             .Function => false,
             .Closure => false,
+            .Class => false,
             .Native => false,
             .NaN => true,
         };
@@ -101,6 +104,7 @@ pub const LoxValue = union(enum) {
             .Nil => err.Error.CompileError,
             .Function => err.Error.CompileError,
             .Closure => err.Error.CompileError,
+            .Class => err.Error.CompileError,
             .Native => err.Error.CompileError,
         };
     }
@@ -185,6 +189,18 @@ pub const Closure = struct {
             .function = function,
             .upvalues = [_]*Upvalue{undefined} ** UPVALUE_MAX,
             .upvalue_count = 0,
+            .marked = false,
+        };
+    }
+};
+
+pub const Class = struct {
+    name: []const u8,
+    marked: bool = false,
+
+    pub fn init(name: []const u8) Class {
+        return Class{
+            .name = name,
             .marked = false,
         };
     }

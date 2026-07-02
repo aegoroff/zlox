@@ -438,6 +438,17 @@ pub fn run(self: *VM) !void {
                 // After call returns, frame_count is already decremented by Return
                 // Continue with next instruction
             },
+            .Class => {
+                const className = self.chunk().readConstant(ip);
+                const name = try className.tryString();
+
+                const class_ptr = try self.allocator.create(val.Class);
+                class_ptr.* = val.Class.init(name);
+                try self.heap.trackObject(.{ .class = class_ptr }, @sizeOf(val.Class));
+                try self.push(.{ .Class = class_ptr });
+
+                ip += CONST_SIZE;
+            },
             .Return => {
                 const result = if (self.stack_top > 0) try self.pop() else .Nil;
 
