@@ -1494,3 +1494,31 @@ test "gc global variable survives collection" {
     // Assert
     try std.testing.expectEqualStrings("ok\n", writer.written());
 }
+
+test "gc bound methods are collected during method calls" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  method() { return 1; }
+        \\}
+        \\var foo = Foo();
+        \\var i = 0;
+        \\while (i < 5000) {
+        \\  foo.method();
+        \\  i = i + 1;
+        \\}
+        \\print foo.method();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("1\n", writer.written());
+}

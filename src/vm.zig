@@ -96,19 +96,29 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
     const closure_ptr = try self.allocator.create(val.Closure);
     closure_ptr.* = val.Closure.init(func);
-    try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
+    try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
     try self.push(.{ .Closure = closure_ptr });
     _ = try self.call(1, closure_ptr, 0);
     _ = try self.pop();
 }
 
+fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
+    try self.heap.trackObject(obj, size);
+}
+
+fn maybeCollect(self: *VM) !void {
+    if (self.heap.shouldCollect()) {
+        try self.collectGarbage();
+    }
+}
+
 fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
-    try self.heap.trackObject(.{ .function = func }, @sizeOf(val.Function));
+    try self.trackObject(.{ .function = func }, @sizeOf(val.Function));
     for (func.chunk.constants.items) |c| {
         switch (c) {
             .Function => |nested| try self.trackConstantsRecursively(nested),
-            .String => |s| try self.heap.trackObject(.{ .string = s }, @sizeOf(mem.HeapString) + s.data.len),
+            .String => |s| try self.trackObject(.{ .string = s }, @sizeOf(mem.HeapString) + s.data.len),
             else => {},
         }
     }
@@ -121,7 +131,7 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 
     const owned = try self.allocator.dupe(u8, bytes);
     const heap_str = try val.HeapString.init(self.allocator, owned);
-    try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
+    try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     try self.interned.put(heap_str.data, heap_str);
     return heap_str;
 }
@@ -175,13 +185,36 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
     return true;
 }
 
+fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
+    if (klass.methods.get(name)) |method| {
+        return self.call(ip, try method.tryClosure(), arg_count);
+    }
+    try self.errorAt(ip, "Undefined property '{s}'.", .{name.data});
+    return err.Error.RuntimeError;
+}
+
+fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerror!bool {
+    const receiver = try self.peek(arg_count);
+    const instance = receiver.tryInstance() catch {
+        try self.errorAt(ip, "Only instances have methods.", .{});
+        return err.Error.RuntimeError;
+    };
+
+    if (instance.fields.get(name)) |field| {
+        self.stack[self.stack_top - arg_count - 1] = field;
+        return self.callValue(ip, field, arg_count);
+    }
+
+    return self.invokeFromClass(ip, instance.klass, name, arg_count);
+}
+
 fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
         .Closure => |f| try self.call(ip, f, arg_count),
         .Class => |k| {
             const instance_ptr = try self.allocator.create(val.Instance);
             instance_ptr.* = val.Instance.init(self.allocator, k);
-            try self.heap.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
+            try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
             self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
             return true;
         },
@@ -225,7 +258,7 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
         .next = null,
         .marked = false,
     };
-    try self.heap.trackObject(.{ .upvalue = created }, @sizeOf(val.Upvalue));
+    try self.trackObject(.{ .upvalue = created }, @sizeOf(val.Upvalue));
 
     if (prev) |p| {
         created.next = p.next;
@@ -414,12 +447,8 @@ pub fn run(self: *VM) !void {
                         .String => |bs| {
                             const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
                             const heap_str = try mem.HeapString.init(self.allocator, result);
-                            try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
+                            try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
                             try self.push(.{ .String = heap_str });
-
-                            if (self.heap.shouldCollect()) {
-                                try self.collectGarbage();
-                            }
                         },
                         else => return err.Error.RuntimeError,
                     },
@@ -461,7 +490,7 @@ pub fn run(self: *VM) !void {
 
                 const closure_ptr = try self.allocator.create(val.Closure);
                 closure_ptr.* = val.Closure.init(function);
-                try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
+                try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
                 const current_frame = self.frame();
                 const slots_offset = current_frame.slots_offset;
@@ -494,7 +523,7 @@ pub fn run(self: *VM) !void {
 
                 const class_ptr = try self.allocator.create(val.Class);
                 class_ptr.* = val.Class.init(self.allocator, name);
-                try self.heap.trackObject(
+                try self.trackObject(
                     .{ .class = class_ptr },
                     @sizeOf(val.Class) + @sizeOf(val.StringKeyMap),
                 );
@@ -513,7 +542,7 @@ pub fn run(self: *VM) !void {
 
                     const bound_ptr = try self.allocator.create(val.BoundMethod);
                     bound_ptr.* = val.BoundMethod.init(instance, method);
-                    try self.heap.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
+                    try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
 
                     try self.push(.{ .BoundMethod = bound_ptr });
                 } else {
@@ -521,6 +550,15 @@ pub fn run(self: *VM) !void {
                     return err.Error.RuntimeError;
                 }
                 ip += CONST_SIZE;
+            },
+            .Invoke => {
+                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
+                const arg_count = self.chunk().readByte(ip + CONST_SIZE);
+                if (!try self.invoke(ip, name, arg_count)) {
+                    try self.errorAt(ip, "Invoke failed", .{});
+                    return err.Error.RuntimeError;
+                }
+                ip += CONST_SIZE + 1;
             },
             .SetProperty => {
                 const prop_name = try self.internString(try self.chunk().readConstant(ip).tryString());
@@ -556,6 +594,7 @@ pub fn run(self: *VM) !void {
             },
             else => {},
         }
+        try self.maybeCollect();
     }
 }
 

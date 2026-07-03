@@ -508,6 +508,11 @@ fn dot(self: *Compiler, can_assign: bool) !void {
         try self.expression();
         try self.emitOpcode(.SetProperty);
         try self.emitOperand(name);
+    } else if (try self.match(.LeftParen)) {
+        const arg_count = try self.argumentList();
+        try self.emitOpcode(.Invoke);
+        try self.emitOperand(name);
+        try self.emitOperand(arg_count);
     } else {
         try self.emitOpcode(.GetProperty);
         try self.emitOperand(name);

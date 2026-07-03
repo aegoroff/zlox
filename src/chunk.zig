@@ -205,6 +205,7 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .Class => try self.disassemblyByteInstruction(writer, offset, "OP_CLASS"),
         .Method => try self.disassemblyByteInstruction(writer, offset, "OP_METHOD"),
         .GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
+        .Invoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE"),
         .SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
         .Closure => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE"),
@@ -231,6 +232,16 @@ fn disassemblyByteInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
     const ix = self.readByte(offset + 1);
     try writer.print("{s:<16} {d:4}\n", .{ name, ix });
     return offset + 2;
+}
+
+fn disassemblyInvokeInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
+    const ix = self.getConstantIx(offset + 1, 1);
+    const val = self.constants.items[ix];
+    const arg_count = self.readByte(offset + 2);
+    try writer.print("{s:<16} {d:4} '", .{ name, ix });
+    try val.print(writer);
+    try writer.print("' ({d} args)\n", .{arg_count});
+    return offset + 3;
 }
 
 fn disassemblyThreeBytesInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
