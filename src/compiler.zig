@@ -905,6 +905,13 @@ fn classDeclaration(self: *Compiler) !void {
     try self.emitOperand(nameConstant);
     try self.defineVariable(nameConstant);
 
+    if (try self.match(.Less)) {
+        try self.consume(.Identifier, "Expect superclass name.");
+        try self.variable(false);
+        try self.namedVariable(className, false);
+        try self.emitOpcode(.Inherit);
+    }
+
     var class_compiler = ClassCompiler{
         .enclosing = self.current_class,
     };
