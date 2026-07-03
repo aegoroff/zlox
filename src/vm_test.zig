@@ -1416,3 +1416,28 @@ test "gc closure in global survives collection" {
     // Assert
     try std.testing.expectEqualStrings("42\n", writer.written());
 }
+
+test "gc global variable survives collection" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\var survive = "ok";
+        \\var i = 0;
+        \\while (i < 5000) {
+        \\  var s = "aaaa" + "bbbb";
+        \\  i = i + 1;
+        \\}
+        \\print survive;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("ok\n", writer.written());
+}

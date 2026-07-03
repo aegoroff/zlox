@@ -20,11 +20,12 @@ compiler: ?Compiler,
 io: std.Io,
 stack: []LoxValue,
 stack_top: usize,
-globals: std.StringHashMap(LoxValue),
+globals: val.StringKeyMap,
 frames: []CallFrame,
 frame_count: usize,
 
 heap: mem.Heap,
+interned: std.StringHashMap(*val.HeapString),
 open_upvalues: ?*val.Upvalue,
 
 pub const CallFrame = struct {
@@ -46,9 +47,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .stack = stack,
         .frames = frames,
         .frame_count = 0,
-        .globals = std.StringHashMap(LoxValue).init(gpa),
+        .globals = val.StringKeyMap.init(gpa),
         .stack_top = 0,
         .heap = mem.Heap.init(gpa),
+        .interned = std.StringHashMap(*val.HeapString).init(gpa),
         .open_upvalues = null,
         .compiler = null,
     };
@@ -68,6 +70,7 @@ pub fn deinit(self: *VM) void {
         self.compiler.?.deinit();
     }
     self.globals.deinit();
+    self.interned.deinit();
     self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
@@ -111,8 +114,21 @@ fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
     }
 }
 
+fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
+    if (self.interned.get(bytes)) |existing| {
+        return existing;
+    }
+
+    const owned = try self.allocator.dupe(u8, bytes);
+    const heap_str = try val.HeapString.init(self.allocator, owned);
+    try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
+    try self.interned.put(heap_str.data, heap_str);
+    return heap_str;
+}
+
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
-    try self.globals.put(name, .{ .Native = function });
+    const key = try self.internString(name);
+    try self.globals.put(key, .{ .Native = function });
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -230,7 +246,7 @@ fn closeUpvalues(self: *VM, last: usize) void {
     }
 }
 
-fn defineMethod(self: *VM, name: []const u8) !void {
+fn defineMethod(self: *VM, name: *val.HeapString) !void {
     const method = try self.pop(); // Closure
     const klass = try (try self.peek(0)).tryClass(); // Class stays on stack
     try klass.methods.put(name, method);
@@ -471,20 +487,20 @@ pub fn run(self: *VM) !void {
                 // Continue with next instruction
             },
             .Class => {
-                const name = try self.chunk().readConstant(ip).tryString();
+                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
 
                 const class_ptr = try self.allocator.create(val.Class);
                 class_ptr.* = val.Class.init(self.allocator, name);
                 try self.heap.trackObject(
                     .{ .class = class_ptr },
-                    @sizeOf(val.Class) + @sizeOf(std.StringHashMap(val.LoxValue)),
+                    @sizeOf(val.Class) + @sizeOf(val.StringKeyMap),
                 );
                 try self.push(.{ .Class = class_ptr });
 
                 ip += CONST_SIZE;
             },
             .GetProperty => {
-                const name = try self.chunk().readConstant(ip).tryString();
+                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
                 const instance = try (try self.peek(0)).tryInstance();
                 if (instance.fields.get(name)) |field| {
                     _ = try self.pop(); // instance
@@ -498,13 +514,13 @@ pub fn run(self: *VM) !void {
 
                     try self.push(.{ .BoundMethod = bound_ptr });
                 } else {
-                    try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name, instance.klass.name });
+                    try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
                     return err.Error.RuntimeError;
                 }
                 ip += CONST_SIZE;
             },
             .SetProperty => {
-                const prop_name = try self.chunk().readConstant(ip).tryString();
+                const prop_name = try self.internString(try self.chunk().readConstant(ip).tryString());
                 const prop_value = try self.pop();
                 const instance = try (try self.pop()).tryInstance();
 
@@ -513,7 +529,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .Method => {
-                const name = try self.chunk().readConstant(ip).tryString();
+                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
                 try self.defineMethod(name);
                 ip += CONST_SIZE;
             },
@@ -543,7 +559,7 @@ pub fn run(self: *VM) !void {
 
 fn defineGlobal(self: *VM, ip: usize) !void {
     const name_value = self.chunk().readConstant(ip);
-    const name = try name_value.tryString();
+    const name = try self.internString(try name_value.tryString());
     const value = try self.peek(0);
     try self.globals.put(name, value);
     _ = try self.pop();
@@ -555,11 +571,11 @@ fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
         CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
         else => return err.Error.CompileError,
     };
-    const name = try name_value.tryString();
+    const name = try self.internString(try name_value.tryString());
     if (self.globals.get(name)) |constant_value| {
         try self.push(constant_value);
     } else {
-        try self.errorAt(ip, "Unknown global to get: {s}.", .{name});
+        try self.errorAt(ip, "Unknown global to get: {s}.", .{name.data});
         return err.Error.RuntimeError;
     }
 }
@@ -570,9 +586,9 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
         CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
         else => return err.Error.CompileError,
     };
-    const name = try name_value.tryString();
+    const name = try self.internString(try name_value.tryString());
     if (!self.globals.contains(name)) {
-        try self.errorAt(ip, "Unknown global to set: {s}.", .{name});
+        try self.errorAt(ip, "Unknown global to set: {s}.", .{name.data});
         return err.Error.RuntimeError;
     }
     const new_value = try self.peek(0);
@@ -597,8 +613,10 @@ fn markValue(self: *VM, value: LoxValue) void {
         .Class => |c| {
             if (!c.marked) {
                 c.marked = true;
+                self.markValue(.{ .String = c.name });
                 var it = c.methods.iterator();
                 while (it.next()) |entry| {
+                    self.markValue(.{ .String = entry.key_ptr.* });
                     self.markValue(entry.value_ptr.*);
                 }
             }
@@ -609,6 +627,7 @@ fn markValue(self: *VM, value: LoxValue) void {
                 self.markValue(.{ .Class = inst.klass });
                 var it = inst.fields.iterator();
                 while (it.next()) |entry| {
+                    self.markValue(.{ .String = entry.key_ptr.* });
                     self.markValue(entry.value_ptr.*);
                 }
             }
@@ -654,15 +673,22 @@ fn markRoots(self: *VM) void {
     // 2. Globals
     var it = self.globals.iterator();
     while (it.next()) |entry| {
+        self.markValue(.{ .String = entry.key_ptr.* });
         self.markValue(entry.value_ptr.*);
     }
 
-    // 3. Call frames
+    // 3. Interned strings
+    var intern_it = self.interned.iterator();
+    while (intern_it.next()) |entry| {
+        self.markValue(.{ .String = entry.value_ptr.* });
+    }
+
+    // 4. Call frames
     for (self.frames[0..self.frame_count]) |f| {
         self.markValue(.{ .Closure = f.closure });
     }
 
-    // 4. Open upvalues
+    // 5. Open upvalues
     var upvalue = self.open_upvalues;
     while (upvalue) |up| {
         self.markUpvalue(up);

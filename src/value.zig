@@ -26,10 +26,10 @@ pub const LoxValue = union(enum) {
             .Bool => |b| try writer.print("{}", .{b}),
             .String => |s| try writer.print("{s}", .{s.data}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
-            .Class => |f| try writer.print("{s}", .{f.name}),
-            .Instance => |f| try writer.print("{s} instance", .{f.klass.name}),
+            .Class => |f| try writer.print("{s}", .{f.name.data}),
+            .Instance => |f| try writer.print("{s} instance", .{f.klass.name.data}),
             .BoundMethod => |b| try writer.print("{s} instance -> {s}", .{
-                b.receiver.klass.name,
+                b.receiver.klass.name.data,
                 b.method.Closure.function.name.?,
             }),
             .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
@@ -149,6 +149,23 @@ pub const HeapString = struct {
     }
 };
 
+pub const HeapStringContext = struct {
+    pub fn hash(_: @This(), key: *HeapString) u64 {
+        return std.hash_map.hashString(key.data);
+    }
+
+    pub fn eql(_: @This(), a: *HeapString, b: *HeapString) bool {
+        return a == b;
+    }
+};
+
+pub const StringKeyMap = std.HashMap(
+    *HeapString,
+    LoxValue,
+    HeapStringContext,
+    std.hash_map.default_max_load_percentage,
+);
+
 pub const Upvalue = struct {
     location: *LoxValue,
     closed: LoxValue = .Nil,
@@ -220,14 +237,14 @@ pub const Closure = struct {
 };
 
 pub const Class = struct {
-    name: []const u8,
-    methods: std.StringHashMap(LoxValue),
+    name: *HeapString,
+    methods: StringKeyMap,
     marked: bool = false,
 
-    pub fn init(gpa: std.mem.Allocator, name: []const u8) Class {
+    pub fn init(gpa: std.mem.Allocator, name: *HeapString) Class {
         return Class{
             .name = name,
-            .methods = std.StringHashMap(LoxValue).init(gpa),
+            .methods = StringKeyMap.init(gpa),
             .marked = false,
         };
     }
@@ -237,19 +254,19 @@ pub const Class = struct {
     }
 
     pub fn size(self: *const Class) usize {
-        return @sizeOf(Class) + self.methods.capacity() * @sizeOf(std.StringHashMap(LoxValue).Entry);
+        return @sizeOf(Class) + self.methods.capacity() * @sizeOf(StringKeyMap.Entry);
     }
 };
 
 pub const Instance = struct {
     klass: *Class,
-    fields: std.StringHashMap(LoxValue),
+    fields: StringKeyMap,
     marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, klass: *Class) Instance {
         return Instance{
             .klass = klass,
-            .fields = std.StringHashMap(LoxValue).init(gpa),
+            .fields = StringKeyMap.init(gpa),
             .marked = false,
         };
     }
@@ -259,7 +276,7 @@ pub const Instance = struct {
     }
 
     pub fn size(self: *const Instance) usize {
-        return @sizeOf(Instance) + self.fields.capacity() * @sizeOf(std.StringHashMap(LoxValue).Entry);
+        return @sizeOf(Instance) + self.fields.capacity() * @sizeOf(StringKeyMap.Entry);
     }
 };
 
