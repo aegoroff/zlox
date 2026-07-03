@@ -168,7 +168,7 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
     }
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
-        .slots_offset = self.stack_top - arg_count,
+        .slots_offset = self.stack_top - arg_count - 1,
     };
     self.frame_count += 1;
     try self.run();
@@ -546,8 +546,7 @@ pub fn run(self: *VM) !void {
                 if (self.frame_count == 0) {
                     return;
                 }
-                const caller_slots_offset = self.frames[self.frame_count].slots_offset;
-                self.stack_top = caller_slots_offset - 1;
+                self.stack_top = slots_offset;
                 try self.push(result);
                 return;
             },

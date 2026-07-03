@@ -1283,6 +1283,59 @@ test "class method call with arguments" {
     try std.testing.expectEqualStrings("7\n", writer.written());
 }
 
+test "class method uses this to access instance field" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  setValue(v) {
+        \\    this.value = v;
+        \\  }
+        \\  getValue() {
+        \\    return this.value;
+        \\  }
+        \\}
+        \\var foo = Foo();
+        \\foo.setValue(42);
+        \\print foo.getValue();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("42\n", writer.written());
+}
+
+test "class method uses this as receiver" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  greet() {
+        \\    print this;
+        \\  }
+        \\}
+        \\Foo().greet();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("Foo instance\n", writer.written());
+}
+
 test "class method call multiple methods" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);

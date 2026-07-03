@@ -57,7 +57,7 @@ const Compile = struct {
         func.* = val.Function.init(gpa, null);
         var compiler = Compile{
             .allocator = gpa,
-            .localCount = 0,
+            .localCount = 1,
             .scopeDepth = 0,
             .locals = undefined,
             .function = func,
@@ -65,7 +65,7 @@ const Compile = struct {
             .enclosing = null,
             .upvalues = undefined,
         };
-        const receiver_name = if (function_type != .Function) "this" else "";
+        const receiver_name = if (function_type == .Method or function_type == .TypeInitializer) "this" else "";
         compiler.locals[0] = Local{ .name = receiver_name, .depth = 0, .is_captured = false };
         return compiler;
     }
