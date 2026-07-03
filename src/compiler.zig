@@ -580,6 +580,7 @@ fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
 
 fn defineVariable(self: *Compiler, global: usize) anyerror!void {
     if (self.current.scopeDepth > 0) {
+        self.markInitialized();
         return;
     }
     if (global > Chunk.MAX_SHORT_VALUE) {
