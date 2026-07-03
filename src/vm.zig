@@ -182,6 +182,10 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
         });
         return err.Error.RuntimeError;
     }
+    if (self.frame_count >= FRAMES_MAX) {
+        try self.errorAt(ip, "Stack overflow.", .{});
+        return err.Error.RuntimeError;
+    }
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
         .slots_offset = self.stack_top - arg_count - 1,

@@ -293,7 +293,7 @@ fn skipWhitespace(self: *Lexer) void {
 }
 
 fn string(self: *Lexer) !Token {
-    while (self.peek() != '"') {
+    while (self.peek() != '"' and !self.isAtEnd()) {
         if (self.peek() == '\n') {
             self.line += 1;
             self.col = 1;
@@ -366,6 +366,14 @@ test "String test" {
 
     // Assert
     try std.testing.expectEqual(.String, token.type);
+}
+
+test "unterminated string" {
+    // Arrange
+    var lexer = Lexer.init("\"no close");
+
+    // Act + Assert
+    try std.testing.expectError(LexerError.UnterminatedString, lexer.scanToken());
 }
 
 test "Number test" {

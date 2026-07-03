@@ -94,9 +94,9 @@ pub const LoxValue = union(enum) {
             .Nil => true,
             .Function => false,
             .Closure => false,
-            .Class => false,
-            .Instance => false,
-            .BoundMethod => false,
+            .Class => |l| l == other.Class,
+            .Instance => |l| l == other.Instance,
+            .BoundMethod => |l| l == other.BoundMethod,
             .Native => false,
             .NaN => false,
         };

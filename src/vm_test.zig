@@ -1683,3 +1683,50 @@ test "gc bound methods are collected during method calls" {
     // Assert
     try std.testing.expectEqualStrings("1\n", writer.written());
 }
+
+test "class and bound method identity equality" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  init() {}
+        \\}
+        \\class Bar {}
+        \\var foo = Foo();
+        \\var fooMethod = foo.init;
+        \\print Foo == Foo;
+        \\print Foo == Bar;
+        \\print fooMethod == fooMethod;
+        \\print foo.init == foo.init;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("true\nfalse\ntrue\nfalse\n", writer.written());
+}
+
+test "recursive calls report stack overflow" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\fun foo() {
+        \\  foo();
+        \\}
+        \\foo();
+        \\
+    ;
+
+    // Act + Assert
+    try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret(code, false));
+}

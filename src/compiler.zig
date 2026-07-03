@@ -185,7 +185,7 @@ fn advance(self: *Compiler) !void {
     self.parser.current = self.lexer.scanToken() catch |err| {
         switch (err) {
             error.UnexpectedCharacter => try self.errorAtCurrent("Unexpected character found in source code."),
-            error.UnterminatedString => try self.errorAtCurrent("Unterminated string literal."),
+            error.UnterminatedString => try self.errorAtLexerScan("Unterminated string literal."),
         }
         return err;
     };
@@ -197,6 +197,22 @@ fn errorAtCurrent(self: *Compiler, message: []const u8) !void {
 
 fn errorAtPrev(self: *Compiler, message: []const u8) !void {
     try self.errorAt(&self.parser.previous, message);
+}
+
+fn errorAtLexerScan(self: *Compiler, message: []const u8) !void {
+    if (self.parser.panicMode) {
+        return;
+    }
+    self.parser.panicMode = true;
+    const col_end = if (self.lexer.col > self.lexer.start_col) self.lexer.col - 1 else self.lexer.start_col;
+    try self.reportErrorAt(
+        self.lexer.line,
+        self.lexer.start_col,
+        self.lexer.line,
+        col_end,
+        message,
+    );
+    self.parser.hadError = true;
 }
 
 fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
