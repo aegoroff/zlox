@@ -48,3 +48,4 @@ zig build -Doptimize=ReleaseFast
 - Follow existing code organization patterns
 - Write code comments only in English
 - Don't write trivial code comments
+- Write tests in AAA pattern - Arange, Act, Assert
