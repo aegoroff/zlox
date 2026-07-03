@@ -103,6 +103,16 @@ pub const Heap = struct {
         self.bytes_allocated += size;
     }
 
+    pub fn adjustMapCapacity(self: *Heap, old_capacity: usize, new_capacity: usize, entry_size: usize) void {
+        const old_bytes = old_capacity * entry_size;
+        const new_bytes = new_capacity * entry_size;
+        if (new_bytes >= old_bytes) {
+            self.bytes_allocated += new_bytes - old_bytes;
+        } else {
+            self.bytes_allocated -= old_bytes - new_bytes;
+        }
+    }
+
     pub fn shouldCollect(self: *Heap) bool {
         return self.bytes_allocated >= self.next_gc;
     }
@@ -129,9 +139,9 @@ pub const Heap = struct {
                     .function => |f| f.size(),
                     .instance => |inst| inst.size(),
                 };
-                self.bytes_allocated -= size;
+                self.bytes_allocated -|= size;
                 obj.free(self.allocator);
-                _ = self.objects.orderedRemove(i);
+                _ = self.objects.swapRemove(i);
             }
         }
 

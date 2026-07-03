@@ -118,6 +118,13 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
 fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
     try self.heap.trackObject(obj, size);
+    try self.maybeCollect();
+}
+
+fn adjustMapAllocation(self: *VM, old_capacity: usize, new_capacity: usize) !void {
+    if (old_capacity == new_capacity) return;
+    self.heap.adjustMapCapacity(old_capacity, new_capacity, @sizeOf(val.StringKeyMap.Entry));
+    try self.maybeCollect();
 }
 
 fn maybeCollect(self: *VM) !void {
@@ -127,7 +134,7 @@ fn maybeCollect(self: *VM) !void {
 }
 
 fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
-    try self.trackObject(.{ .function = func }, @sizeOf(val.Function));
+    try self.trackObject(.{ .function = func }, func.size());
     for (func.chunk.constants.items) |c| {
         if (c.isFunction()) {
             try self.trackConstantsRecursively(c.asFunction());
@@ -310,9 +317,11 @@ fn closeUpvalues(self: *VM, last: usize) void {
 }
 
 fn defineMethod(self: *VM, name: *val.HeapString) !void {
-    const method = try self.pop(); // Closure
-    const klass = try (try self.peek(0)).tryClass(); // Class stays on stack
+    const method = try self.pop();
+    const klass = try (try self.peek(0)).tryClass();
+    const old_capacity = klass.methods.capacity();
     try klass.methods.put(name, method);
+    try self.adjustMapAllocation(old_capacity, klass.methods.capacity());
 }
 
 fn frame(self: *VM) *CallFrame {
@@ -547,10 +556,7 @@ pub fn run(self: *VM) !void {
 
                 const class_ptr = try self.allocator.create(val.Class);
                 class_ptr.* = val.Class.init(self.allocator, name);
-                try self.trackObject(
-                    .{ .class = class_ptr },
-                    @sizeOf(val.Class) + @sizeOf(val.StringKeyMap),
-                );
+                try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
                 try self.push(LoxValue.class(class_ptr));
 
                 ip += CONST_SIZE;
@@ -589,7 +595,9 @@ pub fn run(self: *VM) !void {
                 const prop_value = try self.pop();
                 const instance = try (try self.pop()).tryInstance();
 
+                const old_capacity = instance.fields.capacity();
                 try instance.fields.put(prop_name, prop_value);
+                try self.adjustMapAllocation(old_capacity, instance.fields.capacity());
                 try self.push(prop_value);
                 ip += CONST_SIZE;
             },
@@ -618,7 +626,6 @@ pub fn run(self: *VM) !void {
             },
             else => {},
         }
-        try self.maybeCollect();
     }
 }
 
