@@ -15,6 +15,7 @@ pub const LoxValue = union(enum) {
     Closure: *Closure,
     Class: *Class,
     Instance: *Instance,
+    BoundMethod: *BoundMethod,
     Native: NativeFn,
     NaN,
 
@@ -27,6 +28,10 @@ pub const LoxValue = union(enum) {
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
             .Class => |f| try writer.print("{s}", .{f.name}),
             .Instance => |f| try writer.print("{s} instance", .{f.klass.name}),
+            .BoundMethod => |b| try writer.print("{s} instance -> {s}", .{
+                b.receiver.klass.name,
+                b.method.Closure.function.name.?,
+            }),
             .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
             .Native => try writer.print("<native fn>", .{}),
             .NaN => try writer.print("NaN", .{}),
@@ -93,6 +98,7 @@ pub const LoxValue = union(enum) {
             .Closure => false,
             .Class => false,
             .Instance => false,
+            .BoundMethod => false,
             .Native => false,
             .NaN => true,
         };
@@ -123,6 +129,7 @@ pub const LoxValue = union(enum) {
             .Closure => err.Error.CompileError,
             .Class => err.Error.CompileError,
             .Instance => err.Error.CompileError,
+            .BoundMethod => err.Error.CompileError,
             .Native => err.Error.CompileError,
         };
     }
@@ -263,5 +270,19 @@ pub const Instance = struct {
 
     pub fn size(self: *const Instance) usize {
         return @sizeOf(Instance) + self.fields.capacity() * @sizeOf(std.StringHashMap(LoxValue).Entry);
+    }
+};
+
+pub const BoundMethod = struct {
+    receiver: *Instance,
+    method: LoxValue,
+    marked: bool = false,
+
+    pub fn init(receiver: *Instance, method: LoxValue) BoundMethod {
+        return Instance{
+            .receiver = receiver,
+            .marked = false,
+            .method = method,
+        };
     }
 };

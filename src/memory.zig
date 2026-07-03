@@ -7,6 +7,7 @@ pub const Function = val.Function;
 pub const HeapString = val.HeapString;
 pub const Class = val.Class;
 pub const Instance = val.Instance;
+pub const BoundMethod = val.BoundMethod;
 
 /// Unified type for all heap objects
 pub const HeapObj = union(enum) {
@@ -15,6 +16,7 @@ pub const HeapObj = union(enum) {
     closure: *Closure,
     class: *Class,
     instance: *Instance,
+    bound_method: *BoundMethod,
     function: *Function,
 
     pub fn isMarked(self: HeapObj) bool {
@@ -25,6 +27,7 @@ pub const HeapObj = union(enum) {
             .function => |f| f.marked,
             .class => |f| f.marked,
             .instance => |i| i.marked,
+            .bound_method => |b| b.marked,
         };
     }
 
@@ -36,6 +39,7 @@ pub const HeapObj = union(enum) {
             .function => |f| f.marked = marked,
             .class => |c| c.marked = marked,
             .instance => |i| i.marked = marked,
+            .bound_method => |b| b.marked = marked,
         }
     }
 
@@ -62,6 +66,9 @@ pub const HeapObj = union(enum) {
             .instance => |i| {
                 i.deinit();
                 allocator.destroy(i);
+            },
+            .bound_method => |b| {
+                allocator.destroy(b);
             },
         }
     }
@@ -118,6 +125,7 @@ pub const Heap = struct {
                     .class => |cl| cl.size(),
                     .upvalue => @sizeOf(Upvalue),
                     .closure => @sizeOf(Closure),
+                    .bound_method => @sizeOf(BoundMethod),
                     .function => |f| f.size(),
                     .instance => |inst| inst.size(),
                 };
