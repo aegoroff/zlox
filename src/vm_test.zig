@@ -1311,3 +1311,108 @@ test "class method call multiple methods" {
     // Assert
     try std.testing.expectEqualStrings("10\n15\n", writer.written());
 }
+
+test "nested return preserves frame count" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret(
+        \\fun a() { return 1; }
+        \\fun b() { return a() + 1; }
+        \\fun c() { return b() + 1; }
+        \\print c();
+    , false);
+
+    // Assert
+    try std.testing.expectEqualStrings("3\n", writer.written());
+}
+
+test "gc instance field survives collection" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Box {}
+        \\var box = Box();
+        \\box.value = "survive";
+        \\var i = 0;
+        \\while (i < 5000) {
+        \\  var s = "aaaa" + "bbbb";
+        \\  i = i + 1;
+        \\}
+        \\print box.value;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("survive\n", writer.written());
+}
+
+test "gc class method closure survives collection" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Greeter {
+        \\  greet() {
+        \\    return "hello";
+        \\  }
+        \\}
+        \\var g = Greeter();
+        \\var i = 0;
+        \\while (i < 5000) {
+        \\  var s = "aaaa" + "bbbb";
+        \\  i = i + 1;
+        \\}
+        \\print g.greet();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("hello\n", writer.written());
+}
+
+test "gc closure in global survives collection" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\fun make() {
+        \\  fun inner() { return 42; }
+        \\  return inner;
+        \\}
+        \\var f = make();
+        \\var i = 0;
+        \\while (i < 5000) {
+        \\  var s = "aaaa" + "bbbb";
+        \\  i = i + 1;
+        \\}
+        \\print f();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("42\n", writer.written());
+}

@@ -530,7 +530,7 @@ pub fn run(self: *VM) !void {
                 const caller_slots_offset = self.frames[self.frame_count].slots_offset;
                 self.stack_top = caller_slots_offset - 1;
                 try self.push(result);
-                break;
+                return;
             },
             .CloseUpvalue => {
                 self.closeUpvalues(@intFromPtr(&self.stack[self.stack_top - 1]));
@@ -597,16 +597,27 @@ fn markValue(self: *VM, value: LoxValue) void {
         .Class => |c| {
             if (!c.marked) {
                 c.marked = true;
+                var it = c.methods.iterator();
+                while (it.next()) |entry| {
+                    self.markValue(entry.value_ptr.*);
+                }
             }
         },
         .Instance => |inst| {
             if (!inst.marked) {
                 inst.marked = true;
+                self.markValue(.{ .Class = inst.klass });
+                var it = inst.fields.iterator();
+                while (it.next()) |entry| {
+                    self.markValue(entry.value_ptr.*);
+                }
             }
         },
         .BoundMethod => |b| {
             if (!b.marked) {
                 b.marked = true;
+                self.markValue(.{ .Instance = b.receiver });
+                self.markValue(b.method);
             }
         },
         .Function => |f| {
