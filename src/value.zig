@@ -279,7 +279,7 @@ pub const BoundMethod = struct {
     marked: bool = false,
 
     pub fn init(receiver: *Instance, method: LoxValue) BoundMethod {
-        return Instance{
+        return BoundMethod{
             .receiver = receiver,
             .marked = false,
             .method = method,

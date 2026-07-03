@@ -25,7 +25,7 @@ pub const HeapObj = union(enum) {
             .upvalue => |u| u.marked,
             .closure => |c| c.marked,
             .function => |f| f.marked,
-            .class => |f| f.marked,
+            .class => |c| c.marked,
             .instance => |i| i.marked,
             .bound_method => |b| b.marked,
         };
