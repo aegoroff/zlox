@@ -273,7 +273,12 @@ fn patchJump(self: *Compiler, offset: usize) !void {
 }
 
 fn emitReturn(self: *Compiler) !void {
-    try self.emitOpcode(.Nil);
+    if (self.current.function_type == .TypeInitializer) {
+        try self.emitOpcode(.GetLocal);
+        try self.emitOperand(0);
+    } else {
+        try self.emitOpcode(.Nil);
+    }
     try self.emitOpcode(.Return);
 }
 
@@ -717,6 +722,10 @@ fn returnStatement(self: *Compiler) anyerror!void {
     if (try self.match(.Semicolon)) {
         try self.emitReturn();
     } else {
+        if (self.current.function_type == .TypeInitializer) {
+            try self.errorAtCurrent("Can't return a value from an initializer.");
+            return;
+        }
         try self.expression();
         try self.consume(.Semicolon, "Expect ';' after return value.");
         try self.emitOpcode(.Return);
@@ -846,7 +855,12 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
 fn method(self: *Compiler) !void {
     try self.consume(.Identifier, "Expect method name.");
     const methodConstant = try self.identifierConstant(&self.parser.previous);
-    try self.function(.Method);
+    const function_type: FunctionType = if (self.lexeme(&self.parser.previous).len == 4 and
+        std.mem.eql(u8, self.lexeme(&self.parser.previous), "init"))
+        .TypeInitializer
+    else
+        .Method;
+    try self.function(function_type);
     try self.emitOpcode(.Method);
     try self.emitOperand(methodConstant);
 }

@@ -41,7 +41,6 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
     @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0 });
 
-    const init_string = try val.HeapString.init(gpa, "init");
     var vm = VM{
         .allocator = gpa,
         .io = io,
@@ -55,13 +54,16 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .interned = std.StringHashMap(*val.HeapString).init(gpa),
         .open_upvalues = null,
         .compiler = null,
-        .init_string = init_string,
+        .init_string = undefined,
     };
     errdefer {
         gpa.free(stack);
         gpa.free(frames);
-        gpa.destroy(init_string);
+        vm.interned.deinit();
+        vm.globals.deinit();
+        vm.heap.deinit();
     }
+    vm.init_string = try vm.internString("init");
     try vm.defineNative("clock", builtin.clock);
     try vm.defineNative("max", builtin.max);
     try vm.defineNative("min", builtin.min);
@@ -78,7 +80,6 @@ pub fn deinit(self: *VM) void {
     self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
-    self.allocator.destroy(self.init_string);
 }
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
