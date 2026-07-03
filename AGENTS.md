@@ -49,3 +49,4 @@ zig build -Doptimize=ReleaseFast
 - Write code comments only in English
 - Don't write trivial code comments
 - Write tests in AAA pattern - Arange, Act, Assert
+- Always apply zig fmt to final result
