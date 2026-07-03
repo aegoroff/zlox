@@ -5,10 +5,7 @@ const vm = @import("vm.zig");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
-    // This is appropriate for anything that lives as long as the process.
-    const gpa = init.arena.allocator();
-
-    // In order to do I/O operations need an `Io` instance.
+    const allocator = std.heap.smp_allocator;
     const io = init.io;
 
     // Stdout is for the actual output of your application, for example if you
@@ -21,8 +18,8 @@ pub fn main(init: std.process.Init) !void {
         stdout_writer.flush() catch {};
     }
 
-    const args = try init.minimal.args.toSlice(gpa);
-    try run(gpa, stdout_writer, io, args[1..]); // skip exe itself
+    const args = try init.minimal.args.toSlice(allocator);
+    try run(allocator, stdout_writer, io, args[1..]); // skip exe itself
 
 }
 
