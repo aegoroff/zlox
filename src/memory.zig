@@ -46,6 +46,7 @@ pub const HeapObj = union(enum) {
                 allocator.destroy(s);
             },
             .class => |cl| {
+                cl.deinit();
                 allocator.destroy(cl);
             },
             .upvalue => |u| {
@@ -114,7 +115,7 @@ pub const Heap = struct {
                 // Object unreachable - free it
                 const size = switch (obj.*) {
                     .string => |s| @sizeOf(HeapString) + s.data.len,
-                    .class => @sizeOf(Class),
+                    .class => @sizeOf(Class) + @sizeOf(std.StringHashMap(val.LoxValue)),
                     .upvalue => @sizeOf(Upvalue),
                     .closure => @sizeOf(Closure),
                     .function => |f| @sizeOf(Function) + f.chunk.code.items.len + f.chunk.constants.items.len * @sizeOf(val.LoxValue) + f.chunk.lines.items.len * @sizeOf(usize),

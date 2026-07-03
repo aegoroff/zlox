@@ -450,8 +450,11 @@ pub fn run(self: *VM) !void {
                 const name = try self.chunk().readConstant(ip).tryString();
 
                 const class_ptr = try self.allocator.create(val.Class);
-                class_ptr.* = val.Class.init(name);
-                try self.heap.trackObject(.{ .class = class_ptr }, @sizeOf(val.Class));
+                class_ptr.* = val.Class.init(self.allocator, name);
+                try self.heap.trackObject(
+                    .{ .class = class_ptr },
+                    @sizeOf(val.Class) + @sizeOf(std.StringHashMap(val.LoxValue)),
+                );
                 try self.push(.{ .Class = class_ptr });
 
                 ip += CONST_SIZE;

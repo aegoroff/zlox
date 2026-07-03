@@ -206,13 +206,19 @@ pub const Closure = struct {
 
 pub const Class = struct {
     name: []const u8,
+    methods: std.StringHashMap(LoxValue),
     marked: bool = false,
 
-    pub fn init(name: []const u8) Class {
+    pub fn init(gpa: std.mem.Allocator, name: []const u8) Class {
         return Class{
             .name = name,
+            .methods = std.StringHashMap(LoxValue).init(gpa),
             .marked = false,
         };
+    }
+
+    pub fn deinit(self: *Class) void {
+        self.methods.deinit();
     }
 };
 
@@ -228,6 +234,7 @@ pub const Instance = struct {
             .marked = false,
         };
     }
+
     pub fn deinit(self: *Instance) void {
         self.fields.deinit();
     }
