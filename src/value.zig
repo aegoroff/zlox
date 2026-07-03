@@ -83,16 +83,7 @@ pub const LoxValue = union(enum) {
     }
 
     pub fn equal(self: LoxValue, other: LoxValue) bool {
-        const self_tag = std.meta.activeTag(self);
-        const other_tag = std.meta.activeTag(other);
-
-        if (self_tag != other_tag) {
-            const is_self_bool_like = (self_tag == .Bool or self_tag == .Nil);
-            const is_other_bool_like = (other_tag == .Bool or other_tag == .Nil);
-
-            if (is_self_bool_like and is_other_bool_like) {
-                return self.asBool() == other.asBool();
-            }
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) {
             return false;
         }
 
@@ -107,7 +98,7 @@ pub const LoxValue = union(enum) {
             .Instance => false,
             .BoundMethod => false,
             .Native => false,
-            .NaN => true,
+            .NaN => false,
         };
     }
 
@@ -141,14 +132,6 @@ pub const LoxValue = union(enum) {
         };
     }
 
-    fn asBool(self: LoxValue) bool {
-        return switch (self) {
-            .Bool => |b| b,
-            .Nil => false,
-            .NaN => false,
-            else => false,
-        };
-    }
 };
 
 pub const HeapString = struct {
