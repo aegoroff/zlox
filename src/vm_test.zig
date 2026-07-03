@@ -1365,6 +1365,126 @@ test "class method call multiple methods" {
     try std.testing.expectEqualStrings("10\n15\n", writer.written());
 }
 
+test "constructor with arguments sets instance fields" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  init(a, b) {
+        \\    print "init";
+        \\    this.a = a;
+        \\    this.b = b;
+        \\  }
+        \\}
+        \\var foo = Foo(1, 2);
+        \\print foo.a;
+        \\print foo.b;
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+
+    try std.testing.expectEqualStrings("init\n1\n2\n", writer.written());
+}
+
+test "constructor without init creates instance" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {}
+        \\var foo = Foo();
+        \\print foo;
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+
+    try std.testing.expectEqualStrings("Foo instance\n", writer.written());
+}
+
+test "constructor early return still returns instance" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  init() {
+        \\    print "init";
+        \\    return;
+        \\    print "nope";
+        \\  }
+        \\}
+        \\var foo = Foo();
+        \\print foo;
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+
+    try std.testing.expectEqualStrings("init\nFoo instance\n", writer.written());
+}
+
+test "constructor explicit init call does not create new instance" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  init(arg) {
+        \\    print "Foo.init(" + arg + ")";
+        \\    this.field = "init";
+        \\  }
+        \\}
+        \\var foo = Foo("one");
+        \\foo.field = "field";
+        \\var foo2 = foo.init("two");
+        \\print foo2;
+        \\print foo.field;
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+
+    try std.testing.expectEqualStrings(
+        "Foo.init(one)\nFoo.init(two)\nFoo instance\ninit\n",
+        writer.written(),
+    );
+}
+
+test "constructor nested function named init is not initializer" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  init() {
+        \\    fun init() {
+        \\      return "bar";
+        \\    }
+        \\    print init();
+        \\  }
+        \\}
+        \\print Foo();
+        \\
+    ;
+
+    try virtualMachine.interpret(code, false);
+
+    try std.testing.expectEqualStrings("bar\nFoo instance\n", writer.written());
+}
+
 test "nested return preserves frame count" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
