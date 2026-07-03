@@ -158,8 +158,7 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
         .Class => |k| {
             const instance_ptr = try self.allocator.create(val.Instance);
             instance_ptr.* = val.Instance.init(self.allocator, k);
-            const sz = @sizeOf(val.Instance) + @sizeOf(std.StringHashMap(val.LoxValue));
-            try self.heap.trackObject(.{ .instance = instance_ptr }, sz);
+            try self.heap.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
             self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
             return true;
         },
