@@ -139,6 +139,10 @@ pub const HeapString = struct {
         self.* = .{ .marked = false, .data = bytes };
         return self;
     }
+
+    pub fn size(self: *const HeapString) usize {
+        return @sizeOf(HeapString) + self.data.len;
+    }
 };
 
 pub const Upvalue = struct {
@@ -184,6 +188,13 @@ pub const Function = struct {
     pub fn deinit(self: *Function) void {
         self.chunk.deinit();
     }
+
+    pub fn size(self: *const Function) usize {
+        return @sizeOf(Function) +
+            self.chunk.code.items.len +
+            self.chunk.constants.items.len * @sizeOf(LoxValue) +
+            self.chunk.lines.items.len * @sizeOf(usize);
+    }
 };
 
 const UPVALUE_MAX: usize = 256;
@@ -220,6 +231,10 @@ pub const Class = struct {
     pub fn deinit(self: *Class) void {
         self.methods.deinit();
     }
+
+    pub fn size(self: *const Class) usize {
+        return @sizeOf(Class) + self.methods.capacity() * @sizeOf(std.StringHashMap(LoxValue).Entry);
+    }
 };
 
 pub const Instance = struct {
@@ -237,5 +252,9 @@ pub const Instance = struct {
 
     pub fn deinit(self: *Instance) void {
         self.fields.deinit();
+    }
+
+    pub fn size(self: *const Instance) usize {
+        return @sizeOf(Instance) + self.fields.capacity() * @sizeOf(std.StringHashMap(LoxValue).Entry);
     }
 };
