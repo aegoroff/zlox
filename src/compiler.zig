@@ -155,7 +155,13 @@ pub fn reportErrorAt(
     // For single-character tokens, use the same start and end columns
     const col_end = if (end_col > start_col) end_col else start_col;
 
-    const range = SourceRange.span(self.filename, start_line, start_col, end_line, col_end);
+    const range = SourceRange.span(
+        self.filename,
+        start_line,
+        start_col,
+        end_line,
+        col_end,
+    );
     const diagnostic = Diagnostic.init(.err, message)
         .withRange(range);
 

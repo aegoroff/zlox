@@ -16,6 +16,7 @@ const CONST_LONG_SIZE: usize = 3;
 
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
+compiler: ?Compiler,
 io: std.Io,
 stack: []LoxValue,
 stack_top: usize,
@@ -49,6 +50,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .stack_top = 0,
         .heap = mem.Heap.init(gpa),
         .open_upvalues = null,
+        .compiler = null,
     };
     errdefer {
         gpa.free(stack);
@@ -62,6 +64,9 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
 }
 
 pub fn deinit(self: *VM) void {
+    if (self.compiler) |_| {
+        self.compiler.?.deinit();
+    }
     self.globals.deinit();
     self.heap.deinit();
     self.allocator.free(self.stack);
@@ -73,19 +78,18 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 }
 
 pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, filename: []const u8) !void {
-    var compiler = Compiler.init(self.allocator, self.writer, print_code, filename);
-    defer compiler.deinit();
+    self.compiler = Compiler.init(self.allocator, self.writer, print_code, filename);
 
-    const func = compiler.compile(source) catch |compile_err| {
+    const func = self.compiler.?.compile(source) catch |compile_err| {
         return compile_err;
     };
 
-    if (compiler.parser.hadError) {
+    if (self.compiler.?.parser.hadError) {
         return err.Error.CompileError;
     }
 
     try self.trackConstantsRecursively(func);
-    compiler.current.function = null;
+    self.compiler.?.current.function = null;
 
     const closure_ptr = try self.allocator.create(val.Closure);
     closure_ptr.* = val.Closure.init(func);
@@ -225,6 +229,12 @@ fn frame(self: *VM) *CallFrame {
 
 fn chunk(self: *VM) *Chunk {
     return &self.frame().closure.function.chunk;
+}
+
+fn errorAt(self: *VM, ip: usize, comptime fmt: []const u8, args: anytype) !void {
+    const line = self.chunk().lines.items[ip];
+    const message = try std.fmt.allocPrint(self.allocator, fmt, args);
+    try self.compiler.?.reportErrorAt(line, 1, line, 1, message);
 }
 
 fn println(self: *VM) !void {
@@ -438,11 +448,12 @@ pub fn run(self: *VM) !void {
             },
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
-                ip += 1;
                 const value = try self.peek(arg_count);
                 if (!try self.callValue(value, arg_count)) {
+                    try self.errorAt(ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
                 }
+                ip += 1;
                 // After call returns, frame_count is already decremented by Return
                 // Continue with next instruction
             },
@@ -466,7 +477,7 @@ pub fn run(self: *VM) !void {
                     _ = try self.pop(); // instance
                     try self.push(field);
                 } else {
-                    std.log.err("Undefined property '{s}' of {s}", .{ name, instance.klass.name });
+                    try self.errorAt(ip, "Undefined property '{s}' of {s}", .{ name, instance.klass.name });
                     return err.Error.RuntimeError;
                 }
                 ip += CONST_SIZE;
@@ -522,16 +533,7 @@ fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     if (self.globals.get(name)) |constant_value| {
         try self.push(constant_value);
     } else {
-        var globals_list = std.ArrayList(u8).empty;
-        defer globals_list.deinit(self.allocator);
-
-        var iterator = self.globals.iterator();
-        while (iterator.next()) |e| {
-            try globals_list.appendSlice(self.allocator, "\n - ");
-            try globals_list.appendSlice(self.allocator, e.key_ptr.*);
-        }
-
-        std.log.err("Unknown global: {s}. Current globals are:{s}", .{ name, globals_list.items });
+        try self.errorAt(ip, "Unknown global to get: {s}.", .{name});
         return err.Error.RuntimeError;
     }
 }
@@ -544,6 +546,7 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     };
     const name = try name_value.tryString();
     if (!self.globals.contains(name)) {
+        try self.errorAt(ip, "Unknown global to set: {s}.", .{name});
         return err.Error.RuntimeError;
     }
     const new_value = try self.peek(0);
