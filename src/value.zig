@@ -48,6 +48,13 @@ pub const LoxValue = union(enum) {
         };
     }
 
+    pub fn tryInstance(self: LoxValue) err.Error!*Instance {
+        return switch (self) {
+            .Instance => |i| i,
+            else => return err.Error.RuntimeError,
+        };
+    }
+
     pub fn isFalsee(self: LoxValue) bool {
         return switch (self) {
             .Bool => |n| !n,

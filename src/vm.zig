@@ -447,14 +447,34 @@ pub fn run(self: *VM) !void {
                 // Continue with next instruction
             },
             .Class => {
-                const className = self.chunk().readConstant(ip);
-                const name = try className.tryString();
+                const name = try self.chunk().readConstant(ip).tryString();
 
                 const class_ptr = try self.allocator.create(val.Class);
                 class_ptr.* = val.Class.init(name);
                 try self.heap.trackObject(.{ .class = class_ptr }, @sizeOf(val.Class));
                 try self.push(.{ .Class = class_ptr });
 
+                ip += CONST_SIZE;
+            },
+            .GetProperty => {
+                const name = try self.chunk().readConstant(ip).tryString();
+                const instance = try (try self.peek(0)).tryInstance();
+                if (instance.fields.get(name)) |field| {
+                    _ = try self.pop(); // instance
+                    try self.push(field);
+                } else {
+                    std.log.err("Undefined property '{s}' of {s}", .{ name, instance.klass.name });
+                    return err.Error.RuntimeError;
+                }
+                ip += CONST_SIZE;
+            },
+            .SetProperty => {
+                const prop_name = try self.chunk().readConstant(ip).tryString();
+                const prop_value = try self.pop();
+                const instance = try (try self.pop()).tryInstance();
+
+                try instance.fields.put(prop_name, prop_value);
+                try self.push(prop_value);
                 ip += CONST_SIZE;
             },
             .Return => {

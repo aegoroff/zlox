@@ -471,6 +471,19 @@ fn call(self: *Compiler, _: bool) !void {
     try self.emitOperand(args_count);
 }
 
+fn dot(self: *Compiler, can_assign: bool) !void {
+    try self.consume(.Identifier, "Expect property name after '.'.");
+    const name = try self.identifierConstant(&self.parser.previous);
+    if (can_assign and try self.match(.Equal)) {
+        try self.expression();
+        try self.emitOpcode(.SetProperty);
+        try self.emitOperand(name);
+    } else {
+        try self.emitOpcode(.GetProperty);
+        try self.emitOperand(name);
+    }
+}
+
 fn getPrecedence(tokenType: scan.TokenType) Precedence {
     return switch (tokenType) {
         .Minus, .Plus => .Term,
@@ -628,6 +641,7 @@ fn callInfix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void
         .And => try self.and_(),
         .Or => try self.or_(),
         .LeftParen => try self.call(can_assign),
+        .Dot => try self.dot(can_assign),
         else => {},
     }
 }
