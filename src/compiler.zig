@@ -78,6 +78,10 @@ const Compile = struct {
     }
 };
 
+const ClassCompiler = struct {
+    enclosing: ?*ClassCompiler,
+};
+
 pub const FunctionType = enum {
     Function,
     Script,
@@ -91,6 +95,7 @@ allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 lexer: scan.Lexer,
 current: *Compile,
+current_class: ?*ClassCompiler,
 parser: Parser,
 print_code: bool,
 filename: []const u8,
@@ -103,6 +108,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool, fi
         .filename = filename,
         .lexer = undefined,
         .current = undefined,
+        .current_class = null,
         .parser = .{
             .current = undefined,
             .previous = undefined,
@@ -339,6 +345,10 @@ fn variable(self: *Compiler, can_assign: bool) !void {
 }
 
 fn this_(self: *Compiler) !void {
+    if (self.current_class == null) {
+        try self.errorAtPrev("Can't use 'this' outside of a class.");
+        return e.Error.CompileError;
+    }
     try self.variable(false);
 }
 
@@ -849,6 +859,12 @@ fn classDeclaration(self: *Compiler) !void {
     try self.emitOpcode(.Class);
     try self.emitOperand(nameConstant);
     try self.defineVariable(nameConstant);
+
+    var class_compiler = ClassCompiler{
+        .enclosing = self.current_class,
+    };
+    self.current_class = &class_compiler;
+
     try self.namedVariable(className, false);
     try self.consume(.LeftBrace, "Expect '{' before class body.");
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
@@ -856,6 +872,7 @@ fn classDeclaration(self: *Compiler) !void {
     }
     try self.consume(.RightBrace, "Expect '}' after class body.");
     try self.emitOpcode(.Pop);
+    self.current_class = self.current_class.?.enclosing;
 }
 
 fn funDeclaration(self: *Compiler) !void {
