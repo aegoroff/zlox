@@ -570,6 +570,11 @@ fn markValue(self: *VM, value: LoxValue) void {
                 c.marked = true;
             }
         },
+        .Instance => |c| {
+            if (!c.marked) {
+                c.marked = true;
+            }
+        },
         .Function => |f| {
             if (!f.marked) {
                 f.marked = true;
