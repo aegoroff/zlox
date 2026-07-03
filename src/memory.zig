@@ -115,11 +115,11 @@ pub const Heap = struct {
                 // Object unreachable - free it
                 const size = switch (obj.*) {
                     .string => |s| @sizeOf(HeapString) + s.data.len,
-                    .class => @sizeOf(Class) + @sizeOf(std.StringHashMap(val.LoxValue)),
+                    .class => |cl| @sizeOf(Class) + cl.methods.capacity() * @sizeOf(std.StringHashMap(val.LoxValue).Entry),
                     .upvalue => @sizeOf(Upvalue),
                     .closure => @sizeOf(Closure),
                     .function => |f| @sizeOf(Function) + f.chunk.code.items.len + f.chunk.constants.items.len * @sizeOf(val.LoxValue) + f.chunk.lines.items.len * @sizeOf(usize),
-                    .instance => @sizeOf(Instance) + @sizeOf(std.StringHashMap(val.LoxValue)),
+                    .instance => |inst| @sizeOf(Instance) + inst.fields.capacity() * @sizeOf(std.StringHashMap(val.LoxValue).Entry),
                 };
                 self.bytes_allocated -= size;
                 obj.free(self.allocator);
