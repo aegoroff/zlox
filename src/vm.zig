@@ -109,9 +109,8 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
     const closure_ptr = try self.allocator.create(val.Closure);
     closure_ptr.* = val.Closure.init(func);
-    try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
-
     try self.push(LoxValue.closure(closure_ptr));
+    try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
     _ = try self.call(1, closure_ptr, 0);
     _ = try self.pop();
 }
@@ -154,8 +153,8 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 
     const owned = try self.allocator.dupe(u8, bytes);
     const heap_str = try val.HeapString.init(self.allocator, owned);
-    try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     try self.interned.put(heap_str.data, heap_str);
+    try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     return heap_str;
 }
 
@@ -243,8 +242,8 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
         const k = value.asClass();
         const instance_ptr = try self.allocator.create(val.Instance);
         instance_ptr.* = val.Instance.init(self.allocator, k);
-        try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
         self.stack[self.stack_top - arg_count - 1] = LoxValue.instance(instance_ptr);
+        try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
         if (instance_ptr.klass.methods.get(self.init_string)) |in| {
             return try self.call(ip, try in.tryClosure(), arg_count);
         } else if (arg_count != 0) {
@@ -292,7 +291,6 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
         .next = null,
         .marked = false,
     };
-    try self.trackObject(.{ .upvalue = created }, @sizeOf(val.Upvalue));
 
     if (prev) |p| {
         created.next = p.next;
@@ -301,6 +299,8 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
         created.next = self.open_upvalues;
         self.open_upvalues = created;
     }
+
+    try self.trackObject(.{ .upvalue = created }, @sizeOf(val.Upvalue));
 
     return created;
 }
@@ -482,8 +482,8 @@ pub fn run(self: *VM) !void {
                     const bs = b.asString();
                     const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
                     const heap_str = try mem.HeapString.init(self.allocator, result);
-                    try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
                     try self.push(LoxValue.string(heap_str));
+                    try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
                 } else {
                     return err.Error.RuntimeError;
                 }
@@ -523,6 +523,7 @@ pub fn run(self: *VM) !void {
 
                 const closure_ptr = try self.allocator.create(val.Closure);
                 closure_ptr.* = val.Closure.init(function);
+                try self.push(LoxValue.closure(closure_ptr));
                 try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
                 const current_frame = self.frame();
@@ -538,7 +539,6 @@ pub fn run(self: *VM) !void {
                     closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
                     closure_ptr.upvalue_count += 1;
                 }
-                try self.push(LoxValue.closure(closure_ptr));
             },
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
@@ -556,8 +556,8 @@ pub fn run(self: *VM) !void {
 
                 const class_ptr = try self.allocator.create(val.Class);
                 class_ptr.* = val.Class.init(self.allocator, name);
-                try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
                 try self.push(LoxValue.class(class_ptr));
+                try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
 
                 ip += CONST_SIZE;
             },
@@ -572,9 +572,8 @@ pub fn run(self: *VM) !void {
 
                     const bound_ptr = try self.allocator.create(val.BoundMethod);
                     bound_ptr.* = val.BoundMethod.init(instance, method);
-                    try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
-
                     try self.push(LoxValue.boundMethod(bound_ptr));
+                    try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
                 } else {
                     try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
                     return err.Error.RuntimeError;
