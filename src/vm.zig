@@ -96,7 +96,7 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     try self.heap.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
     try self.push(.{ .Closure = closure_ptr });
-    _ = try self.call(closure_ptr, 0);
+    _ = try self.call(1, closure_ptr, 0);
     _ = try self.pop();
 }
 
@@ -142,7 +142,14 @@ fn peek(self: *VM, distance: usize) err.Error!LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
-fn call(self: *VM, closure: *val.Closure, arg_count: usize) anyerror!bool {
+fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!bool {
+    if (closure.function.arity != arg_count) {
+        try self.errorAt(ip, "Expected {d} arguments but got {d}.", .{
+            closure.function.arity,
+            arg_count,
+        });
+        return err.Error.RuntimeError;
+    }
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
         .slots_offset = self.stack_top - arg_count,
@@ -152,9 +159,9 @@ fn call(self: *VM, closure: *val.Closure, arg_count: usize) anyerror!bool {
     return true;
 }
 
-fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
+fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
-        .Closure => |f| try self.call(f, arg_count),
+        .Closure => |f| try self.call(ip, f, arg_count),
         .Class => |k| {
             const instance_ptr = try self.allocator.create(val.Instance);
             instance_ptr.* = val.Instance.init(self.allocator, k);
@@ -162,7 +169,7 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
             self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
             return true;
         },
-        .BoundMethod => |b| self.call(try b.method.tryClosure(), arg_count),
+        .BoundMethod => |b| self.call(ip, try b.method.tryClosure(), arg_count),
         .Native => |native_fn| {
             const args_start = self.stack_top - arg_count;
             const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
@@ -455,7 +462,7 @@ pub fn run(self: *VM) !void {
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
                 const value = try self.peek(arg_count);
-                if (!try self.callValue(value, arg_count)) {
+                if (!try self.callValue(ip, value, arg_count)) {
                     try self.errorAt(ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
                 }
