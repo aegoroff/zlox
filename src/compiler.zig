@@ -823,15 +823,29 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     }
 }
 
+fn method(self: *Compiler) !void {
+    try self.consume(.Identifier, "Expect method name.");
+    const methodConstant = try self.identifierConstant(&self.parser.previous);
+    try self.function(.Function);
+    try self.emitOpcode(.Method);
+    try self.emitOperand(methodConstant);
+}
+
 fn classDeclaration(self: *Compiler) !void {
     try self.consume(.Identifier, "Expect class name.");
-    const nameConstant = try self.identifierConstant(&self.parser.previous);
+    const className = &self.parser.previous;
+    const nameConstant = try self.identifierConstant(className);
     try self.declareVariable();
     try self.emitOpcode(.Class);
     try self.emitOperand(nameConstant);
     try self.defineVariable(nameConstant);
+    try self.namedVariable(className, false);
     try self.consume(.LeftBrace, "Expect '{' before class body.");
+    while (!self.check(.RightBrace) and !self.check(.Eof)) {
+        try self.method();
+    }
     try self.consume(.RightBrace, "Expect '}' after class body.");
+    try self.emitOpcode(.Pop);
 }
 
 fn funDeclaration(self: *Compiler) !void {
