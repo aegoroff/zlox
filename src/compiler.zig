@@ -410,7 +410,7 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
 
     if (upvalueCount == LOCALS_MAX) {
         try self.errorAtPrev("Too many closure variables in function.");
-        return 0;
+        return e.Error.CompileError;
     }
 
     compiler.upvalues[upvalueCount].is_local = is_local;
