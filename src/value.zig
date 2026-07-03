@@ -14,6 +14,7 @@ pub const LoxValue = union(enum) {
     Function: *Function,
     Closure: *Closure,
     Class: *Class,
+    Instance: *Instance,
     Native: NativeFn,
     NaN,
 
@@ -25,6 +26,7 @@ pub const LoxValue = union(enum) {
             .String => |s| try writer.print("{s}", .{s.data}),
             .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
             .Class => |f| try writer.print("{s}", .{f.name}),
+            .Instance => |f| try writer.print("{s} instance", .{f.klass.name}),
             .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
             .Native => try writer.print("<native fn>", .{}),
             .NaN => try writer.print("NaN", .{}),
@@ -76,6 +78,7 @@ pub const LoxValue = union(enum) {
             .Function => false,
             .Closure => false,
             .Class => false,
+            .Instance => false,
             .Native => false,
             .NaN => true,
         };
@@ -105,6 +108,7 @@ pub const LoxValue = union(enum) {
             .Function => err.Error.CompileError,
             .Closure => err.Error.CompileError,
             .Class => err.Error.CompileError,
+            .Instance => err.Error.CompileError,
             .Native => err.Error.CompileError,
         };
     }
@@ -202,5 +206,22 @@ pub const Class = struct {
             .name = name,
             .marked = false,
         };
+    }
+};
+
+pub const Instance = struct {
+    klass: *Class,
+    fields: std.StringHashMap(LoxValue),
+    marked: bool = false,
+
+    pub fn init(gpa: std.mem.Allocator, klass: *Class) Instance {
+        return Instance{
+            .klass = klass,
+            .fields = std.StringHashMap(LoxValue).init(gpa),
+            .marked = false,
+        };
+    }
+    pub fn deinit(self: *Instance) void {
+        self.fields.deinit();
     }
 };

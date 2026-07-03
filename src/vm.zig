@@ -151,6 +151,14 @@ fn call(self: *VM, closure: *val.Closure, arg_count: usize) anyerror!bool {
 fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
     return switch (value) {
         .Closure => |f| try self.call(f, arg_count),
+        .Class => |k| {
+            const instance_ptr = try self.allocator.create(val.Instance);
+            instance_ptr.* = val.Instance.init(self.allocator, k);
+            const sz = @sizeOf(val.Instance) + @sizeOf(std.StringHashMap(val.LoxValue));
+            try self.heap.trackObject(.{ .instance = instance_ptr }, sz);
+            self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
+            return true;
+        },
         .Native => |native_fn| {
             const args_start = self.stack_top - arg_count;
             const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
@@ -1783,4 +1791,24 @@ test "class declaration and print" {
 
     // Assert
     try std.testing.expectEqualStrings("Foo\n", writer.written());
+}
+
+test "class declaration and call" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {}
+        \\print Foo();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("Foo instance\n", writer.written());
 }

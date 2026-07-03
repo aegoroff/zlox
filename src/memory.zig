@@ -6,6 +6,7 @@ pub const Closure = val.Closure;
 pub const Function = val.Function;
 pub const HeapString = val.HeapString;
 pub const Class = val.Class;
+pub const Instance = val.Instance;
 
 /// Unified type for all heap objects
 pub const HeapObj = union(enum) {
@@ -13,6 +14,7 @@ pub const HeapObj = union(enum) {
     upvalue: *Upvalue,
     closure: *Closure,
     class: *Class,
+    instance: *Instance,
     function: *Function,
 
     pub fn isMarked(self: HeapObj) bool {
@@ -22,26 +24,18 @@ pub const HeapObj = union(enum) {
             .closure => |c| c.marked,
             .function => |f| f.marked,
             .class => |f| f.marked,
+            .instance => |i| i.marked,
         };
     }
 
     pub fn setMarked(self: HeapObj, marked: bool) void {
         switch (self) {
-            .string => |s| {
-                s.marked = marked;
-            },
-            .upvalue => |u| {
-                u.marked = marked;
-            },
-            .closure => |c| {
-                c.marked = marked;
-            },
-            .function => |f| {
-                f.marked = marked;
-            },
-            .class => |c| {
-                c.marked = marked;
-            },
+            .string => |s| s.marked = marked,
+            .upvalue => |u| u.marked = marked,
+            .closure => |c| c.marked = marked,
+            .function => |f| f.marked = marked,
+            .class => |c| c.marked = marked,
+            .instance => |i| i.marked = marked,
         }
     }
 
@@ -63,6 +57,10 @@ pub const HeapObj = union(enum) {
             .function => |f| {
                 f.deinit();
                 allocator.destroy(f);
+            },
+            .instance => |i| {
+                i.deinit();
+                allocator.destroy(i);
             },
         }
     }
@@ -120,6 +118,7 @@ pub const Heap = struct {
                     .upvalue => @sizeOf(Upvalue),
                     .closure => @sizeOf(Closure),
                     .function => |f| @sizeOf(Function) + f.chunk.code.items.len + f.chunk.constants.items.len * @sizeOf(val.LoxValue) + f.chunk.lines.items.len * @sizeOf(usize),
+                    .instance => @sizeOf(Instance) + @sizeOf(std.StringHashMap(val.LoxValue)),
                 };
                 self.bytes_allocated -= size;
                 obj.free(self.allocator);
