@@ -1896,3 +1896,82 @@ test "class instance property set and get" {
     // Assert
     try std.testing.expectEqualStrings("baz\n", writer.written());
 }
+
+test "class method call no arguments" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  sayHi() {
+        \\    print "hi";
+        \\  }
+        \\}
+        \\var foo = Foo();
+        \\foo.sayHi();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("hi\n", writer.written());
+}
+
+test "class method call with arguments" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Calculator {
+        \\  add(a, b) {
+        \\    return a + b;
+        \\  }
+        \\}
+        \\var calc = Calculator();
+        \\print calc.add(3, 4);
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("7\n", writer.written());
+}
+
+test "class method call multiple methods" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Math {
+        \\  double(x) {
+        \\    return x * 2;
+        \\  }
+        \\  triple(x) {
+        \\    return x * 3;
+        \\  }
+        \\}
+        \\var math = Math();
+        \\print math.double(5);
+        \\print math.triple(5);
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("10\n15\n", writer.written());
+}
