@@ -99,13 +99,24 @@ current_class: ?*ClassCompiler,
 parser: Parser,
 print_code: bool,
 filename: []const u8,
+intern_ctx: *anyopaque,
+intern_string_fn: *const fn (ctx: *anyopaque, bytes: []const u8) anyerror!*val.HeapString,
 
-pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool, filename: []const u8) Compiler {
+pub fn init(
+    gpa: std.mem.Allocator,
+    writer: *std.Io.Writer,
+    print_code: bool,
+    filename: []const u8,
+    intern_ctx: *anyopaque,
+    intern_string_fn: *const fn (ctx: *anyopaque, bytes: []const u8) anyerror!*val.HeapString,
+) Compiler {
     return Compiler{
         .allocator = gpa,
         .writer = writer,
         .print_code = print_code,
         .filename = filename,
+        .intern_ctx = intern_ctx,
+        .intern_string_fn = intern_string_fn,
         .lexer = undefined,
         .current = undefined,
         .current_class = null,
@@ -116,6 +127,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, print_code: bool, fi
             .panicMode = false,
         },
     };
+}
+
+fn internCompileString(self: *Compiler, bytes: []const u8) !*val.HeapString {
+    return self.intern_string_fn(self.intern_ctx, bytes);
 }
 
 fn initCurrent(self: *Compiler, function_type: FunctionType) !void {
@@ -356,12 +371,8 @@ fn number(self: *Compiler) !void {
 
 fn string(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
-    _ = try self.emitConstant(.{
-        .String = try val.HeapString.init(
-            self.allocator,
-            try self.allocator.dupe(u8, s[1 .. s.len - 1]),
-        ),
-    }); // trimming quotes
+    const interned = try self.internCompileString(s[1 .. s.len - 1]); // trimming quotes
+    _ = try self.emitConstant(.{ .String = interned });
 }
 
 fn variable(self: *Compiler, can_assign: bool) !void {
@@ -645,12 +656,8 @@ fn or_(self: *Compiler) !void {
 }
 
 fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
-    return try self.makeConstant(.{
-        .String = try val.HeapString.init(
-            self.allocator,
-            try self.allocator.dupe(u8, self.lexeme(token)),
-        ),
-    });
+    const interned = try self.internCompileString(self.lexeme(token));
+    return try self.makeConstant(.{ .String = interned });
 }
 
 fn addLocal(self: *Compiler, token: *scan.Token) !void {

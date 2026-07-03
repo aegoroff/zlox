@@ -87,7 +87,14 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 }
 
 pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, filename: []const u8) !void {
-    self.compiler = Compiler.init(self.allocator, self.writer, print_code, filename);
+    self.compiler = Compiler.init(
+        self.allocator,
+        self.writer,
+        print_code,
+        filename,
+        self,
+        compilerInternString,
+    );
 
     const func = self.compiler.?.compile(source) catch |compile_err| {
         return compile_err;
@@ -124,10 +131,15 @@ fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
     for (func.chunk.constants.items) |c| {
         switch (c) {
             .Function => |nested| try self.trackConstantsRecursively(nested),
-            .String => |s| try self.trackObject(.{ .string = s }, @sizeOf(mem.HeapString) + s.data.len),
+            .String => {},
             else => {},
         }
     }
+}
+
+fn compilerInternString(ctx: *anyopaque, bytes: []const u8) !*val.HeapString {
+    const vm: *VM = @ptrCast(@alignCast(ctx));
+    return vm.internString(bytes);
 }
 
 fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
@@ -358,11 +370,11 @@ pub fn run(self: *VM) !void {
                 ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
-                try self.defineGlobal(ip);
+                try self.defineGlobal(ip, CONST_SIZE);
                 ip += CONST_SIZE;
             },
             .DefineGlobalLong => {
-                try self.defineGlobal(ip);
+                try self.defineGlobal(ip, CONST_LONG_SIZE);
                 ip += CONST_LONG_SIZE;
             },
             .GetGlobal => {
@@ -536,7 +548,7 @@ pub fn run(self: *VM) !void {
                 // Continue with next instruction
             },
             .Class => {
-                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
+                const name = try self.readStringConstant(ip, CONST_SIZE);
 
                 const class_ptr = try self.allocator.create(val.Class);
                 class_ptr.* = val.Class.init(self.allocator, name);
@@ -549,7 +561,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .GetProperty => {
-                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
+                const name = try self.readStringConstant(ip, CONST_SIZE);
                 const instance = try (try self.peek(0)).tryInstance();
                 if (instance.fields.get(name)) |field| {
                     _ = try self.pop(); // instance
@@ -569,7 +581,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .Invoke => {
-                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
+                const name = try self.readStringConstant(ip, CONST_SIZE);
                 const arg_count = self.chunk().readByte(ip + CONST_SIZE);
                 if (!try self.invoke(ip, name, arg_count)) {
                     try self.errorAt(ip, "Invoke failed", .{});
@@ -578,7 +590,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE + 1;
             },
             .SetProperty => {
-                const prop_name = try self.internString(try self.chunk().readConstant(ip).tryString());
+                const prop_name = try self.readStringConstant(ip, CONST_SIZE);
                 const prop_value = try self.pop();
                 const instance = try (try self.pop()).tryInstance();
 
@@ -587,7 +599,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .Method => {
-                const name = try self.internString(try self.chunk().readConstant(ip).tryString());
+                const name = try self.readStringConstant(ip, CONST_SIZE);
                 try self.defineMethod(name);
                 ip += CONST_SIZE;
             },
@@ -615,21 +627,27 @@ pub fn run(self: *VM) !void {
     }
 }
 
-fn defineGlobal(self: *VM, ip: usize) !void {
-    const name_value = self.chunk().readConstant(ip);
-    const name = try self.internString(try name_value.tryString());
+fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val.HeapString {
+    const value = switch (constant_size) {
+        CONST_SIZE => self.chunk().readConstant(ip),
+        CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
+        else => return err.Error.CompileError,
+    };
+    return switch (value) {
+        .String => |s| s,
+        else => err.Error.RuntimeError,
+    };
+}
+
+fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
+    const name = try self.readStringConstant(ip, constant_size);
     const value = try self.peek(0);
     try self.globals.put(name, value);
     _ = try self.pop();
 }
 
 fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
-    const name_value = switch (constant_size) {
-        CONST_SIZE => self.chunk().readConstant(ip),
-        CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
-        else => return err.Error.CompileError,
-    };
-    const name = try self.internString(try name_value.tryString());
+    const name = try self.readStringConstant(ip, constant_size);
     if (self.globals.get(name)) |constant_value| {
         try self.push(constant_value);
     } else {
@@ -639,12 +657,7 @@ fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 }
 
 fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
-    const name_value = switch (constant_size) {
-        CONST_SIZE => self.chunk().readConstant(ip),
-        CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
-        else => return err.Error.CompileError,
-    };
-    const name = try self.internString(try name_value.tryString());
+    const name = try self.readStringConstant(ip, constant_size);
     if (!self.globals.contains(name)) {
         try self.errorAt(ip, "Unknown global to set: {s}.", .{name.data});
         return err.Error.RuntimeError;
