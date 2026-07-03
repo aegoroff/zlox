@@ -36,7 +36,7 @@ pub const CallFrame = struct {
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     const stack = try gpa.alloc(LoxValue, STACK_MAX);
-    @memset(stack, .Nil);
+    @memset(stack, LoxValue.nil);
 
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
     @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0 });
@@ -111,7 +111,7 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     closure_ptr.* = val.Closure.init(func);
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
-    try self.push(.{ .Closure = closure_ptr });
+    try self.push(LoxValue.closure(closure_ptr));
     _ = try self.call(1, closure_ptr, 0);
     _ = try self.pop();
 }
@@ -129,10 +129,8 @@ fn maybeCollect(self: *VM) !void {
 fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
     try self.trackObject(.{ .function = func }, @sizeOf(val.Function));
     for (func.chunk.constants.items) |c| {
-        switch (c) {
-            .Function => |nested| try self.trackConstantsRecursively(nested),
-            .String => {},
-            else => {},
+        if (c.isFunction()) {
+            try self.trackConstantsRecursively(c.asFunction());
         }
     }
 }
@@ -156,7 +154,7 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
     const key = try self.internString(name);
-    try self.globals.put(key, .{ .Native = function });
+    try self.globals.put(key, LoxValue.native(function));
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -231,37 +229,38 @@ fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerro
 }
 
 fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!bool {
-    return switch (value) {
-        .Closure => |f| try self.call(ip, f, arg_count),
-        .Class => |k| {
-            const instance_ptr = try self.allocator.create(val.Instance);
-            instance_ptr.* = val.Instance.init(self.allocator, k);
-            try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
-            self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
-            if (instance_ptr.klass.methods.get(self.init_string)) |in| {
-                return try self.call(ip, try in.tryClosure(), arg_count);
-            } else if (arg_count != 0) {
-                try self.errorAt(ip, "Expected 0 arguments but got {d}.", .{arg_count});
-                return err.Error.RuntimeError;
-            }
-            return true;
-        },
-        .BoundMethod => |b| {
-            self.stack[self.stack_top - arg_count - 1] = LoxValue{ .Instance = b.receiver };
-            return self.call(ip, try b.method.tryClosure(), arg_count);
-        },
-        .Native => |native_fn| {
-            const args_start = self.stack_top - arg_count;
-            const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
-            self.stack_top -= arg_count + 1;
-            try self.push(result);
-            return true;
-        },
-        else => {
-            std.log.err("Can only call functions and classes.", .{});
+    if (value.isClosure()) {
+        return try self.call(ip, value.asClosure(), arg_count);
+    }
+    if (value.isClass()) {
+        const k = value.asClass();
+        const instance_ptr = try self.allocator.create(val.Instance);
+        instance_ptr.* = val.Instance.init(self.allocator, k);
+        try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
+        self.stack[self.stack_top - arg_count - 1] = LoxValue.instance(instance_ptr);
+        if (instance_ptr.klass.methods.get(self.init_string)) |in| {
+            return try self.call(ip, try in.tryClosure(), arg_count);
+        } else if (arg_count != 0) {
+            try self.errorAt(ip, "Expected 0 arguments but got {d}.", .{arg_count});
             return err.Error.RuntimeError;
-        },
-    };
+        }
+        return true;
+    }
+    if (value.isBoundMethod()) {
+        const b = value.asBoundMethod();
+        self.stack[self.stack_top - arg_count - 1] = LoxValue.instance(b.receiver);
+        return self.call(ip, try b.method.tryClosure(), arg_count);
+    }
+    if (value.isNative()) {
+        const native_fn = value.asNative();
+        const args_start = self.stack_top - arg_count;
+        const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
+        self.stack_top -= arg_count + 1;
+        try self.push(result);
+        return true;
+    }
+    std.log.err("Can only call functions and classes.", .{});
+    return err.Error.RuntimeError;
 }
 
 fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
@@ -282,7 +281,7 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
     const created = try self.allocator.create(val.Upvalue);
     created.* = .{
         .location = slot,
-        .closed = .Nil,
+        .closed = LoxValue.nil,
         .next = null,
         .marked = false,
     };
@@ -430,79 +429,75 @@ pub fn run(self: *VM) !void {
                 ip += 1;
             },
             .Nil => {
-                try self.push(.Nil);
+                try self.push(LoxValue.nil);
             },
             .True => {
-                try self.push(.{ .Bool = true });
+                try self.push(LoxValue.boolean(true));
             },
             .False => {
-                try self.push(.{ .Bool = false });
+                try self.push(LoxValue.boolean(false));
             },
             .Equal => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Bool = a.equal(b) });
+                try self.push(LoxValue.boolean(a.equal(b)));
             },
             .Less => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Bool = try a.less(b) });
+                try self.push(LoxValue.boolean(try a.less(b)));
             },
             .Greater => {
                 const b = try self.pop();
                 const a = try self.pop();
                 const lt = try a.less(b);
                 const eq = a.equal(b);
-                try self.push(.{ .Bool = !lt and !eq });
+                try self.push(LoxValue.boolean(!lt and !eq));
             },
             .Negate => {
                 const value = try self.pop();
-                try self.push(.{ .Number = -try value.tryNumber() });
+                try self.push(LoxValue.number(-try value.tryNumber()));
             },
             .Not => {
                 const value = try self.pop();
-                try self.push(.{ .Bool = value.isFalsee() });
+                try self.push(LoxValue.boolean(value.isFalsee()));
             },
             .Add => {
                 const b = try self.pop();
                 const a = try self.pop();
 
-                switch (a) {
-                    .Number => |an| switch (b) {
-                        .Number => |bn| try self.push(.{ .Number = an + bn }),
-                        else => return err.Error.RuntimeError,
-                    },
-                    .String => |as| switch (b) {
-                        .String => |bs| {
-                            const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
-                            const heap_str = try mem.HeapString.init(self.allocator, result);
-                            try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
-                            try self.push(.{ .String = heap_str });
-                        },
-                        else => return err.Error.RuntimeError,
-                    },
-                    else => return err.Error.RuntimeError,
+                if (a.isNumber() and b.isNumber()) {
+                    try self.push(LoxValue.number(a.asNumber() + b.asNumber()));
+                } else if (a.isString() and b.isString()) {
+                    const as = a.asString();
+                    const bs = b.asString();
+                    const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
+                    const heap_str = try mem.HeapString.init(self.allocator, result);
+                    try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
+                    try self.push(LoxValue.string(heap_str));
+                } else {
+                    return err.Error.RuntimeError;
                 }
             },
             .Subtract => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Number = try a.tryNumber() - try b.tryNumber() });
+                try self.push(LoxValue.number(try a.tryNumber() - try b.tryNumber()));
             },
             .Multiply => {
                 const b = try self.pop();
                 const a = try self.pop();
-                try self.push(.{ .Number = try a.tryNumber() * try b.tryNumber() });
+                try self.push(LoxValue.number(try a.tryNumber() * try b.tryNumber()));
             },
             .Divide => {
                 const b = try self.pop();
                 const a = try self.pop();
                 const bn = try b.tryNumber();
                 if (bn == 0) {
-                    try self.push(.NaN);
+                    try self.push(LoxValue.number(std.math.nan(f64)));
                 } else {
                     const an = try a.tryNumber();
-                    try self.push(.{ .Number = an / bn });
+                    try self.push(LoxValue.number(an / bn));
                 }
             },
             .Print => {
@@ -514,7 +509,7 @@ pub fn run(self: *VM) !void {
                 _ = try self.pop();
             },
             .Closure => {
-                const function = self.chunk().readConstant(ip).Function;
+                const function = self.chunk().readConstant(ip).asFunction();
                 ip += CONST_SIZE;
 
                 const closure_ptr = try self.allocator.create(val.Closure);
@@ -534,7 +529,7 @@ pub fn run(self: *VM) !void {
                     closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
                     closure_ptr.upvalue_count += 1;
                 }
-                try self.push(.{ .Closure = closure_ptr });
+                try self.push(LoxValue.closure(closure_ptr));
             },
             .Call => {
                 const arg_count = self.chunk().readByte(ip);
@@ -556,7 +551,7 @@ pub fn run(self: *VM) !void {
                     .{ .class = class_ptr },
                     @sizeOf(val.Class) + @sizeOf(val.StringKeyMap),
                 );
-                try self.push(.{ .Class = class_ptr });
+                try self.push(LoxValue.class(class_ptr));
 
                 ip += CONST_SIZE;
             },
@@ -573,7 +568,7 @@ pub fn run(self: *VM) !void {
                     bound_ptr.* = val.BoundMethod.init(instance, method);
                     try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
 
-                    try self.push(.{ .BoundMethod = bound_ptr });
+                    try self.push(LoxValue.boundMethod(bound_ptr));
                 } else {
                     try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
                     return err.Error.RuntimeError;
@@ -604,7 +599,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .Return => {
-                const result = if (self.stack_top > 0) try self.pop() else .Nil;
+                const result = if (self.stack_top > 0) try self.pop() else LoxValue.nil;
 
                 const slots_offset = self.frame().slots_offset;
                 self.closeUpvalues(@intFromPtr(&self.stack[slots_offset]));
@@ -633,10 +628,8 @@ fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val
         CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
         else => return err.Error.CompileError,
     };
-    return switch (value) {
-        .String => |s| s,
-        else => err.Error.RuntimeError,
-    };
+    if (!value.isString()) return err.Error.RuntimeError;
+    return value.asString();
 }
 
 fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
@@ -671,57 +664,64 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 // ============================================
 
 fn markValue(self: *VM, value: LoxValue) void {
-    switch (value) {
-        .Closure => |c| {
-            if (!c.marked) {
-                c.marked = true;
-                self.markValue(.{ .Function = c.function });
-                for (c.upvalues[0..c.upvalue_count]) |up| {
-                    self.markUpvalue(up);
-                }
+    if (value.isClosure()) {
+        const c = value.asClosure();
+        if (!c.marked) {
+            c.marked = true;
+            self.markValue(LoxValue.function(c.function));
+            for (c.upvalues[0..c.upvalue_count]) |up| {
+                self.markUpvalue(up);
             }
-        },
-        .Class => |c| {
-            if (!c.marked) {
-                c.marked = true;
-                self.markValue(.{ .String = c.name });
-                var it = c.methods.iterator();
-                while (it.next()) |entry| {
-                    self.markValue(.{ .String = entry.key_ptr.* });
-                    self.markValue(entry.value_ptr.*);
-                }
+        }
+        return;
+    }
+    if (value.isClass()) {
+        const c = value.asClass();
+        if (!c.marked) {
+            c.marked = true;
+            self.markValue(LoxValue.string(c.name));
+            var it = c.methods.iterator();
+            while (it.next()) |entry| {
+                self.markValue(LoxValue.string(entry.key_ptr.*));
+                self.markValue(entry.value_ptr.*);
             }
-        },
-        .Instance => |inst| {
-            if (!inst.marked) {
-                inst.marked = true;
-                self.markValue(.{ .Class = inst.klass });
-                var it = inst.fields.iterator();
-                while (it.next()) |entry| {
-                    self.markValue(.{ .String = entry.key_ptr.* });
-                    self.markValue(entry.value_ptr.*);
-                }
+        }
+        return;
+    }
+    if (value.isInstance()) {
+        const inst = value.asInstance();
+        if (!inst.marked) {
+            inst.marked = true;
+            self.markValue(LoxValue.class(inst.klass));
+            var it = inst.fields.iterator();
+            while (it.next()) |entry| {
+                self.markValue(LoxValue.string(entry.key_ptr.*));
+                self.markValue(entry.value_ptr.*);
             }
-        },
-        .BoundMethod => |b| {
-            if (!b.marked) {
-                b.marked = true;
-                self.markValue(.{ .Instance = b.receiver });
-                self.markValue(b.method);
+        }
+        return;
+    }
+    if (value.isBoundMethod()) {
+        const b = value.asBoundMethod();
+        if (!b.marked) {
+            b.marked = true;
+            self.markValue(LoxValue.instance(b.receiver));
+            self.markValue(b.method);
+        }
+        return;
+    }
+    if (value.isFunction()) {
+        const f = value.asFunction();
+        if (!f.marked) {
+            f.marked = true;
+            for (f.chunk.constants.items) |const_val| {
+                self.markValue(const_val);
             }
-        },
-        .Function => |f| {
-            if (!f.marked) {
-                f.marked = true;
-                for (f.chunk.constants.items) |const_val| {
-                    self.markValue(const_val);
-                }
-            }
-        },
-        .String => |s| {
-            s.marked = true;
-        },
-        else => {},
+        }
+        return;
+    }
+    if (value.isString()) {
+        value.asString().marked = true;
     }
 }
 
@@ -744,19 +744,19 @@ fn markRoots(self: *VM) void {
     // 2. Globals
     var it = self.globals.iterator();
     while (it.next()) |entry| {
-        self.markValue(.{ .String = entry.key_ptr.* });
+        self.markValue(LoxValue.string(entry.key_ptr.*));
         self.markValue(entry.value_ptr.*);
     }
 
     // 3. Interned strings
     var intern_it = self.interned.iterator();
     while (intern_it.next()) |entry| {
-        self.markValue(.{ .String = entry.value_ptr.* });
+        self.markValue(LoxValue.string(entry.value_ptr.*));
     }
 
     // 4. Call frames
     for (self.frames[0..self.frame_count]) |f| {
-        self.markValue(.{ .Closure = f.closure });
+        self.markValue(LoxValue.closure(f.closure));
     }
 
     // 5. Open upvalues

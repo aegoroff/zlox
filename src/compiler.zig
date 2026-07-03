@@ -4,6 +4,7 @@ const std = @import("std");
 const scan = @import("scanner.zig");
 const Chunk = @import("chunk.zig");
 const val = @import("value.zig");
+const LoxValue = val.LoxValue;
 const e = @import("error.zig");
 const ErrorReporter = @import("fehler").ErrorReporter;
 const Diagnostic = @import("fehler").Diagnostic;
@@ -366,13 +367,13 @@ fn number(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
     const value = try std.fmt.parseFloat(f64, s);
 
-    _ = try self.emitConstant(.{ .Number = value });
+    _ = try self.emitConstant(LoxValue.number(value));
 }
 
 fn string(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
     const interned = try self.internCompileString(s[1 .. s.len - 1]); // trimming quotes
-    _ = try self.emitConstant(.{ .String = interned });
+    _ = try self.emitConstant(LoxValue.string(interned));
 }
 
 fn variable(self: *Compiler, can_assign: bool) !void {
@@ -657,7 +658,7 @@ fn or_(self: *Compiler) !void {
 
 fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
     const interned = try self.internCompileString(self.lexeme(token));
-    return try self.makeConstant(.{ .String = interned });
+    return try self.makeConstant(LoxValue.string(interned));
 }
 
 fn addLocal(self: *Compiler, token: *scan.Token) !void {
@@ -873,7 +874,7 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     self.allocator.destroy(new_compile);
 
     try self.emitOpcode(.Closure);
-    const ix = try self.currentChunk().addConstant(.{ .Function = func });
+    const ix = try self.currentChunk().addConstant(LoxValue.function(func));
     try self.emitOperand(ix);
     for (0..upvalue_count) |i| {
         const is_local: usize = if (upvalues[i].is_local) 1 else 0;

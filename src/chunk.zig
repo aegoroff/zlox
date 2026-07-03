@@ -267,7 +267,12 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
     var current_offset = offset + 2;
 
     const val = self.constants.items[function_ix];
-    const func = if (val == .Function) val.Function.* else if (val == .Closure) val.Closure.function.* else null;
+    const func = if (val.isFunction())
+        val.asFunction().*
+    else if (val.isClosure())
+        val.asClosure().function.*
+    else
+        null;
     const func_name = func.?.name orelse "script";
     const upvalue_count = if (func) |f| f.upvalue_count else 0;
 

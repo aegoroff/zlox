@@ -4,132 +4,255 @@ const Chunk = @import("chunk.zig");
 
 const ERROR_MARGIN = 0.000001;
 
+const SIGN_BIT: u64 = 0x8000000000000000;
+const QNAN: u64 = 0x7ffc000000000000;
+const TAG_NIL: u64 = 1;
+const TAG_FALSE: u64 = 2;
+const TAG_TRUE: u64 = 3;
+const BOXED_MASK: u64 = SIGN_BIT | QNAN;
+const PTR_TYPE_MASK: u64 = 0x7;
+const PTR_MASK: u64 = 0x0000_ffff_ffff_fff8;
+
+const ObjTag = enum(u4) {
+    string = 0,
+    function = 1,
+    closure = 2,
+    class = 3,
+    instance = 4,
+    bound_method = 5,
+    native = 6,
+};
+
 pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) err.Error!LoxValue;
 
-pub const LoxValue = union(enum) {
-    Nil,
-    Number: f64,
-    Bool: bool,
-    String: *HeapString,
-    Function: *Function,
-    Closure: *Closure,
-    Class: *Class,
-    Instance: *Instance,
-    BoundMethod: *BoundMethod,
-    Native: NativeFn,
-    NaN,
+pub const LoxValue = struct {
+    raw: u64,
+
+    pub const nil: LoxValue = .{ .raw = QNAN | TAG_NIL };
+
+    pub fn boolean(b: bool) LoxValue {
+        return .{ .raw = if (b) QNAN | TAG_TRUE else QNAN | TAG_FALSE };
+    }
+
+    pub fn number(n: f64) LoxValue {
+        return .{ .raw = @as(u64, @bitCast(n)) };
+    }
+
+    pub fn string(s: *HeapString) LoxValue {
+        return fromTaggedPtr(.string, s);
+    }
+
+    pub fn function(f: *Function) LoxValue {
+        return fromTaggedPtr(.function, f);
+    }
+
+    pub fn closure(c: *Closure) LoxValue {
+        return fromTaggedPtr(.closure, c);
+    }
+
+    pub fn class(c: *Class) LoxValue {
+        return fromTaggedPtr(.class, c);
+    }
+
+    pub fn instance(i: *Instance) LoxValue {
+        return fromTaggedPtr(.instance, i);
+    }
+
+    pub fn boundMethod(b: *BoundMethod) LoxValue {
+        return fromTaggedPtr(.bound_method, b);
+    }
+
+    pub fn native(n: NativeFn) LoxValue {
+        return fromTaggedPtr(.native, @constCast(n));
+    }
+
+    pub fn isNil(self: LoxValue) bool {
+        return self.raw == QNAN | TAG_NIL;
+    }
+
+    pub fn isBool(self: LoxValue) bool {
+        if (self.isNil()) return false;
+        return (self.raw | 1) == QNAN | TAG_TRUE;
+    }
+
+    pub fn isNumber(self: LoxValue) bool {
+        return (self.raw & QNAN) != QNAN;
+    }
+
+    pub fn isBoxed(self: LoxValue) bool {
+        if (self.isNumber()) return false;
+        return (self.raw & BOXED_MASK) == BOXED_MASK;
+    }
+
+    pub fn isString(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .string;
+    }
+
+    pub fn isFunction(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .function;
+    }
+
+    pub fn isClosure(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .closure;
+    }
+
+    pub fn isClass(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .class;
+    }
+
+    pub fn isInstance(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .instance;
+    }
+
+    pub fn isBoundMethod(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .bound_method;
+    }
+
+    pub fn isNative(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .native;
+    }
+
+    pub fn asBool(self: LoxValue) bool {
+        return self.raw == QNAN | TAG_TRUE;
+    }
+
+    pub fn asNumber(self: LoxValue) f64 {
+        return @bitCast(self.raw);
+    }
+
+    pub fn asString(self: LoxValue) *HeapString {
+        return @ptrCast(@alignCast(decodePtr(.string, self)));
+    }
+
+    pub fn asFunction(self: LoxValue) *Function {
+        return @ptrCast(@alignCast(decodePtr(.function, self)));
+    }
+
+    pub fn asClosure(self: LoxValue) *Closure {
+        return @ptrCast(@alignCast(decodePtr(.closure, self)));
+    }
+
+    pub fn asClass(self: LoxValue) *Class {
+        return @ptrCast(@alignCast(decodePtr(.class, self)));
+    }
+
+    pub fn asInstance(self: LoxValue) *Instance {
+        return @ptrCast(@alignCast(decodePtr(.instance, self)));
+    }
+
+    pub fn asBoundMethod(self: LoxValue) *BoundMethod {
+        return @ptrCast(@alignCast(decodePtr(.bound_method, self)));
+    }
+
+    pub fn asNative(self: LoxValue) NativeFn {
+        return @ptrCast(decodePtr(.native, self));
+    }
 
     pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
-        switch (self) {
-            .Nil => try writer.print("nil", .{}),
-            .Number => |n| try writer.print("{d}", .{n}),
-            .Bool => |b| try writer.print("{}", .{b}),
-            .String => |s| try writer.print("{s}", .{s.data}),
-            .Function => |f| try writer.print("<{s}>", .{f.name orelse "script"}),
-            .Class => |f| try writer.print("{s}", .{f.name.data}),
-            .Instance => |f| try writer.print("{s} instance", .{f.klass.name.data}),
-            .BoundMethod => |b| try writer.print("{s} instance -> {s}", .{
+        if (self.isNil()) {
+            try writer.print("nil", .{});
+        } else if (self.isBool()) {
+            try writer.print("{}", .{self.asBool()});
+        } else if (self.isNumber()) {
+            const n = self.asNumber();
+            if (std.math.isNan(n)) {
+                try writer.print("NaN", .{});
+            } else {
+                try writer.print("{d}", .{n});
+            }
+        } else if (self.isString()) {
+            try writer.print("{s}", .{self.asString().data});
+        } else if (self.isFunction()) {
+            const f = self.asFunction();
+            try writer.print("<{s}>", .{f.name orelse "script"});
+        } else if (self.isClass()) {
+            try writer.print("{s}", .{self.asClass().name.data});
+        } else if (self.isInstance()) {
+            const inst = self.asInstance();
+            try writer.print("{s} instance", .{inst.klass.name.data});
+        } else if (self.isBoundMethod()) {
+            const b = self.asBoundMethod();
+            try writer.print("{s} instance -> {s}", .{
                 b.receiver.klass.name.data,
-                b.method.Closure.function.name.?,
-            }),
-            .Closure => |cl| try writer.print("<fn {s}>", .{cl.function.name orelse "script"}),
-            .Native => try writer.print("<native fn>", .{}),
-            .NaN => try writer.print("NaN", .{}),
+                b.method.asClosure().function.name.?,
+            });
+        } else if (self.isClosure()) {
+            const cl = self.asClosure();
+            try writer.print("<fn {s}>", .{cl.function.name orelse "script"});
+        } else if (self.isNative()) {
+            try writer.print("<native fn>", .{});
         }
     }
 
     pub fn tryNumber(self: LoxValue) err.Error!f64 {
-        return switch (self) {
-            .Number => |n| n,
-            .NaN => std.math.nan(f64),
-            else => return err.Error.RuntimeError,
-        };
+        if (!self.isNumber()) return err.Error.RuntimeError;
+        return self.asNumber();
     }
 
     pub fn tryString(self: LoxValue) err.Error![]const u8 {
-        return switch (self) {
-            .String => |s| s.data,
-            else => return err.Error.RuntimeError,
-        };
+        if (!self.isString()) return err.Error.RuntimeError;
+        return self.asString().data;
     }
 
     pub fn tryInstance(self: LoxValue) err.Error!*Instance {
-        return switch (self) {
-            .Instance => |i| i,
-            else => return err.Error.RuntimeError,
-        };
+        if (!self.isInstance()) return err.Error.RuntimeError;
+        return self.asInstance();
     }
 
     pub fn tryClass(self: LoxValue) err.Error!*Class {
-        return switch (self) {
-            .Class => |c| c,
-            else => return err.Error.RuntimeError,
-        };
+        if (!self.isClass()) return err.Error.RuntimeError;
+        return self.asClass();
     }
 
     pub fn tryClosure(self: LoxValue) err.Error!*Closure {
-        return switch (self) {
-            .Closure => |c| c,
-            else => return err.Error.RuntimeError,
-        };
+        if (!self.isClosure()) return err.Error.RuntimeError;
+        return self.asClosure();
     }
 
     pub fn isFalsee(self: LoxValue) bool {
-        return switch (self) {
-            .Bool => |n| !n,
-            .Nil => true,
-            else => false,
-        };
+        if (self.isNil()) return true;
+        if (self.isBool()) return !self.asBool();
+        return false;
     }
 
     pub fn equal(self: LoxValue, other: LoxValue) bool {
-        if (std.meta.activeTag(self) != std.meta.activeTag(other)) {
-            return false;
+        if (self.isNumber() and other.isNumber()) {
+            const l = self.asNumber();
+            const r = other.asNumber();
+            if (std.math.isNan(l) or std.math.isNan(r)) return false;
+            return @abs(l - r) < ERROR_MARGIN;
         }
-
-        return switch (self) {
-            .Number => |l| @abs(l - other.Number) < ERROR_MARGIN,
-            .String => |l| std.mem.eql(u8, l.data, other.String.data),
-            .Bool => |l| l == other.Bool,
-            .Nil => true,
-            .Function => false,
-            .Closure => false,
-            .Class => |l| l == other.Class,
-            .Instance => |l| l == other.Instance,
-            .BoundMethod => |l| l == other.BoundMethod,
-            .Native => false,
-            .NaN => false,
-        };
+        return self.raw == other.raw;
     }
 
     pub fn less(self: LoxValue, other: LoxValue) err.Error!bool {
-        return switch (self) {
-            .Number => |l| switch (other) {
-                .Number => |r| l < r,
-                .NaN => false,
-                else => err.Error.CompileError,
-            },
-            .NaN => switch (other) {
-                .Number => false,
-                .NaN => false,
-                else => err.Error.CompileError,
-            },
-            .String => |l| switch (other) {
-                .String => |r| std.mem.lessThan(u8, l.data, r.data),
-                else => err.Error.CompileError,
-            },
-            .Bool => |l| switch (other) {
-                .Bool => |r| !l and r,
-                else => err.Error.CompileError,
-            },
-            .Nil => err.Error.CompileError,
-            .Function => err.Error.CompileError,
-            .Closure => err.Error.CompileError,
-            .Class => err.Error.CompileError,
-            .Instance => err.Error.CompileError,
-            .BoundMethod => err.Error.CompileError,
-            .Native => err.Error.CompileError,
-        };
+        if (self.isNumber() and other.isNumber()) {
+            const l = self.asNumber();
+            const r = other.asNumber();
+            if (std.math.isNan(l) or std.math.isNan(r)) return false;
+            return l < r;
+        }
+        if (self.isString() and other.isString()) {
+            return std.mem.lessThan(u8, self.asString().data, other.asString().data);
+        }
+        if (self.isBool() and other.isBool()) {
+            return !self.asBool() and other.asBool();
+        }
+        return err.Error.CompileError;
+    }
+
+    fn fromTaggedPtr(comptime tag: ObjTag, ptr: anytype) LoxValue {
+        const addr: u64 = @intFromPtr(ptr) & PTR_MASK;
+        return .{ .raw = BOXED_MASK | (@as(u64, @intFromEnum(tag))) | addr };
+    }
+
+    fn objTag(self: LoxValue) ObjTag {
+        return @enumFromInt(self.raw & PTR_TYPE_MASK);
+    }
+
+    fn decodePtr(comptime tag: ObjTag, self: LoxValue) *anyopaque {
+        std.debug.assert(isBoxed(self) and objTag(self) == tag);
+        return @ptrFromInt(self.raw & PTR_MASK);
     }
 };
 
@@ -167,7 +290,7 @@ pub const StringKeyMap = std.HashMap(
 
 pub const Upvalue = struct {
     location: *LoxValue,
-    closed: LoxValue = .Nil,
+    closed: LoxValue = LoxValue.nil,
     next: ?*Upvalue = null,
     marked: bool = false,
 
@@ -292,3 +415,7 @@ pub const BoundMethod = struct {
         };
     }
 };
+
+test "LoxValue is 8 bytes" {
+    try std.testing.expectEqual(@as(usize, 8), @sizeOf(LoxValue));
+}
