@@ -66,7 +66,7 @@ pub const LoxValue = union(enum) {
             else => return err.Error.RuntimeError,
         };
     }
-    
+
     pub fn tryClosure(self: LoxValue) err.Error!*Closure {
         return switch (self) {
             .Closure => |c| c,
@@ -131,7 +131,6 @@ pub const LoxValue = union(enum) {
             .Native => err.Error.CompileError,
         };
     }
-
 };
 
 pub const HeapString = struct {
