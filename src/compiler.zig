@@ -139,6 +139,29 @@ pub fn compile(self: *Compiler, source: []const u8) !*val.Function {
     return try self.endCompiler();
 }
 
+pub fn reportErrorAt(
+    self: *Compiler,
+    start_line: usize,
+    start_col: usize,
+    end_line: usize,
+    end_col: usize,
+    message: []const u8,
+) !void {
+    var reporter = ErrorReporter.init(self.allocator);
+    defer reporter.deinit();
+
+    try reporter.addSource(self.filename, self.lexer.source);
+
+    // For single-character tokens, use the same start and end columns
+    const col_end = if (end_col > start_col) end_col else start_col;
+
+    const range = SourceRange.span(self.filename, start_line, start_col, end_line, col_end);
+    const diagnostic = Diagnostic.init(.err, message)
+        .withRange(range);
+
+    reporter.report(diagnostic);
+}
+
 fn advance(self: *Compiler) !void {
     self.parser.previous = self.parser.current;
     self.parser.current = self.lexer.scanToken() catch |err| {
@@ -164,19 +187,13 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
     }
     self.parser.panicMode = true;
 
-    var reporter = ErrorReporter.init(self.allocator);
-    defer reporter.deinit();
-
-    try reporter.addSource(self.filename, self.lexer.source);
-
-    // For single-character tokens, use the same start and end columns
-    const col_start = token.col_start;
-    const col_end = if (token.col_end > token.col_start) token.col_end else token.col_start;
-
-    const diagnostic = Diagnostic.init(.err, message)
-        .withRange(SourceRange.span(self.filename, token.line, col_start, token.line, col_end));
-
-    reporter.report(diagnostic);
+    try self.reportErrorAt(
+        token.line,
+        token.col_start,
+        token.line,
+        token.col_end,
+        message,
+    );
     self.parser.hadError = true;
 }
 
