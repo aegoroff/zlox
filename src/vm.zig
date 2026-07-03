@@ -224,6 +224,9 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
             self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
             if (instance_ptr.klass.methods.get(self.init_string)) |in| {
                 return try self.call(ip, try in.tryClosure(), arg_count);
+            } else if (arg_count != 0) {
+                try self.errorAt(ip, "Expected 0 arguments but got {d}.", .{arg_count});
+                return err.Error.RuntimeError;
             }
             return true;
         },
@@ -308,6 +311,7 @@ fn chunk(self: *VM) *Chunk {
 fn errorAt(self: *VM, ip: usize, comptime fmt: []const u8, args: anytype) !void {
     const line = self.chunk().lines.items[ip];
     const message = try std.fmt.allocPrint(self.allocator, fmt, args);
+    defer self.allocator.free(message);
     try self.compiler.?.reportErrorAt(line, 1, line, 1, message);
 }
 

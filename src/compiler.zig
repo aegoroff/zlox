@@ -145,6 +145,9 @@ pub fn compile(self: *Compiler, source: []const u8) !*val.Function {
     while (!self.check(.Eof)) {
         try self.declaration();
     }
+    if (self.parser.hadError) {
+        return e.Error.CompileError;
+    }
     return try self.endCompiler();
 }
 
@@ -572,7 +575,6 @@ fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
     try self.consume(.Identifier, message);
     try self.declareVariable();
     if (self.current.scopeDepth > 0) {
-        self.markInitialized();
         return 0;
     }
     return try self.identifierConstant(&self.parser.previous);
@@ -720,6 +722,10 @@ fn ifStatement(self: *Compiler) anyerror!void {
 }
 
 fn returnStatement(self: *Compiler) anyerror!void {
+    if (self.current.function_type == .Script) {
+        try self.errorAtPrev("Can't return from top-level code.");
+        return;
+    }
     if (try self.match(.Semicolon)) {
         try self.emitReturn();
     } else {
