@@ -66,6 +66,13 @@ pub const LoxValue = union(enum) {
             else => return err.Error.RuntimeError,
         };
     }
+    
+    pub fn tryClosure(self: LoxValue) err.Error!*Closure {
+        return switch (self) {
+            .Closure => |c| c,
+            else => return err.Error.RuntimeError,
+        };
+    }
 
     pub fn isFalsee(self: LoxValue) bool {
         return switch (self) {

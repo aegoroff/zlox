@@ -162,6 +162,7 @@ fn callValue(self: *VM, value: LoxValue, arg_count: usize) anyerror!bool {
             self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
             return true;
         },
+        .BoundMethod => |b| self.call(try b.method.tryClosure(), arg_count),
         .Native => |native_fn| {
             const args_start = self.stack_top - arg_count;
             const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
@@ -481,8 +482,16 @@ pub fn run(self: *VM) !void {
                 if (instance.fields.get(name)) |field| {
                     _ = try self.pop(); // instance
                     try self.push(field);
+                } else if (instance.klass.methods.get(name)) |method| {
+                    _ = try self.pop(); // instance
+
+                    const bound_ptr = try self.allocator.create(val.BoundMethod);
+                    bound_ptr.* = val.BoundMethod.init(instance, method);
+                    try self.heap.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
+
+                    try self.push(.{ .BoundMethod = bound_ptr });
                 } else {
-                    try self.errorAt(ip, "Undefined property '{s}' of {s}", .{ name, instance.klass.name });
+                    try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name, instance.klass.name });
                     return err.Error.RuntimeError;
                 }
                 ip += CONST_SIZE;
