@@ -222,6 +222,12 @@ fn closeUpvalues(self: *VM, last: usize) void {
     }
 }
 
+fn defineMethod(self: *VM, name: []const u8) !void {
+    const method = try self.pop(); // Closure
+    const klass = try (try self.peek(0)).tryClass(); // Class stays on stack
+    try klass.methods.put(name, method);
+}
+
 fn frame(self: *VM) *CallFrame {
     return &self.frames[self.frame_count - 1];
 }
@@ -488,6 +494,11 @@ pub fn run(self: *VM) !void {
 
                 try instance.fields.put(prop_name, prop_value);
                 try self.push(prop_value);
+                ip += CONST_SIZE;
+            },
+            .Method => {
+                const name = try self.chunk().readConstant(ip).tryString();
+                try self.defineMethod(name);
                 ip += CONST_SIZE;
             },
             .Return => {
