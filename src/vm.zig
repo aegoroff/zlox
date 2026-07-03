@@ -185,7 +185,10 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
             self.stack[self.stack_top - arg_count - 1] = .{ .Instance = instance_ptr };
             return true;
         },
-        .BoundMethod => |b| self.call(ip, try b.method.tryClosure(), arg_count),
+        .BoundMethod => |b| {
+            self.stack[self.stack_top - arg_count - 1] = LoxValue{ .Instance = b.receiver };
+            return self.call(ip, try b.method.tryClosure(), arg_count);
+        },
         .Native => |native_fn| {
             const args_start = self.stack_top - arg_count;
             const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
@@ -702,7 +705,6 @@ pub fn collectGarbage(self: *VM) !void {
     // Sweep phase
     try self.heap.collectGarbage();
 }
-
 
 test {
     _ = @import("vm_test.zig");

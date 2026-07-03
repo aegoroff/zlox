@@ -55,7 +55,7 @@ const Compile = struct {
     fn init(gpa: std.mem.Allocator, function_type: FunctionType) !Compile {
         const func = try gpa.create(val.Function);
         func.* = val.Function.init(gpa, null);
-        return Compile{
+        var compiler = Compile{
             .allocator = gpa,
             .localCount = 0,
             .scopeDepth = 0,
@@ -65,6 +65,9 @@ const Compile = struct {
             .enclosing = null,
             .upvalues = undefined,
         };
+        const receiver_name = if (function_type != .Function) "this" else "";
+        compiler.locals[0] = Local{ .name = receiver_name, .depth = 0, .is_captured = false };
+        return compiler;
     }
 
     fn deinit(self: *Compile) void {
@@ -333,6 +336,10 @@ fn string(self: *Compiler) !void {
 
 fn variable(self: *Compiler, can_assign: bool) !void {
     try self.namedVariable(&self.parser.previous, can_assign);
+}
+
+fn this_(self: *Compiler) !void {
+    try self.variable(false);
 }
 
 fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
@@ -648,10 +655,8 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !voi
         .Number => try self.number(),
         .String => try self.string(),
         .Identifier => try self.variable(can_assign),
-
-        //.This => try self.this(),
+        .This => try self.this_(),
         //.Super => try self.super_(),
-
         .True, .False, .Nil => try self.literal(),
 
         else => {},
@@ -826,7 +831,7 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
 fn method(self: *Compiler) !void {
     try self.consume(.Identifier, "Expect method name.");
     const methodConstant = try self.identifierConstant(&self.parser.previous);
-    try self.function(.Function);
+    try self.function(.Method);
     try self.emitOpcode(.Method);
     try self.emitOperand(methodConstant);
 }
