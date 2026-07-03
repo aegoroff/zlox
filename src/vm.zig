@@ -1832,3 +1832,25 @@ test "class declaration and call" {
     // Assert
     try std.testing.expectEqualStrings("Foo instance\n", writer.written());
 }
+
+test "class instance property set and get" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {}
+        \\var foo = Foo();
+        \\foo.bar = "baz";
+        \\print foo.bar;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("baz\n", writer.written());
+}
