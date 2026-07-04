@@ -739,7 +739,7 @@ inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     if (self.globals.get(name)) |constant_value| {
         self.push(constant_value);
     } else {
-        try self.errorAt(ip, "Unknown global to get: {s}.", .{name.data});
+        try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     }
 }
@@ -747,7 +747,7 @@ inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     if (!self.globals.contains(name)) {
-        try self.errorAt(ip, "Unknown global to set: {s}.", .{name.data});
+        try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     }
     const new_value = self.peek(0);
