@@ -81,6 +81,7 @@ const Compile = struct {
 
 const ClassCompiler = struct {
     enclosing: ?*ClassCompiler,
+    has_superclass: bool,
 };
 
 pub const FunctionType = enum {
@@ -378,6 +379,16 @@ fn string(self: *Compiler) !void {
 
 fn variable(self: *Compiler, can_assign: bool) !void {
     try self.namedVariable(&self.parser.previous, can_assign);
+}
+
+fn super_(self: *Compiler) !void {
+    try self.consume(.Dot, "Expect '.' after 'super'.");
+    try self.consume(.Identifier, "Expect superclass method name.");
+    const name = try self.identifierConstant(&self.parser.previous);
+    try self.namedVariable("this", false);
+    try self.namedVariable("super", false);
+    try self.emitOpcode(.GetSuper);
+    try self.emitOperand(name);
 }
 
 fn this_(self: *Compiler) !void {
@@ -703,7 +714,7 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !voi
         .String => try self.string(),
         .Identifier => try self.variable(can_assign),
         .This => try self.this_(),
-        //.Super => try self.super_(),
+        .Super => try self.super_(),
         .True, .False, .Nil => try self.literal(),
 
         else => {},
@@ -905,6 +916,12 @@ fn classDeclaration(self: *Compiler) !void {
     try self.emitOperand(name_constant);
     try self.defineVariable(name_constant);
 
+    var class_compiler = ClassCompiler{
+        .enclosing = self.current_class,
+        .has_superclass = false,
+    };
+    self.current_class = &class_compiler;
+
     if (try self.match(.Less)) {
         try self.consume(.Identifier, "Expect superclass name.");
         try self.variable(false);
@@ -913,15 +930,14 @@ fn classDeclaration(self: *Compiler) !void {
             try self.errorAtPrev("A class can't inherit from itself.");
             return e.Error.CompileError;
         }
+        self.beginScope();
+        try self.addLocal("super");
+        try self.defineVariable(0);
 
         try self.namedVariable(&class_name, false);
         try self.emitOpcode(.Inherit);
+        class_compiler.has_superclass = true;
     }
-
-    var class_compiler = ClassCompiler{
-        .enclosing = self.current_class,
-    };
-    self.current_class = &class_compiler;
 
     try self.namedVariable(&class_name, false);
     try self.consume(.LeftBrace, "Expect '{' before class body.");
@@ -930,6 +946,9 @@ fn classDeclaration(self: *Compiler) !void {
     }
     try self.consume(.RightBrace, "Expect '}' after class body.");
     try self.emitOpcode(.Pop);
+    if (class_compiler.has_superclass) {
+        try self.endScope();
+    }
     self.current_class = self.current_class.?.enclosing;
 }
 
