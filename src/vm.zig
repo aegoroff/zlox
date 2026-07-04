@@ -615,7 +615,18 @@ pub fn run(self: *VM) !void {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
                 const arg_count = self.chunk().readByte(ip + CONST_SIZE);
                 if (!try self.invoke(ip, name, arg_count)) {
-                    try self.errorAt(ip, "Invoke failed", .{});
+                    try self.errorAt(ip, "Invoke '{s}'' failed", .{name.data});
+                    return err.Error.RuntimeError;
+                }
+                ip += CONST_SIZE + 1;
+            },
+            .SuperInvoke => {
+                const name = try self.readStringConstant(ip, CONST_SIZE);
+                const arg_count = self.chunk().readByte(ip + CONST_SIZE);
+                const super_class = try (try self.pop()).tryClass();
+
+                if (!try self.invokeFromClass(ip, super_class, name, arg_count)) {
+                    try self.errorAt(ip, "Super invoke '{s}' failed", .{name.data});
                     return err.Error.RuntimeError;
                 }
                 ip += CONST_SIZE + 1;
@@ -654,7 +665,6 @@ pub fn run(self: *VM) !void {
                 self.closeUpvalues(@intFromPtr(&self.stack[self.stack_top - 1]));
                 _ = try self.pop();
             },
-            else => {},
         }
     }
 }

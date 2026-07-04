@@ -202,16 +202,13 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .Method => try self.disassemblyByteInstruction(writer, offset, "OP_METHOD"),
         .GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
         .Invoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE"),
+        .SuperInvoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_SUPER_INVOKE"),
         .SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
         .Closure => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE"),
         .JumpIfFalse => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP_IF_FALSE", 1),
         .Jump => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP", 1),
         .Loop => try self.disassemblyJumpInstruction(writer, offset, "OP_LOOP", -1),
-        else => {
-            try writer.print("Unknown opcode {d}\n", .{opcode});
-            return offset + 1;
-        },
     };
 }
 

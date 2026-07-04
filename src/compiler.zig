@@ -404,9 +404,17 @@ fn super_(self: *Compiler) !void {
     try self.consume(.Identifier, "Expect superclass method name.");
     const name = try self.identifierConstant(&self.parser.previous);
     try self.namedVariable(&syntheticToken("this"), false);
-    try self.namedVariable(&syntheticToken("super"), false);
-    try self.emitOpcode(.GetSuper);
-    try self.emitOperand(name);
+
+    if (try self.match(.LeftParen)) {
+        const arg_count = try self.argumentList();
+        try self.namedVariable(&syntheticToken("super"), false);
+        try self.emitOpcode(.SuperInvoke);
+        try self.emitOperand(name);
+        try self.emitOperand(arg_count);
+    } else {
+        try self.namedVariable(&syntheticToken("super"), false);
+        try self.emitOperand(name);
+    }
 }
 
 fn this_(self: *Compiler) !void {
