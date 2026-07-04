@@ -112,7 +112,7 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
     const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = val.Closure.init(func);
-    self.push(LoxValue.closure(closure_ptr));
+    try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
     if (!try self.call(1, closure_ptr, 0)) return err.Error.RuntimeError;
     try self.run();
@@ -171,7 +171,18 @@ fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
     _ = try self.globals.set(key, LoxValue.native(function));
 }
 
-inline fn push(self: *VM, value: LoxValue) void {
+fn stackOverflowError(self: *VM) !void {
+    if (self.frame_count > 0) {
+        try self.errorAt(self.frames[self.frame_count - 1].ip, "Stack overflow.", .{});
+    }
+    return err.Error.RuntimeError;
+}
+
+inline fn push(self: *VM, value: LoxValue) !void {
+    if (self.stack_top >= STACK_MAX) {
+        @branchHint(.unlikely);
+        return stackOverflowError(self);
+    }
     self.stack[self.stack_top] = value;
     self.stack_top += 1;
 }
@@ -259,7 +270,7 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
         const args_start = self.stack_top - arg_count;
         const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
         self.stack_top -= arg_count + 1;
-        self.push(result);
+        try self.push(result);
         return true;
     }
     try self.errorAt(ip, "Can only call functions and classes.", .{});
@@ -328,7 +339,7 @@ fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
 
         const bound_ptr = try self.heap.allocBoundMethod();
         bound_ptr.* = val.BoundMethod.init(instance, method);
-        self.push(LoxValue.boundMethod(bound_ptr));
+        try self.push(LoxValue.boundMethod(bound_ptr));
         try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
         return true;
     }
@@ -397,7 +408,7 @@ inline fn opClosure(
 
     const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = val.Closure.init(function);
-    self.push(LoxValue.closure(closure_ptr));
+    try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
     for (0..function.upvalue_count) |_| {
@@ -418,7 +429,7 @@ fn opClass(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
 
     const class_ptr = try self.heap.allocClass();
     class_ptr.* = val.Class.init(self.allocator, name);
-    self.push(LoxValue.class(class_ptr));
+    try self.push(LoxValue.class(class_ptr));
     try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
 
     current_frame.ip += constant_size;
@@ -445,7 +456,7 @@ inline fn opGetProperty(self: *VM, current_frame: *CallFrame, constant_size: usi
     const instance = receiver.asInstance();
     if (instance.fields.get(name)) |field| {
         _ = self.pop();
-        self.push(field);
+        try self.push(field);
     } else if (!try self.bindMethod(instance.klass, name)) {
         try self.errorAt(current_frame.ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
         return err.Error.RuntimeError;
@@ -506,7 +517,7 @@ inline fn opSetProperty(self: *VM, current_frame: *CallFrame, constant_size: usi
     const old_capacity = instance.fields.capacity;
     _ = try instance.fields.set(prop_name, prop_value);
     try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
-    self.push(prop_value);
+    try self.push(prop_value);
     current_frame.ip += constant_size;
 }
 
@@ -544,11 +555,11 @@ pub fn run(self: *VM) !void {
                 current_frame.ip -= offset;
             },
             .Constant => {
-                self.push(current_chunk.readConstant(current_frame.ip));
+                try self.push(current_chunk.readConstant(current_frame.ip));
                 current_frame.ip += CONST_SIZE;
             },
             .ConstantLong => {
-                self.push(current_chunk.readConstantLong(current_frame.ip));
+                try self.push(current_chunk.readConstantLong(current_frame.ip));
                 current_frame.ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
@@ -578,12 +589,12 @@ pub fn run(self: *VM) !void {
             .GetLocal => {
                 const slot = current_chunk.readByte(current_frame.ip);
                 current_frame.ip += 1;
-                self.push(slots[slot]);
+                try self.push(slots[slot]);
             },
             .GetLocalLong => {
                 const slot = current_chunk.readThreeBytes(current_frame.ip);
                 current_frame.ip += CONST_LONG_SIZE;
-                self.push(slots[slot]);
+                try self.push(slots[slot]);
             },
             .SetLocal => {
                 const slot = current_chunk.readByte(current_frame.ip);
@@ -598,30 +609,30 @@ pub fn run(self: *VM) !void {
             .GetUpvalue => {
                 const slot = current_chunk.readByte(current_frame.ip);
                 current_frame.ip += 1;
-                self.push(closure.upvalues[slot].get());
+                try self.push(closure.upvalues[slot].get());
             },
             .SetUpvalue => {
                 const slot = current_chunk.readByte(current_frame.ip);
                 current_frame.ip += 1;
                 closure.upvalues[slot].set(self.peek(0));
             },
-            .Nil => self.push(LoxValue.nil),
-            .True => self.push(LoxValue.boolean(true)),
-            .False => self.push(LoxValue.boolean(false)),
+            .Nil => try self.push(LoxValue.nil),
+            .True => try self.push(LoxValue.boolean(true)),
+            .False => try self.push(LoxValue.boolean(false)),
             .Equal => {
                 const b = self.pop();
                 const a = self.pop();
-                self.push(LoxValue.boolean(a.equal(b)));
+                try self.push(LoxValue.boolean(a.equal(b)));
             },
             .Less => {
                 const b = self.pop();
                 const a = self.pop();
                 if (a.isNumber() and b.isNumber()) {
-                    self.push(LoxValue.boolean(numberLess(a, b)));
+                    try self.push(LoxValue.boolean(numberLess(a, b)));
                 } else if (a.isString() and b.isString()) {
-                    self.push(LoxValue.boolean(std.mem.lessThan(u8, a.asString().data, b.asString().data)));
+                    try self.push(LoxValue.boolean(std.mem.lessThan(u8, a.asString().data, b.asString().data)));
                 } else if (a.isBool() and b.isBool()) {
-                    self.push(LoxValue.boolean(!a.asBool() and b.asBool()));
+                    try self.push(LoxValue.boolean(!a.asBool() and b.asBool()));
                 } else {
                     try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
@@ -640,7 +651,7 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 };
-                self.push(LoxValue.boolean(!lt and !a.equal(b)));
+                try self.push(LoxValue.boolean(!lt and !a.equal(b)));
             },
             .Negate => {
                 const value = self.pop();
@@ -648,18 +659,18 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(current_frame.ip, "Operand must be a number.", .{});
                     return err.Error.RuntimeError;
                 }
-                self.push(LoxValue.number(-value.asNumber()));
+                try self.push(LoxValue.number(-value.asNumber()));
             },
             .Not => {
                 const value = self.pop();
-                self.push(LoxValue.boolean(value.isFalsee()));
+                try self.push(LoxValue.boolean(value.isFalsee()));
             },
             .Add => {
                 const b = self.pop();
                 const a = self.pop();
 
                 if (a.isNumber() and b.isNumber()) {
-                    self.push(LoxValue.number(a.asNumber() + b.asNumber()));
+                    try self.push(LoxValue.number(a.asNumber() + b.asNumber()));
                 } else if (a.isString() and b.isString()) {
                     const as = a.asString();
                     const bs = b.asString();
@@ -669,7 +680,7 @@ pub fn run(self: *VM) !void {
                         self.allocator.free(result);
                         break :blk existing;
                     } else try self.takeString(result, hash);
-                    self.push(LoxValue.string(heap_str));
+                    try self.push(LoxValue.string(heap_str));
                 } else {
                     try self.errorAt(current_frame.ip, "Operands must be two numbers or two strings.", .{});
                     return err.Error.RuntimeError;
@@ -682,7 +693,7 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                self.push(LoxValue.number(a.asNumber() - b.asNumber()));
+                try self.push(LoxValue.number(a.asNumber() - b.asNumber()));
             },
             .Multiply => {
                 const b = self.pop();
@@ -691,7 +702,7 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                self.push(LoxValue.number(a.asNumber() * b.asNumber()));
+                try self.push(LoxValue.number(a.asNumber() * b.asNumber()));
             },
             .Divide => {
                 const b = self.pop();
@@ -702,9 +713,9 @@ pub fn run(self: *VM) !void {
                 }
                 const bn = b.asNumber();
                 if (bn == 0) {
-                    self.push(LoxValue.number(std.math.nan(f64)));
+                    try self.push(LoxValue.number(std.math.nan(f64)));
                 } else {
-                    self.push(LoxValue.number(a.asNumber() / bn));
+                    try self.push(LoxValue.number(a.asNumber() / bn));
                 }
             },
             .Print => {
@@ -761,7 +772,7 @@ pub fn run(self: *VM) !void {
                 }
 
                 self.stack_top = current_frame.slots_offset;
-                self.push(result);
+                try self.push(result);
                 syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
             .CloseUpvalue => {
@@ -792,7 +803,7 @@ fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     if (self.globals.get(name)) |constant_value| {
-        self.push(constant_value);
+        try self.push(constant_value);
     } else {
         try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
@@ -924,6 +935,15 @@ fn markRoots(self: *VM) void {
 pub fn collectGarbage(self: *VM) !void {
     self.markRoots();
     self.heap.collectGarbage();
+}
+
+test "value stack overflow is reported" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtual_machine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+    virtual_machine.stack_top = STACK_MAX;
+    try std.testing.expectError(err.Error.RuntimeError, virtual_machine.push(LoxValue.nil));
 }
 
 test {
