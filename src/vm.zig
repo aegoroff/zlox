@@ -562,11 +562,11 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .Inherit => {
-                const super_class = (try self.peek(0)).tryClass() catch {
+                const sub_class = try (try self.peek(0)).tryClass();
+                const super_class = (try self.peek(1)).tryClass() catch {
                     try self.errorAt(ip, "Superclass must be a class.", .{});
                     return err.Error.RuntimeError;
                 };
-                const sub_class = try (try self.peek(1)).tryClass();
                 const old_capacity = sub_class.methods.capacity();
                 var it = super_class.methods.iterator();
                 while (it.next()) |entry| {
@@ -574,8 +574,6 @@ pub fn run(self: *VM) !void {
                 }
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity());
                 _ = try self.pop(); // subclass
-
-                ip += 1;
             },
             .GetProperty => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);

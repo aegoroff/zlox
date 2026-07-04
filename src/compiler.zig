@@ -898,23 +898,23 @@ fn method(self: *Compiler) !void {
 
 fn classDeclaration(self: *Compiler) !void {
     try self.consume(.Identifier, "Expect class name.");
-    const className = &self.parser.previous;
-    const nameConstant = try self.identifierConstant(className);
+    var class_name = self.parser.previous;
+    const name_constant = try self.identifierConstant(&class_name);
     try self.declareVariable();
     try self.emitOpcode(.Class);
-    try self.emitOperand(nameConstant);
-    try self.defineVariable(nameConstant);
+    try self.emitOperand(name_constant);
+    try self.defineVariable(name_constant);
 
     if (try self.match(.Less)) {
         try self.consume(.Identifier, "Expect superclass name.");
         try self.variable(false);
 
-        if (std.mem.eql(u8, self.lexeme(className), self.lexeme(&self.parser.previous))) {
+        if (std.mem.eql(u8, self.lexeme(&class_name), self.lexeme(&self.parser.previous))) {
             try self.errorAtPrev("A class can't inherit from itself.");
             return e.Error.CompileError;
         }
 
-        try self.namedVariable(className, false);
+        try self.namedVariable(&class_name, false);
         try self.emitOpcode(.Inherit);
     }
 
@@ -923,7 +923,7 @@ fn classDeclaration(self: *Compiler) !void {
     };
     self.current_class = &class_compiler;
 
-    try self.namedVariable(className, false);
+    try self.namedVariable(&class_name, false);
     try self.consume(.LeftBrace, "Expect '{' before class body.");
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         try self.method();
