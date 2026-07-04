@@ -111,12 +111,11 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
     const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = val.Closure.init(func);
-    self.stack[self.stack_top] = LoxValue.closure(closure_ptr);
-    self.stack_top += 1;
+    self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
     if (!try self.call(1, closure_ptr, 0)) return err.Error.RuntimeError;
     try self.run();
-    self.stack_top -= 1;
+    _ = self.pop();
 }
 
 fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
