@@ -7,6 +7,7 @@ const val = @import("value.zig");
 const mem = @import("memory.zig");
 const builtin = @import("builtin.zig");
 const Compiler = @import("compiler.zig");
+const Table = @import("table.zig").Table;
 
 const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
@@ -20,13 +21,13 @@ compiler: ?Compiler,
 io: std.Io,
 stack: []LoxValue,
 stack_top: usize,
-globals: val.StringKeyMap,
+globals: Table,
 frames: []CallFrame,
 frame_count: usize,
 init_string: *val.HeapString,
 
 heap: mem.Heap,
-interned: std.StringHashMap(*val.HeapString),
+strings: Table,
 open_upvalues: ?*val.Upvalue,
 
 pub const CallFrame = struct {
@@ -49,10 +50,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .stack = stack,
         .frames = frames,
         .frame_count = 0,
-        .globals = val.StringKeyMap.init(gpa),
+        .globals = Table.init(gpa),
         .stack_top = 0,
         .heap = mem.Heap.init(gpa),
-        .interned = std.StringHashMap(*val.HeapString).init(gpa),
+        .strings = Table.init(gpa),
         .open_upvalues = null,
         .compiler = null,
         .init_string = undefined,
@@ -60,7 +61,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     errdefer {
         gpa.free(stack);
         gpa.free(frames);
-        vm.interned.deinit();
+        vm.strings.deinit();
         vm.globals.deinit();
         vm.heap.deinit();
     }
@@ -77,7 +78,7 @@ pub fn deinit(self: *VM) void {
         self.compiler.?.deinit();
     }
     self.globals.deinit();
-    self.interned.deinit();
+    self.strings.deinit();
     self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
@@ -126,7 +127,7 @@ fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
 
 fn adjustMapAllocation(self: *VM, old_capacity: usize, new_capacity: usize) !void {
     if (old_capacity == new_capacity) return;
-    self.heap.adjustMapCapacity(old_capacity, new_capacity, @sizeOf(val.StringKeyMap.Entry));
+    self.heap.adjustMapCapacity(old_capacity, new_capacity, @sizeOf(@import("table.zig").Entry));
     if (self.heap.shouldCollect()) {
         try self.collectGarbage();
     }
@@ -147,21 +148,26 @@ fn compilerInternString(ctx: *anyopaque, bytes: []const u8) !*val.HeapString {
 }
 
 fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
-    if (self.interned.get(bytes)) |existing| {
+    const hash = @import("table.zig").hashString(bytes);
+    if (self.strings.findString(bytes, hash)) |existing| {
         return existing;
     }
 
     const owned = try self.allocator.dupe(u8, bytes);
+    return self.takeString(owned, hash);
+}
+
+fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
     const heap_str = try self.heap.allocStringHeader();
-    heap_str.* = .{ .marked = false, .data = owned };
-    try self.interned.put(heap_str.data, heap_str);
+    heap_str.* = .{ .marked = false, .hash = hash, .data = owned };
+    _ = try self.strings.set(heap_str, LoxValue.nil);
     try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     return heap_str;
 }
 
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
     const key = try self.internString(name);
-    try self.globals.put(key, LoxValue.native(function));
+    _ = try self.globals.set(key, LoxValue.native(function));
 }
 
 fn push(self: *VM, value: LoxValue) err.Error!void {
@@ -320,9 +326,9 @@ fn closeUpvalues(self: *VM, last: usize) void {
 fn defineMethod(self: *VM, name: *val.HeapString) !void {
     const method = try self.pop();
     const klass = try (try self.peek(0)).tryClass();
-    const old_capacity = klass.methods.capacity();
-    try klass.methods.put(name, method);
-    try self.adjustMapAllocation(old_capacity, klass.methods.capacity());
+    const old_capacity = klass.methods.capacity;
+    _ = try klass.methods.set(name, method);
+    try self.adjustMapAllocation(old_capacity, klass.methods.capacity);
 }
 
 fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
@@ -501,10 +507,12 @@ pub fn run(self: *VM) !void {
                     const as = a.asString();
                     const bs = b.asString();
                     const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
-                    const heap_str = try self.heap.allocStringHeader();
-                    heap_str.* = .{ .marked = false, .data = result };
+                    const hash = @import("table.zig").hashString(result);
+                    const heap_str = if (self.strings.findString(result, hash)) |existing| blk: {
+                        self.allocator.free(result);
+                        break :blk existing;
+                    } else try self.takeString(result, hash);
                     try self.push(LoxValue.string(heap_str));
-                    try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
                 } else {
                     return err.Error.RuntimeError;
                 }
@@ -587,12 +595,9 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(ip, "Superclass must be a class.", .{});
                     return err.Error.RuntimeError;
                 };
-                const old_capacity = sub_class.methods.capacity();
-                var it = super_class.methods.iterator();
-                while (it.next()) |entry| {
-                    try sub_class.methods.put(entry.key_ptr.*, entry.value_ptr.*);
-                }
-                try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity());
+                const old_capacity = sub_class.methods.capacity;
+                try sub_class.methods.addAll(&super_class.methods);
+                try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
                 _ = try self.pop(); // subclass
             },
             .GetSuper => {
@@ -646,9 +651,9 @@ pub fn run(self: *VM) !void {
                 const prop_value = try self.pop();
                 const instance = try (try self.pop()).tryInstance();
 
-                const old_capacity = instance.fields.capacity();
-                try instance.fields.put(prop_name, prop_value);
-                try self.adjustMapAllocation(old_capacity, instance.fields.capacity());
+                const old_capacity = instance.fields.capacity;
+                _ = try instance.fields.set(prop_name, prop_value);
+                try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
                 try self.push(prop_value);
                 ip += CONST_SIZE;
             },
@@ -693,7 +698,7 @@ fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val
 fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     const value = try self.peek(0);
-    try self.globals.put(name, value);
+    _ = try self.globals.set(name, value);
     _ = try self.pop();
 }
 
@@ -714,12 +719,24 @@ fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
         return err.Error.RuntimeError;
     }
     const new_value = try self.peek(0);
-    try self.globals.put(name, new_value);
+    _ = try self.globals.set(name, new_value);
 }
 
 // ============================================
 // Garbage Collection
 // ============================================
+
+fn markTable(self: *VM, table: *const Table) void {
+    const Ctx = struct {
+        vm: *VM,
+        fn callback(ctx: @This(), key: *val.HeapString, value: LoxValue) void {
+            ctx.vm.markValue(LoxValue.string(key));
+            ctx.vm.markValue(value);
+        }
+    };
+    const ctx: Ctx = .{ .vm = self };
+    table.forEach(ctx, Ctx.callback);
+}
 
 fn markValue(self: *VM, value: LoxValue) void {
     if (value.isClosure()) {
@@ -738,11 +755,7 @@ fn markValue(self: *VM, value: LoxValue) void {
         if (!c.marked) {
             c.marked = true;
             self.markValue(LoxValue.string(c.name));
-            var it = c.methods.iterator();
-            while (it.next()) |entry| {
-                self.markValue(LoxValue.string(entry.key_ptr.*));
-                self.markValue(entry.value_ptr.*);
-            }
+            self.markTable(&c.methods);
         }
         return;
     }
@@ -751,11 +764,7 @@ fn markValue(self: *VM, value: LoxValue) void {
         if (!inst.marked) {
             inst.marked = true;
             self.markValue(LoxValue.class(inst.klass));
-            var it = inst.fields.iterator();
-            while (it.next()) |entry| {
-                self.markValue(LoxValue.string(entry.key_ptr.*));
-                self.markValue(entry.value_ptr.*);
-            }
+            self.markTable(&inst.fields);
         }
         return;
     }
@@ -800,17 +809,17 @@ fn markRoots(self: *VM) void {
     }
 
     // 2. Globals
-    var it = self.globals.iterator();
-    while (it.next()) |entry| {
-        self.markValue(LoxValue.string(entry.key_ptr.*));
-        self.markValue(entry.value_ptr.*);
-    }
+    self.markTable(&self.globals);
 
     // 3. Interned strings
-    var intern_it = self.interned.iterator();
-    while (intern_it.next()) |entry| {
-        self.markValue(LoxValue.string(entry.value_ptr.*));
-    }
+    const StringCtx = struct {
+        vm: *VM,
+        fn callback(ctx: @This(), key: *val.HeapString, _: LoxValue) void {
+            ctx.vm.markValue(LoxValue.string(key));
+        }
+    };
+    const string_ctx: StringCtx = .{ .vm = self };
+    self.strings.forEach(string_ctx, StringCtx.callback);
 
     // 4. Call frames
     for (self.frames[0..self.frame_count]) |f| {

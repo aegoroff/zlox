@@ -255,6 +255,7 @@ pub const LoxValue = struct {
 
 pub const HeapString = struct {
     marked: bool = false,
+    hash: u32 = 0,
     data: []const u8,
 
     pub fn init(allocator: std.mem.Allocator, bytes: []const u8) !*HeapString {
@@ -268,22 +269,8 @@ pub const HeapString = struct {
     }
 };
 
-pub const HeapStringContext = struct {
-    pub fn hash(_: @This(), key: *HeapString) u64 {
-        return std.hash_map.hashString(key.data);
-    }
-
-    pub fn eql(_: @This(), a: *HeapString, b: *HeapString) bool {
-        return a == b;
-    }
-};
-
-pub const StringKeyMap = std.HashMap(
-    *HeapString,
-    LoxValue,
-    HeapStringContext,
-    std.hash_map.default_max_load_percentage,
-);
+const Table = @import("table.zig").Table;
+pub const TableEntry = @import("table.zig").Entry;
 
 pub const Upvalue = struct {
     location: *LoxValue,
@@ -357,13 +344,13 @@ pub const Closure = struct {
 
 pub const Class = struct {
     name: *HeapString,
-    methods: StringKeyMap,
+    methods: Table,
     marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, name: *HeapString) Class {
         return Class{
             .name = name,
-            .methods = StringKeyMap.init(gpa),
+            .methods = Table.init(gpa),
             .marked = false,
         };
     }
@@ -373,19 +360,19 @@ pub const Class = struct {
     }
 
     pub fn size(self: *const Class) usize {
-        return @sizeOf(Class) + self.methods.capacity() * @sizeOf(StringKeyMap.Entry);
+        return @sizeOf(Class) + self.methods.capacity * @sizeOf(TableEntry);
     }
 };
 
 pub const Instance = struct {
     klass: *Class,
-    fields: StringKeyMap,
+    fields: Table,
     marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, klass: *Class) Instance {
         return Instance{
             .klass = klass,
-            .fields = StringKeyMap.init(gpa),
+            .fields = Table.init(gpa),
             .marked = false,
         };
     }
@@ -395,7 +382,7 @@ pub const Instance = struct {
     }
 
     pub fn size(self: *const Instance) usize {
-        return @sizeOf(Instance) + self.fields.capacity() * @sizeOf(StringKeyMap.Entry);
+        return @sizeOf(Instance) + self.fields.capacity * @sizeOf(TableEntry);
     }
 };
 
