@@ -413,6 +413,7 @@ fn super_(self: *Compiler) !void {
         try self.emitOperand(arg_count);
     } else {
         try self.namedVariable(&syntheticToken("super"), false);
+        try self.emitOpcode(.GetSuper);
         try self.emitOperand(name);
     }
 }
