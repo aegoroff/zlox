@@ -406,8 +406,10 @@ fn syntheticToken(comptime name: []const u8) scan.Token {
 fn super_(self: *Compiler) !void {
     if (self.current_class == null) {
         try self.errorAtPrev("Can't use 'super' outside of a class.");
+        return e.Error.CompileError;
     } else if (!self.current_class.?.has_superclass) {
         try self.errorAtPrev("Can't use 'super' in a class with no superclass.");
+        return e.Error.CompileError;
     }
     try self.consume(.Dot, "Expect '.' after 'super'.");
     try self.consume(.Identifier, "Expect superclass method name.");
