@@ -324,6 +324,20 @@ fn defineMethod(self: *VM, name: *val.HeapString) !void {
     try self.adjustMapAllocation(old_capacity, klass.methods.capacity());
 }
 
+fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
+    const instance = try (try self.peek(0)).tryInstance();
+    if (klass.methods.get(name)) |method| {
+        _ = try self.pop(); // instance
+
+        const bound_ptr = try self.allocator.create(val.BoundMethod);
+        bound_ptr.* = val.BoundMethod.init(instance, method);
+        try self.push(LoxValue.boundMethod(bound_ptr));
+        try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
+        return true;
+    }
+    return false;
+}
+
 fn frame(self: *VM) *CallFrame {
     return &self.frames[self.frame_count - 1];
 }
@@ -575,20 +589,23 @@ pub fn run(self: *VM) !void {
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity());
                 _ = try self.pop(); // subclass
             },
+            .GetSuper => {
+                const name = try self.readStringConstant(ip, CONST_SIZE);
+                const super_class = try (try self.pop()).tryClass();
+                if (!try self.bindMethod(super_class, name)) {
+                    try self.errorAt(ip, "Undefined method or property '{s}'", .{name.data});
+                    return err.Error.RuntimeError;
+                }
+
+                ip += CONST_SIZE;
+            },
             .GetProperty => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
                 const instance = try (try self.peek(0)).tryInstance();
                 if (instance.fields.get(name)) |field| {
                     _ = try self.pop(); // instance
                     try self.push(field);
-                } else if (instance.klass.methods.get(name)) |method| {
-                    _ = try self.pop(); // instance
-
-                    const bound_ptr = try self.allocator.create(val.BoundMethod);
-                    bound_ptr.* = val.BoundMethod.init(instance, method);
-                    try self.push(LoxValue.boundMethod(bound_ptr));
-                    try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
-                } else {
+                } else if (!try self.bindMethod(instance.klass, name)) {
                     try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
                     return err.Error.RuntimeError;
                 }

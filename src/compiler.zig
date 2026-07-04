@@ -360,7 +360,8 @@ fn grouping(self: *Compiler) !void {
     try self.consume(.RightParen, "Expect ')' after expression.");
 }
 
-fn lexeme(self: *Compiler, token: *scan.Token) []const u8 {
+fn lexeme(self: *Compiler, token: *const scan.Token) []const u8 {
+    if (token.text) |t| return t;
     return self.lexer.source[token.start .. token.start + token.length];
 }
 
@@ -381,12 +382,29 @@ fn variable(self: *Compiler, can_assign: bool) !void {
     try self.namedVariable(&self.parser.previous, can_assign);
 }
 
+fn syntheticToken(comptime name: []const u8) scan.Token {
+    return .{
+        .type = .Identifier,
+        .start = 0,
+        .length = name.len,
+        .line = 0,
+        .col_start = 0,
+        .col_end = 0,
+        .text = name,
+    };
+}
+
 fn super_(self: *Compiler) !void {
+    if (self.current_class == null) {
+        try self.errorAtPrev("Can't use 'super' outside of a class.");
+    } else if (!self.current_class.?.has_superclass) {
+        try self.errorAtPrev("Can't use 'super' in a class with no superclass.");
+    }
     try self.consume(.Dot, "Expect '.' after 'super'.");
     try self.consume(.Identifier, "Expect superclass method name.");
     const name = try self.identifierConstant(&self.parser.previous);
-    try self.namedVariable("this", false);
-    try self.namedVariable("super", false);
+    try self.namedVariable(&syntheticToken("this"), false);
+    try self.namedVariable(&syntheticToken("super"), false);
     try self.emitOpcode(.GetSuper);
     try self.emitOperand(name);
 }
@@ -399,7 +417,7 @@ fn this_(self: *Compiler) !void {
     try self.variable(false);
 }
 
-fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
+fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !void {
     var getOp: Chunk.OpCode = undefined;
     var setOp: Chunk.OpCode = undefined;
     var arg: ?usize = null;
@@ -447,7 +465,7 @@ fn namedVariable(self: *Compiler, token: *scan.Token, can_assign: bool) !void {
     try self.emitOperand(arg.?);
 }
 
-fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
+fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *const scan.Token) !?usize {
     if (compiler.enclosing) |enclosing| {
         if (try self.resolveLocal(enclosing, token)) |local| {
             compiler.enclosing.?.locals[local].is_captured = true;
@@ -483,7 +501,7 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
     return upvalueCount;
 }
 
-fn resolveLocal(self: *Compiler, compiler: *Compile, token: *scan.Token) !?usize {
+fn resolveLocal(self: *Compiler, compiler: *Compile, token: *const scan.Token) !?usize {
     var i: usize = compiler.localCount;
     while (i > 0) : (i -= 1) {
         const local = compiler.locals[i - 1];
@@ -667,12 +685,12 @@ fn or_(self: *Compiler) !void {
     try self.patchJump(endJump);
 }
 
-fn identifierConstant(self: *Compiler, token: *scan.Token) anyerror!usize {
+fn identifierConstant(self: *Compiler, token: *const scan.Token) anyerror!usize {
     const interned = try self.internCompileString(self.lexeme(token));
     return try self.makeConstant(LoxValue.string(interned));
 }
 
-fn addLocal(self: *Compiler, token: *scan.Token) !void {
+fn addLocal(self: *Compiler, token: *const scan.Token) !void {
     if (self.current.localCount == LOCALS_MAX) {
         try self.errorAtPrev("Too many local variables in function.");
         return e.Error.CompileError;
@@ -931,7 +949,7 @@ fn classDeclaration(self: *Compiler) !void {
             return e.Error.CompileError;
         }
         self.beginScope();
-        try self.addLocal("super");
+        try self.addLocal(&syntheticToken("super"));
         try self.defineVariable(0);
 
         try self.namedVariable(&class_name, false);

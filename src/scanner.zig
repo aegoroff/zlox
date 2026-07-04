@@ -56,6 +56,7 @@ pub const Token = struct {
     line: usize,
     col_start: usize,
     col_end: usize,
+    text: ?[]const u8 = null, // only syntetic
 };
 
 source: []const u8,
