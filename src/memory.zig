@@ -124,7 +124,7 @@ pub const Heap = struct {
     next_gc: usize = INITIAL_GC_THRESHOLD,
 
     bump: BumpRegion,
-    object_nodes: BumpRegion,
+    object_node_pool: Pool(ObjectNode) = .{},
     instance_pool: Pool(Instance) = .{},
     closure_pool: Pool(Closure) = .{},
     upvalue_pool: Pool(Upvalue) = .{},
@@ -136,7 +136,6 @@ pub const Heap = struct {
         return .{
             .allocator = allocator,
             .bump = .{ .allocator = allocator },
-            .object_nodes = .{ .allocator = allocator },
         };
     }
 
@@ -147,7 +146,6 @@ pub const Heap = struct {
             current = node.next;
         }
         self.bump.deinit();
-        self.object_nodes.deinit();
     }
 
     pub fn allocInstance(self: *Heap) !*Instance {
@@ -175,7 +173,7 @@ pub const Heap = struct {
     }
 
     pub fn trackObject(self: *Heap, obj: HeapObj, size: usize) !void {
-        const node = try self.object_nodes.alloc(ObjectNode);
+        const node = try self.object_node_pool.alloc(&self.bump);
         node.* = .{
             .obj = obj,
             .size = size,
@@ -219,7 +217,7 @@ pub const Heap = struct {
                     self.objects = next;
                 }
                 current = next;
-                _ = unreached;
+                self.object_node_pool.release(unreached);
             }
         }
 
