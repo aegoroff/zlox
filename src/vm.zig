@@ -134,6 +134,13 @@ fn adjustMapAllocation(self: *VM, old_capacity: usize, new_capacity: usize) !voi
     }
 }
 
+fn setTrackedTable(self: *VM, table: *Table, key: *val.HeapString, value: LoxValue) !bool {
+    const old_capacity = table.capacity;
+    const is_new = try table.set(key, value);
+    try self.adjustMapAllocation(old_capacity, table.capacity);
+    return is_new;
+}
+
 fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
     try self.trackObject(.{ .function = func }, func.size());
     for (func.chunk.constants.items) |c| {
@@ -161,14 +168,14 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
     const heap_str = try self.heap.allocStringHeader();
     heap_str.* = .{ .marked = false, .hash = hash, .data = owned };
-    _ = try self.strings.set(heap_str, LoxValue.nil);
+    _ = try self.setTrackedTable(&self.strings, heap_str, LoxValue.nil);
     try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     return heap_str;
 }
 
 fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
     const key = try self.internString(name);
-    _ = try self.globals.set(key, LoxValue.native(function));
+    _ = try self.setTrackedTable(&self.globals, key, LoxValue.native(function));
 }
 
 fn stackOverflowError(self: *VM) !void {
@@ -796,7 +803,7 @@ fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val
 fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     const value = self.peek(0);
-    _ = try self.globals.set(name, value);
+    _ = try self.setTrackedTable(&self.globals, name, value);
     _ = self.pop();
 }
 
@@ -817,7 +824,7 @@ inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
         return err.Error.RuntimeError;
     }
     const new_value = self.peek(0);
-    _ = try self.globals.set(name, new_value);
+    _ = try self.setTrackedTable(&self.globals, name, new_value);
 }
 
 // ============================================
@@ -893,9 +900,10 @@ fn markValue(self: *VM, value: LoxValue) void {
 fn markUpvalue(self: *VM, upvalue: *val.Upvalue) void {
     if (!upvalue.marked) {
         upvalue.marked = true;
-        // If upvalue is closed, mark the value inside
         if (upvalue.isClosed()) {
             self.markValue(upvalue.closed);
+        } else {
+            self.markValue(upvalue.location.*);
         }
     }
 }
@@ -935,6 +943,25 @@ fn markRoots(self: *VM) void {
 pub fn collectGarbage(self: *VM) !void {
     self.markRoots();
     self.heap.collectGarbage();
+}
+
+test "tracked table growth updates gc heap bytes" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtual_machine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+
+    const before = virtual_machine.heap.bytes_allocated;
+    var i: usize = 0;
+    while (i < 32) : (i += 1) {
+        var name_buf: [16]u8 = undefined;
+        const name = try std.fmt.bufPrint(&name_buf, "g{d}", .{i});
+        const key = try virtual_machine.internString(name);
+        _ = try virtual_machine.setTrackedTable(&virtual_machine.globals, key, LoxValue.number(1));
+    }
+
+    try std.testing.expect(virtual_machine.globals.capacity > 0);
+    try std.testing.expect(virtual_machine.heap.bytes_allocated > before);
 }
 
 test "value stack overflow is reported" {
