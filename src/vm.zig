@@ -369,6 +369,13 @@ inline fn syncFrame(
     slots_out.* = frame_out.*.slots;
 }
 
+inline fn numberLess(a: LoxValue, b: LoxValue) bool {
+    const l = a.asNumber();
+    const r = b.asNumber();
+    if (std.math.isNan(l) or std.math.isNan(r)) return false;
+    return l < r;
+}
+
 pub fn run(self: *VM) !void {
     var current_frame = &self.frames[self.frame_count - 1];
     var closure = current_frame.closure;
@@ -469,18 +476,28 @@ pub fn run(self: *VM) !void {
             .Less => {
                 const b = self.pop();
                 const a = self.pop();
-                self.push(LoxValue.boolean(try a.less(b)));
+                if (a.isNumber() and b.isNumber()) {
+                    self.push(LoxValue.boolean(numberLess(a, b)));
+                } else {
+                    self.push(LoxValue.boolean(try a.less(b)));
+                }
             },
             .Greater => {
                 const b = self.pop();
                 const a = self.pop();
-                const lt = try a.less(b);
-                const eq = a.equal(b);
-                self.push(LoxValue.boolean(!lt and !eq));
+                const lt = if (a.isNumber() and b.isNumber())
+                    numberLess(a, b)
+                else
+                    try a.less(b);
+                self.push(LoxValue.boolean(!lt and !a.equal(b)));
             },
             .Negate => {
                 const value = self.pop();
-                self.push(LoxValue.number(-try value.tryNumber()));
+                if (!value.isNumber()) {
+                    try self.errorAt(current_frame.ip, "Operand must be a number.", .{});
+                    return err.Error.RuntimeError;
+                }
+                self.push(LoxValue.number(-value.asNumber()));
             },
             .Not => {
                 const value = self.pop();
@@ -503,28 +520,40 @@ pub fn run(self: *VM) !void {
                     } else try self.takeString(result, hash);
                     self.push(LoxValue.string(heap_str));
                 } else {
+                    try self.errorAt(current_frame.ip, "Operands must be two numbers or two strings.", .{});
                     return err.Error.RuntimeError;
                 }
             },
             .Subtract => {
                 const b = self.pop();
                 const a = self.pop();
-                self.push(LoxValue.number(try a.tryNumber() - try b.tryNumber()));
+                if (!a.isNumber() or !b.isNumber()) {
+                    try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
+                    return err.Error.RuntimeError;
+                }
+                self.push(LoxValue.number(a.asNumber() - b.asNumber()));
             },
             .Multiply => {
                 const b = self.pop();
                 const a = self.pop();
-                self.push(LoxValue.number(try a.tryNumber() * try b.tryNumber()));
+                if (!a.isNumber() or !b.isNumber()) {
+                    try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
+                    return err.Error.RuntimeError;
+                }
+                self.push(LoxValue.number(a.asNumber() * b.asNumber()));
             },
             .Divide => {
                 const b = self.pop();
                 const a = self.pop();
-                const bn = try b.tryNumber();
+                if (!a.isNumber() or !b.isNumber()) {
+                    try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
+                    return err.Error.RuntimeError;
+                }
+                const bn = b.asNumber();
                 if (bn == 0) {
                     self.push(LoxValue.number(std.math.nan(f64)));
                 } else {
-                    const an = try a.tryNumber();
-                    self.push(LoxValue.number(an / bn));
+                    self.push(LoxValue.number(a.asNumber() / bn));
                 }
             },
             .Print => {
