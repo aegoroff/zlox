@@ -908,6 +908,12 @@ fn classDeclaration(self: *Compiler) !void {
     if (try self.match(.Less)) {
         try self.consume(.Identifier, "Expect superclass name.");
         try self.variable(false);
+
+        if (std.mem.eql(u8, self.lexeme(className), self.lexeme(&self.parser.previous))) {
+            try self.errorAtPrev("A class can't inherit from itself.");
+            return e.Error.CompileError;
+        }
+
         try self.namedVariable(className, false);
         try self.emitOpcode(.Inherit);
     }
