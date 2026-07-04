@@ -32,7 +32,8 @@ open_upvalues: ?*val.Upvalue,
 
 pub const CallFrame = struct {
     closure: *val.Closure,
-    slots_offset: usize, // points to vm's value's stack first value it can use
+    slots_offset: usize,
+    slots: [*]LoxValue,
     ip: usize = 0,
 };
 
@@ -41,7 +42,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     @memset(stack, LoxValue.nil);
 
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
-    @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0, .ip = 0 });
+    @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0, .slots = undefined, .ip = 0 });
 
     var vm = VM{
         .allocator = gpa,
@@ -196,9 +197,11 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
         try self.errorAt(ip, "Stack overflow.", .{});
         return err.Error.RuntimeError;
     }
+    const slots_offset = self.stack_top - arg_count - 1;
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
-        .slots_offset = self.stack_top - arg_count - 1,
+        .slots_offset = slots_offset,
+        .slots = @ptrCast(&self.stack[slots_offset]),
         .ip = 0,
     };
     self.frame_count += 1;
@@ -351,114 +354,111 @@ fn println(self: *VM) !void {
     try self.writer.print("\n", .{});
 }
 
+inline fn syncFrame(
+    self: *VM,
+    frame_out: **CallFrame,
+    closure_out: **val.Closure,
+    chunk_out: **Chunk,
+    slots_out: *[*]LoxValue,
+) void {
+    frame_out.* = &self.frames[self.frame_count - 1];
+    closure_out.* = frame_out.*.closure;
+    chunk_out.* = &closure_out.*.function.chunk;
+    slots_out.* = frame_out.*.slots;
+}
+
 pub fn run(self: *VM) !void {
-    while (self.frame_count > 0) {
-        const frame_index = self.frame_count - 1;
-        var ip = self.frames[frame_index].ip;
-        const current_chunk = &self.frames[frame_index].closure.function.chunk;
+    var current_frame = &self.frames[self.frame_count - 1];
+    var closure = current_frame.closure;
+    var current_chunk = &closure.function.chunk;
+    var slots = current_frame.slots;
 
-        if (ip >= current_chunk.code.items.len) return;
-
-        const opcode = current_chunk.readOpcode(ip);
-        ip += 1;
+    while (true) {
+        const opcode = current_chunk.readOpcode(current_frame.ip);
+        current_frame.ip += 1;
         switch (opcode) {
             .JumpIfFalse => {
-                const offset = current_chunk.readShort(ip);
-                const v = self.peek(0);
-                ip += 2; // offset is two bytes
-                if (v.isFalsee()) {
-                    ip += offset;
+                const offset = current_chunk.readShort(current_frame.ip);
+                current_frame.ip += 2;
+                if (self.peek(0).isFalsee()) {
+                    current_frame.ip += offset;
                 }
             },
             .Jump => {
-                const offset = current_chunk.readShort(ip);
-                ip += 2; // offset is two bytes
-                ip += offset;
+                const offset = current_chunk.readShort(current_frame.ip);
+                current_frame.ip += 2;
+                current_frame.ip += offset;
             },
             .Loop => {
-                const offset = current_chunk.readShort(ip);
-                ip += 2; // offset is two bytes
-                ip -= offset;
+                const offset = current_chunk.readShort(current_frame.ip);
+                current_frame.ip += 2;
+                current_frame.ip -= offset;
             },
             .Constant => {
-                const value = current_chunk.readConstant(ip);
-                self.push(value);
-                ip += CONST_SIZE;
+                self.push(current_chunk.readConstant(current_frame.ip));
+                current_frame.ip += CONST_SIZE;
             },
             .ConstantLong => {
-                const value = current_chunk.readConstantLong(ip);
-                self.push(value);
-                ip += CONST_LONG_SIZE;
+                self.push(current_chunk.readConstantLong(current_frame.ip));
+                current_frame.ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
-                try self.defineGlobal(ip, CONST_SIZE);
-                ip += CONST_SIZE;
+                try self.defineGlobal(current_frame.ip, CONST_SIZE);
+                current_frame.ip += CONST_SIZE;
             },
             .DefineGlobalLong => {
-                try self.defineGlobal(ip, CONST_LONG_SIZE);
-                ip += CONST_LONG_SIZE;
+                try self.defineGlobal(current_frame.ip, CONST_LONG_SIZE);
+                current_frame.ip += CONST_LONG_SIZE;
             },
             .GetGlobal => {
-                try self.getGlobal(ip, CONST_SIZE);
-                ip += CONST_SIZE;
+                try self.getGlobal(current_frame.ip, CONST_SIZE);
+                current_frame.ip += CONST_SIZE;
             },
             .GetGlobalLong => {
-                try self.getGlobal(ip, CONST_LONG_SIZE);
-                ip += CONST_LONG_SIZE;
+                try self.getGlobal(current_frame.ip, CONST_LONG_SIZE);
+                current_frame.ip += CONST_LONG_SIZE;
             },
             .SetGlobal => {
-                try self.setGlobal(ip, CONST_SIZE);
-                ip += CONST_SIZE;
+                try self.setGlobal(current_frame.ip, CONST_SIZE);
+                current_frame.ip += CONST_SIZE;
             },
             .SetGlobalLong => {
-                try self.setGlobal(ip, CONST_LONG_SIZE);
-                ip += CONST_LONG_SIZE;
+                try self.setGlobal(current_frame.ip, CONST_LONG_SIZE);
+                current_frame.ip += CONST_LONG_SIZE;
             },
             .GetLocal => {
-                const slots_offset = self.frames[frame_index].slots_offset;
-                const frame_offset = current_chunk.readByte(ip);
-                self.push(self.stack[slots_offset + frame_offset]);
-                ip += 1;
+                const slot = current_chunk.readByte(current_frame.ip);
+                current_frame.ip += 1;
+                self.push(slots[slot]);
             },
             .GetLocalLong => {
-                const slots_offset = self.frames[frame_index].slots_offset;
-                const frame_offset = current_chunk.readThreeBytes(ip);
-                self.push(self.stack[slots_offset + frame_offset]);
-                ip += CONST_LONG_SIZE;
+                const slot = current_chunk.readThreeBytes(current_frame.ip);
+                current_frame.ip += CONST_LONG_SIZE;
+                self.push(slots[slot]);
             },
             .SetLocal => {
-                const slots_offset = self.frames[frame_index].slots_offset;
-                const frame_offset = current_chunk.readByte(ip);
-                self.stack[slots_offset + frame_offset] = self.peek(0);
-                ip += 1;
+                const slot = current_chunk.readByte(current_frame.ip);
+                current_frame.ip += 1;
+                slots[slot] = self.peek(0);
             },
             .SetLocalLong => {
-                const slots_offset = self.frames[frame_index].slots_offset;
-                const frame_offset = current_chunk.readThreeBytes(ip);
-                self.stack[slots_offset + frame_offset] = self.peek(0);
-                ip += CONST_LONG_SIZE;
+                const slot = current_chunk.readThreeBytes(current_frame.ip);
+                current_frame.ip += CONST_LONG_SIZE;
+                slots[slot] = self.peek(0);
             },
             .GetUpvalue => {
-                const slot = current_chunk.readByte(ip);
-                const upvalue = self.frames[frame_index].closure.upvalues[slot];
-                self.push(upvalue.get());
-                ip += 1;
+                const slot = current_chunk.readByte(current_frame.ip);
+                current_frame.ip += 1;
+                self.push(closure.upvalues[slot].get());
             },
             .SetUpvalue => {
-                const slot = current_chunk.readByte(ip);
-                const value = self.peek(0);
-                self.frames[frame_index].closure.upvalues[slot].set(value);
-                ip += 1;
+                const slot = current_chunk.readByte(current_frame.ip);
+                current_frame.ip += 1;
+                closure.upvalues[slot].set(self.peek(0));
             },
-            .Nil => {
-                self.push(LoxValue.nil);
-            },
-            .True => {
-                self.push(LoxValue.boolean(true));
-            },
-            .False => {
-                self.push(LoxValue.boolean(false));
-            },
+            .Nil => self.push(LoxValue.nil),
+            .True => self.push(LoxValue.boolean(true)),
+            .False => self.push(LoxValue.boolean(false)),
             .Equal => {
                 const b = self.pop();
                 const a = self.pop();
@@ -530,111 +530,105 @@ pub fn run(self: *VM) !void {
                 try value.print(self.writer);
                 try self.println();
             },
-            .Pop => {
-                _ = self.pop();
-            },
+            .Pop => _ = self.pop(),
             .Closure => {
-                const function = current_chunk.readConstant(ip).asFunction();
-                ip += CONST_SIZE;
+                const function = current_chunk.readConstant(current_frame.ip).asFunction();
+                current_frame.ip += CONST_SIZE;
 
                 const closure_ptr = try self.heap.allocClosure();
                 closure_ptr.* = val.Closure.init(function);
                 self.push(LoxValue.closure(closure_ptr));
                 try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
-                const slots_offset = self.frames[frame_index].slots_offset;
                 for (0..function.upvalue_count) |_| {
-                    const is_local = current_chunk.readByte(ip);
-                    const index = current_chunk.readByte(ip + 1);
-                    ip += 2;
+                    const is_local = current_chunk.readByte(current_frame.ip);
+                    const index = current_chunk.readByte(current_frame.ip + 1);
+                    current_frame.ip += 2;
                     const upvalue: *val.Upvalue = if (is_local == 1)
-                        try self.captureUpvalue(slots_offset + index)
+                        try self.captureUpvalue(current_frame.slots_offset + index)
                     else
-                        self.frames[frame_index].closure.upvalues[index];
+                        closure.upvalues[index];
                     closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
                     closure_ptr.upvalue_count += 1;
                 }
             },
             .Call => {
-                const arg_count = current_chunk.readByte(ip);
-                ip += 1;
-                self.frames[frame_index].ip = ip;
+                const arg_count = current_chunk.readByte(current_frame.ip);
+                current_frame.ip += 1;
                 const value = self.peek(arg_count);
-                if (!try self.callValue(ip, value, arg_count)) {
-                    try self.errorAt(ip, "Calling failed", .{});
+                if (!try self.callValue(current_frame.ip, value, arg_count)) {
+                    try self.errorAt(current_frame.ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
                 }
-                continue;
+                syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
             .Class => {
-                const name = try self.readStringConstant(ip, CONST_SIZE);
+                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
 
                 const class_ptr = try self.heap.allocClass();
                 class_ptr.* = val.Class.init(self.allocator, name);
                 self.push(LoxValue.class(class_ptr));
                 try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
 
-                ip += CONST_SIZE;
+                current_frame.ip += CONST_SIZE;
             },
             .Inherit => {
                 const sub_class = try (self.peek(0)).tryClass();
                 const super_class = (self.peek(1)).tryClass() catch {
-                    try self.errorAt(ip, "Superclass must be a class.", .{});
+                    try self.errorAt(current_frame.ip, "Superclass must be a class.", .{});
                     return err.Error.RuntimeError;
                 };
                 const old_capacity = sub_class.methods.capacity;
                 try sub_class.methods.addAll(&super_class.methods);
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
-                _ = self.pop(); // subclass
+                _ = self.pop();
             },
             .GetSuper => {
-                const name = try self.readStringConstant(ip, CONST_SIZE);
+                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
                 const super_class = try (self.pop()).tryClass();
                 if (!try self.bindMethod(super_class, name)) {
-                    try self.errorAt(ip, "Undefined method or property '{s}'", .{name.data});
+                    try self.errorAt(current_frame.ip, "Undefined method or property '{s}'", .{name.data});
                     return err.Error.RuntimeError;
                 }
 
-                ip += CONST_SIZE;
+                current_frame.ip += CONST_SIZE;
             },
             .GetProperty => {
-                const name = try self.readStringConstant(ip, CONST_SIZE);
+                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
                 const instance = try (self.peek(0)).tryInstance();
                 if (instance.fields.get(name)) |field| {
-                    _ = self.pop(); // instance
+                    _ = self.pop();
                     self.push(field);
                 } else if (!try self.bindMethod(instance.klass, name)) {
-                    try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
+                    try self.errorAt(current_frame.ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
                     return err.Error.RuntimeError;
                 }
-                ip += CONST_SIZE;
+                current_frame.ip += CONST_SIZE;
             },
             .Invoke => {
-                const name = try self.readStringConstant(ip, CONST_SIZE);
-                const arg_count = current_chunk.readByte(ip + CONST_SIZE);
-                ip += CONST_SIZE + 1;
-                self.frames[frame_index].ip = ip;
-                if (!try self.invoke(ip, name, arg_count)) {
-                    try self.errorAt(ip, "Invoke '{s}'' failed", .{name.data});
+                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
+                const arg_count = current_chunk.readByte(current_frame.ip + CONST_SIZE);
+                current_frame.ip += CONST_SIZE + 1;
+                if (!try self.invoke(current_frame.ip, name, arg_count)) {
+                    try self.errorAt(current_frame.ip, "Invoke '{s}'' failed", .{name.data});
                     return err.Error.RuntimeError;
                 }
-                continue;
+                syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
             .SuperInvoke => {
-                const name = try self.readStringConstant(ip, CONST_SIZE);
-                const arg_count = current_chunk.readByte(ip + CONST_SIZE);
-                ip += CONST_SIZE + 1;
-                self.frames[frame_index].ip = ip;
+                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
+                const arg_count = current_chunk.readByte(current_frame.ip + CONST_SIZE);
+                current_frame.ip += CONST_SIZE + 1;
                 const super_class = try (self.pop()).tryClass();
 
-                if (!try self.invokeFromClass(ip, super_class, name, arg_count)) {
-                    try self.errorAt(ip, "Super invoke '{s}' failed", .{name.data});
+                if (!try self.invokeFromClass(current_frame.ip, super_class, name, arg_count)) {
+                    try self.errorAt(current_frame.ip, "Super invoke '{s}' failed", .{name.data});
                     return err.Error.RuntimeError;
                 }
-                continue;
+                syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
             .SetProperty => {
-                const prop_name = try self.readStringConstant(ip, CONST_SIZE);
+                const prop_name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
                 const prop_value = self.pop();
                 const instance = try (self.pop()).tryInstance();
 
@@ -642,33 +636,32 @@ pub fn run(self: *VM) !void {
                 _ = try instance.fields.set(prop_name, prop_value);
                 try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
                 self.push(prop_value);
-                ip += CONST_SIZE;
+                current_frame.ip += CONST_SIZE;
             },
             .Method => {
-                const name = try self.readStringConstant(ip, CONST_SIZE);
+                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
                 try self.defineMethod(name);
-                ip += CONST_SIZE;
+                current_frame.ip += CONST_SIZE;
             },
             .Return => {
                 const result = if (self.stack_top > 0) self.pop() else LoxValue.nil;
 
-                const slots_offset = self.frames[frame_index].slots_offset;
-                self.closeUpvalues(@intFromPtr(&self.stack[slots_offset]));
+                self.closeUpvalues(@intFromPtr(current_frame.slots));
 
                 self.frame_count -= 1;
                 if (self.frame_count == 0) {
                     return;
                 }
-                self.stack_top = slots_offset;
+
+                self.stack_top = current_frame.slots_offset;
                 self.push(result);
-                continue;
+                syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
             .CloseUpvalue => {
                 self.closeUpvalues(@intFromPtr(&self.stack[self.stack_top - 1]));
                 _ = self.pop();
             },
         }
-        self.frames[frame_index].ip = ip;
     }
 }
 

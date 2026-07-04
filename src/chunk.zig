@@ -122,32 +122,32 @@ pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: ?[]const u8) !voi
     }
 }
 
-pub fn readOpcode(self: *Chunk, offset: usize) OpCode {
+pub inline fn readOpcode(self: *Chunk, offset: usize) OpCode {
     const byte = self.readByte(offset);
     return @enumFromInt(byte);
 }
 
-pub fn readByte(self: *Chunk, offset: usize) u8 {
+pub inline fn readByte(self: *Chunk, offset: usize) u8 {
     return self.code.items[offset];
 }
 
-pub fn readShort(self: *Chunk, offset: usize) usize {
+pub inline fn readShort(self: *Chunk, offset: usize) usize {
     const op1: usize = @intCast(self.readByte(offset)); // first operand defines constant index in the constant's vector
     const op2: usize = @intCast(self.readByte(offset + 1)); // second operand defines constant index in the constant's vector
     return op2 << 8 | op1;
 }
 
-pub fn readConstant(self: *Chunk, offset: usize) LoxValue {
+pub inline fn readConstant(self: *Chunk, offset: usize) LoxValue {
     const ix = self.getConstantIx(offset, 1);
     return self.constants.items[ix];
 }
 
-pub fn readConstantLong(self: *Chunk, offset: usize) LoxValue {
+pub inline fn readConstantLong(self: *Chunk, offset: usize) LoxValue {
     const ix = self.getConstantIx(offset, 3);
     return self.constants.items[ix];
 }
 
-pub fn readThreeBytes(self: *Chunk, offset: usize) usize {
+pub inline fn readThreeBytes(self: *Chunk, offset: usize) usize {
     const op1: usize = self.readByte(offset); // first operand defines constant index in the constant's vector
     const op2 = self.readByte(offset + 1); // second operand defines constant index in the constant's vector
     const op3 = self.readByte(offset + 2); // third operand defines constant index in the constant's vector
@@ -286,7 +286,7 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
     return current_offset;
 }
 
-fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
+inline fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
     return switch (constant_size) {
         1 => self.readByte(offset),
         3 => self.readThreeBytes(offset),
