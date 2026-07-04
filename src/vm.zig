@@ -376,6 +376,146 @@ inline fn numberLess(a: LoxValue, b: LoxValue) bool {
     return l < r;
 }
 
+inline fn readFunctionConstant(code: *Chunk, ip: usize, constant_size: usize) *val.Function {
+    const value = switch (constant_size) {
+        CONST_SIZE => code.readConstant(ip),
+        CONST_LONG_SIZE => code.readConstantLong(ip),
+        else => unreachable,
+    };
+    return value.asFunction();
+}
+
+inline fn opClosure(
+    self: *VM,
+    current_frame: *CallFrame,
+    current_chunk: *Chunk,
+    closure: **val.Closure,
+    constant_size: usize,
+) !void {
+    const function = readFunctionConstant(current_chunk, current_frame.ip, constant_size);
+    current_frame.ip += constant_size;
+
+    const closure_ptr = try self.heap.allocClosure();
+    closure_ptr.* = val.Closure.init(function);
+    self.push(LoxValue.closure(closure_ptr));
+    try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
+
+    for (0..function.upvalue_count) |_| {
+        const is_local = current_chunk.readByte(current_frame.ip);
+        const index = current_chunk.readByte(current_frame.ip + 1);
+        current_frame.ip += 2;
+        const upvalue: *val.Upvalue = if (is_local == 1)
+            try self.captureUpvalue(current_frame.slots_offset + index)
+        else
+            closure.*.upvalues[index];
+        closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
+        closure_ptr.upvalue_count += 1;
+    }
+}
+
+fn opClass(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
+    const name = try self.readStringConstant(current_frame.ip, constant_size);
+
+    const class_ptr = try self.heap.allocClass();
+    class_ptr.* = val.Class.init(self.allocator, name);
+    self.push(LoxValue.class(class_ptr));
+    try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
+
+    current_frame.ip += constant_size;
+}
+
+inline fn opGetSuper(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
+    const name = try self.readStringConstant(current_frame.ip, constant_size);
+    const super_class = try (self.pop()).tryClass();
+    if (!try self.bindMethod(super_class, name)) {
+        try self.errorAt(current_frame.ip, "Undefined method or property '{s}'", .{name.data});
+        return err.Error.RuntimeError;
+    }
+
+    current_frame.ip += constant_size;
+}
+
+inline fn opGetProperty(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
+    const name = try self.readStringConstant(current_frame.ip, constant_size);
+    const receiver = self.peek(0);
+    if (!receiver.isInstance()) {
+        try self.errorAt(current_frame.ip, "Only instances have properties.", .{});
+        return err.Error.RuntimeError;
+    }
+    const instance = receiver.asInstance();
+    if (instance.fields.get(name)) |field| {
+        _ = self.pop();
+        self.push(field);
+    } else if (!try self.bindMethod(instance.klass, name)) {
+        try self.errorAt(current_frame.ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
+        return err.Error.RuntimeError;
+    }
+    current_frame.ip += constant_size;
+}
+
+inline fn opInvoke(
+    self: *VM,
+    current_frame: **CallFrame,
+    current_chunk: *Chunk,
+    closure: **val.Closure,
+    current_chunk_ptr: **Chunk,
+    slots: *[*]LoxValue,
+    constant_size: usize,
+) !void {
+    const name = try self.readStringConstant(current_frame.*.ip, constant_size);
+    const arg_count = current_chunk.readByte(current_frame.*.ip + constant_size);
+    current_frame.*.ip += constant_size + 1;
+    if (!try self.invoke(current_frame.*.ip, name, arg_count)) {
+        try self.errorAt(current_frame.*.ip, "Invoke '{s}'' failed", .{name.data});
+        return err.Error.RuntimeError;
+    }
+    syncFrame(self, current_frame, closure, current_chunk_ptr, slots);
+}
+
+inline fn opSuperInvoke(
+    self: *VM,
+    current_frame: **CallFrame,
+    current_chunk: *Chunk,
+    closure: **val.Closure,
+    current_chunk_ptr: **Chunk,
+    slots: *[*]LoxValue,
+    constant_size: usize,
+) !void {
+    const name = try self.readStringConstant(current_frame.*.ip, constant_size);
+    const arg_count = current_chunk.readByte(current_frame.*.ip + constant_size);
+    current_frame.*.ip += constant_size + 1;
+    const super_class = try (self.pop()).tryClass();
+
+    if (!try self.invokeFromClass(current_frame.*.ip, super_class, name, arg_count)) {
+        try self.errorAt(current_frame.*.ip, "Super invoke '{s}' failed", .{name.data});
+        return err.Error.RuntimeError;
+    }
+    syncFrame(self, current_frame, closure, current_chunk_ptr, slots);
+}
+
+inline fn opSetProperty(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
+    const prop_name = try self.readStringConstant(current_frame.ip, constant_size);
+    const prop_value = self.pop();
+    const receiver = self.pop();
+    if (!receiver.isInstance()) {
+        try self.errorAt(current_frame.ip, "Only instances have fields.", .{});
+        return err.Error.RuntimeError;
+    }
+    const instance = receiver.asInstance();
+
+    const old_capacity = instance.fields.capacity;
+    _ = try instance.fields.set(prop_name, prop_value);
+    try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
+    self.push(prop_value);
+    current_frame.ip += constant_size;
+}
+
+inline fn opMethod(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
+    const name = try self.readStringConstant(current_frame.ip, constant_size);
+    try self.defineMethod(name);
+    current_frame.ip += constant_size;
+}
+
 pub fn run(self: *VM) !void {
     var current_frame = &self.frames[self.frame_count - 1];
     var closure = current_frame.closure;
@@ -573,27 +713,8 @@ pub fn run(self: *VM) !void {
                 try self.println();
             },
             .Pop => _ = self.pop(),
-            .Closure => {
-                const function = current_chunk.readConstant(current_frame.ip).asFunction();
-                current_frame.ip += CONST_SIZE;
-
-                const closure_ptr = try self.heap.allocClosure();
-                closure_ptr.* = val.Closure.init(function);
-                self.push(LoxValue.closure(closure_ptr));
-                try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
-
-                for (0..function.upvalue_count) |_| {
-                    const is_local = current_chunk.readByte(current_frame.ip);
-                    const index = current_chunk.readByte(current_frame.ip + 1);
-                    current_frame.ip += 2;
-                    const upvalue: *val.Upvalue = if (is_local == 1)
-                        try self.captureUpvalue(current_frame.slots_offset + index)
-                    else
-                        closure.upvalues[index];
-                    closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
-                    closure_ptr.upvalue_count += 1;
-                }
-            },
+            .Closure => try self.opClosure(current_frame, current_chunk, &closure, CONST_SIZE),
+            .ClosureLong => try self.opClosure(current_frame, current_chunk, &closure, CONST_LONG_SIZE),
             .Call => {
                 const arg_count = current_chunk.readByte(current_frame.ip);
                 current_frame.ip += 1;
@@ -604,16 +725,8 @@ pub fn run(self: *VM) !void {
                 }
                 syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
-            .Class => {
-                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-
-                const class_ptr = try self.heap.allocClass();
-                class_ptr.* = val.Class.init(self.allocator, name);
-                self.push(LoxValue.class(class_ptr));
-                try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
-
-                current_frame.ip += CONST_SIZE;
-            },
+            .Class => try self.opClass(current_frame, CONST_SIZE),
+            .ClassLong => try self.opClass(current_frame, CONST_LONG_SIZE),
             .Inherit => {
                 const sub_class = try (self.peek(0)).tryClass();
                 const super_class = (self.peek(1)).tryClass() catch {
@@ -625,76 +738,18 @@ pub fn run(self: *VM) !void {
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
                 _ = self.pop();
             },
-            .GetSuper => {
-                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                const super_class = try (self.pop()).tryClass();
-                if (!try self.bindMethod(super_class, name)) {
-                    try self.errorAt(current_frame.ip, "Undefined method or property '{s}'", .{name.data});
-                    return err.Error.RuntimeError;
-                }
-
-                current_frame.ip += CONST_SIZE;
-            },
-            .GetProperty => {
-                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                const receiver = self.peek(0);
-                if (!receiver.isInstance()) {
-                    try self.errorAt(current_frame.ip, "Only instances have properties.", .{});
-                    return err.Error.RuntimeError;
-                }
-                const instance = receiver.asInstance();
-                if (instance.fields.get(name)) |field| {
-                    _ = self.pop();
-                    self.push(field);
-                } else if (!try self.bindMethod(instance.klass, name)) {
-                    try self.errorAt(current_frame.ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
-                    return err.Error.RuntimeError;
-                }
-                current_frame.ip += CONST_SIZE;
-            },
-            .Invoke => {
-                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                const arg_count = current_chunk.readByte(current_frame.ip + CONST_SIZE);
-                current_frame.ip += CONST_SIZE + 1;
-                if (!try self.invoke(current_frame.ip, name, arg_count)) {
-                    try self.errorAt(current_frame.ip, "Invoke '{s}'' failed", .{name.data});
-                    return err.Error.RuntimeError;
-                }
-                syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
-            },
-            .SuperInvoke => {
-                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                const arg_count = current_chunk.readByte(current_frame.ip + CONST_SIZE);
-                current_frame.ip += CONST_SIZE + 1;
-                const super_class = try (self.pop()).tryClass();
-
-                if (!try self.invokeFromClass(current_frame.ip, super_class, name, arg_count)) {
-                    try self.errorAt(current_frame.ip, "Super invoke '{s}' failed", .{name.data});
-                    return err.Error.RuntimeError;
-                }
-                syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
-            },
-            .SetProperty => {
-                const prop_name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                const prop_value = self.pop();
-                const receiver = self.pop();
-                if (!receiver.isInstance()) {
-                    try self.errorAt(current_frame.ip, "Only instances have fields.", .{});
-                    return err.Error.RuntimeError;
-                }
-                const instance = receiver.asInstance();
-
-                const old_capacity = instance.fields.capacity;
-                _ = try instance.fields.set(prop_name, prop_value);
-                try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
-                self.push(prop_value);
-                current_frame.ip += CONST_SIZE;
-            },
-            .Method => {
-                const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                try self.defineMethod(name);
-                current_frame.ip += CONST_SIZE;
-            },
+            .GetSuper => try self.opGetSuper(current_frame, CONST_SIZE),
+            .GetSuperLong => try self.opGetSuper(current_frame, CONST_LONG_SIZE),
+            .GetProperty => try self.opGetProperty(current_frame, CONST_SIZE),
+            .GetPropertyLong => try self.opGetProperty(current_frame, CONST_LONG_SIZE),
+            .Invoke => try self.opInvoke(&current_frame, current_chunk, &closure, &current_chunk, &slots, CONST_SIZE),
+            .InvokeLong => try self.opInvoke(&current_frame, current_chunk, &closure, &current_chunk, &slots, CONST_LONG_SIZE),
+            .SuperInvoke => try self.opSuperInvoke(&current_frame, current_chunk, &closure, &current_chunk, &slots, CONST_SIZE),
+            .SuperInvokeLong => try self.opSuperInvoke(&current_frame, current_chunk, &closure, &current_chunk, &slots, CONST_LONG_SIZE),
+            .SetProperty => try self.opSetProperty(current_frame, CONST_SIZE),
+            .SetPropertyLong => try self.opSetProperty(current_frame, CONST_LONG_SIZE),
+            .Method => try self.opMethod(current_frame, CONST_SIZE),
+            .MethodLong => try self.opMethod(current_frame, CONST_LONG_SIZE),
             .Return => {
                 const result = if (self.stack_top > 0) self.pop() else LoxValue.nil;
 

@@ -49,6 +49,14 @@ pub const OpCode = enum(u8) {
     Class = 40,
     Inherit = 41,
     Method = 42,
+    ClosureLong = 43,
+    ClassLong = 44,
+    MethodLong = 45,
+    GetPropertyLong = 46,
+    SetPropertyLong = 47,
+    GetSuperLong = 48,
+    InvokeLong = 49,
+    SuperInvokeLong = 50,
 };
 
 pub const MAX_SHORT_VALUE: usize = 255;
@@ -198,14 +206,22 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .GetLocalLong => try self.disassemblyThreeBytesInstruction(writer, offset, "OP_GET_LOCAL_LONG"),
         .Call => try self.disassemblyByteInstruction(writer, offset, "OP_CALL"),
         .GetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_GET_UPVALUE"),
-        .Class => try self.disassemblyByteInstruction(writer, offset, "OP_CLASS"),
-        .Method => try self.disassemblyByteInstruction(writer, offset, "OP_METHOD"),
-        .GetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_GET_PROPERTY"),
-        .Invoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE"),
-        .SuperInvoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_SUPER_INVOKE"),
-        .SetProperty => try self.disassemblyByteInstruction(writer, offset, "OP_SET_PROPERTY"),
+        .Class => try self.disassemblyConstant(writer, offset, "OP_CLASS", 1),
+        .Method => try self.disassemblyConstant(writer, offset, "OP_METHOD", 1),
+        .GetProperty => try self.disassemblyConstant(writer, offset, "OP_GET_PROPERTY", 1),
+        .Invoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE", 1),
+        .SuperInvoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_SUPER_INVOKE", 1),
+        .SetProperty => try self.disassemblyConstant(writer, offset, "OP_SET_PROPERTY", 1),
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
-        .Closure => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE"),
+        .Closure => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE", 1),
+        .ClosureLong => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE_LONG", 3),
+        .ClassLong => try self.disassemblyConstant(writer, offset, "OP_CLASS_LONG", 3),
+        .MethodLong => try self.disassemblyConstant(writer, offset, "OP_METHOD_LONG", 3),
+        .GetPropertyLong => try self.disassemblyConstant(writer, offset, "OP_GET_PROPERTY_LONG", 3),
+        .SetPropertyLong => try self.disassemblyConstant(writer, offset, "OP_SET_PROPERTY_LONG", 3),
+        .GetSuperLong => try self.disassemblyConstant(writer, offset, "OP_GET_SUPER_LONG", 3),
+        .InvokeLong => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE_LONG", 3),
+        .SuperInvokeLong => try self.disassemblyInvokeInstruction(writer, offset, "OP_SUPER_INVOKE_LONG", 3),
         .JumpIfFalse => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP_IF_FALSE", 1),
         .Jump => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP", 1),
         .Loop => try self.disassemblyJumpInstruction(writer, offset, "OP_LOOP", -1),
@@ -227,14 +243,14 @@ fn disassemblyByteInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
     return offset + 2;
 }
 
-fn disassemblyInvokeInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
-    const ix = self.getConstantIx(offset + 1, 1);
+fn disassemblyInvokeInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, constant_size: usize) !usize {
+    const ix = self.getConstantIx(offset + 1, constant_size);
     const val = self.constants.items[ix];
-    const arg_count = self.readByte(offset + 2);
+    const arg_count = self.readByte(offset + 1 + constant_size);
     try writer.print("{s:<16} {d:4} '", .{ name, ix });
     try val.print(writer);
     try writer.print("' ({d} args)\n", .{arg_count});
-    return offset + 3;
+    return offset + 1 + constant_size + 1;
 }
 
 fn disassemblyThreeBytesInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
@@ -259,9 +275,9 @@ fn disassemblyJumpInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
     return offset + 3;
 }
 
-fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {
-    const function_ix = self.readByte(offset + 1);
-    var current_offset = offset + 2;
+fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize, name: []const u8, constant_size: usize) !usize {
+    const function_ix = self.getConstantIx(offset + 1, constant_size);
+    var current_offset = offset + 1 + constant_size;
 
     const val = self.constants.items[function_ix];
     const func = if (val.isFunction())

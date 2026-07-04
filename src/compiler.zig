@@ -276,6 +276,15 @@ fn emitOperand(self: *Compiler, value: usize) !void {
     try self.currentChunk().writeOperand(value, self.parser.previous.line);
 }
 
+fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, long_op: Chunk.OpCode, ix: usize) !void {
+    if (ix > Chunk.MAX_SHORT_VALUE) {
+        try self.emitOpcode(long_op);
+    } else {
+        try self.emitOpcode(short_op);
+    }
+    try self.emitOperand(ix);
+}
+
 fn emitLoop(self: *Compiler, loopStart: usize) !void {
     try self.emitOpcode(.Loop);
     const offset = self.currentChunk().codeSize() - loopStart + 2;
@@ -408,13 +417,11 @@ fn super_(self: *Compiler) !void {
     if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
         try self.namedVariable(&syntheticToken("super"), false);
-        try self.emitOpcode(.SuperInvoke);
-        try self.emitOperand(name);
+        try self.emitConstantOpcode(.SuperInvoke, .SuperInvokeLong, name);
         try self.emitOperand(arg_count);
     } else {
         try self.namedVariable(&syntheticToken("super"), false);
-        try self.emitOpcode(.GetSuper);
-        try self.emitOperand(name);
+        try self.emitConstantOpcode(.GetSuper, .GetSuperLong, name);
     }
 }
 
@@ -590,16 +597,13 @@ fn dot(self: *Compiler, can_assign: bool) !void {
     const name = try self.identifierConstant(&self.parser.previous);
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        try self.emitOpcode(.SetProperty);
-        try self.emitOperand(name);
+        try self.emitConstantOpcode(.SetProperty, .SetPropertyLong, name);
     } else if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
-        try self.emitOpcode(.Invoke);
-        try self.emitOperand(name);
+        try self.emitConstantOpcode(.Invoke, .InvokeLong, name);
         try self.emitOperand(arg_count);
     } else {
-        try self.emitOpcode(.GetProperty);
-        try self.emitOperand(name);
+        try self.emitConstantOpcode(.GetProperty, .GetPropertyLong, name);
     }
 }
 
@@ -911,9 +915,8 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     new_compile.deinit();
     self.allocator.destroy(new_compile);
 
-    try self.emitOpcode(.Closure);
     const ix = try self.currentChunk().addConstant(LoxValue.function(func));
-    try self.emitOperand(ix);
+    try self.emitConstantOpcode(.Closure, .ClosureLong, ix);
     for (0..upvalue_count) |i| {
         const is_local: usize = if (upvalues[i].is_local) 1 else 0;
         try self.emitOperand(is_local);
@@ -930,8 +933,7 @@ fn method(self: *Compiler) !void {
     else
         .Method;
     try self.function(function_type);
-    try self.emitOpcode(.Method);
-    try self.emitOperand(methodConstant);
+    try self.emitConstantOpcode(.Method, .MethodLong, methodConstant);
 }
 
 fn classDeclaration(self: *Compiler) !void {
@@ -939,8 +941,7 @@ fn classDeclaration(self: *Compiler) !void {
     var class_name = self.parser.previous;
     const name_constant = try self.identifierConstant(&class_name);
     try self.declareVariable();
-    try self.emitOpcode(.Class);
-    try self.emitOperand(name_constant);
+    try self.emitConstantOpcode(.Class, .ClassLong, name_constant);
     try self.defineVariable(name_constant);
 
     var class_compiler = ClassCompiler{

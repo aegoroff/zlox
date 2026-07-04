@@ -1956,3 +1956,48 @@ test "native min wrong arity reports runtime error" {
     // Act + Assert
     try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret("min(1);", false));
 }
+
+test "long closure opcode with large constant pool" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    var i: usize = 0;
+    while (i < 257) : (i += 1) {
+        try code.writer.print("fun f{d}() {{ print {d}; }}\n", .{ i, i });
+    }
+    try code.writer.writeAll("f256();\n");
+
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret(code.written(), false);
+
+    // Assert
+    try std.testing.expectEqualStrings("256\n", writer.written());
+}
+
+test "long invoke opcode with large constant pool" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("class C {\n");
+    var i: usize = 0;
+    while (i < 257) : (i += 1) {
+        try code.writer.print("  m{d}() {{ return {d}; }}\n", .{ i, i });
+    }
+    try code.writer.writeAll("}\nprint C().m256();\n");
+
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret(code.written(), false);
+
+    // Assert
+    try std.testing.expectEqualStrings("256\n", writer.written());
+}
