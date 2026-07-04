@@ -108,7 +108,7 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     try self.trackConstantsRecursively(func);
     self.compiler.?.current.function = null;
 
-    const closure_ptr = try self.allocator.create(val.Closure);
+    const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = val.Closure.init(func);
     try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
@@ -119,16 +119,14 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
 fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
     try self.heap.trackObject(obj, size);
-    try self.maybeCollect();
+    if (self.heap.shouldCollect()) {
+        try self.collectGarbage();
+    }
 }
 
 fn adjustMapAllocation(self: *VM, old_capacity: usize, new_capacity: usize) !void {
     if (old_capacity == new_capacity) return;
     self.heap.adjustMapCapacity(old_capacity, new_capacity, @sizeOf(val.StringKeyMap.Entry));
-    try self.maybeCollect();
-}
-
-fn maybeCollect(self: *VM) !void {
     if (self.heap.shouldCollect()) {
         try self.collectGarbage();
     }
@@ -154,7 +152,8 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
     }
 
     const owned = try self.allocator.dupe(u8, bytes);
-    const heap_str = try val.HeapString.init(self.allocator, owned);
+    const heap_str = try self.heap.allocStringHeader();
+    heap_str.* = .{ .marked = false, .data = owned };
     try self.interned.put(heap_str.data, heap_str);
     try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     return heap_str;
@@ -242,7 +241,7 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
     }
     if (value.isClass()) {
         const k = value.asClass();
-        const instance_ptr = try self.allocator.create(val.Instance);
+        const instance_ptr = try self.heap.allocInstance();
         instance_ptr.* = val.Instance.init(self.allocator, k);
         self.stack[self.stack_top - arg_count - 1] = LoxValue.instance(instance_ptr);
         try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
@@ -286,7 +285,7 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
         current = upvalue.next;
     }
 
-    const created = try self.allocator.create(val.Upvalue);
+    const created = try self.heap.allocUpvalue();
     created.* = .{
         .location = slot,
         .closed = LoxValue.nil,
@@ -331,7 +330,7 @@ fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
     if (klass.methods.get(name)) |method| {
         _ = try self.pop(); // instance
 
-        const bound_ptr = try self.allocator.create(val.BoundMethod);
+        const bound_ptr = try self.heap.allocBoundMethod();
         bound_ptr.* = val.BoundMethod.init(instance, method);
         try self.push(LoxValue.boundMethod(bound_ptr));
         try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
@@ -502,7 +501,8 @@ pub fn run(self: *VM) !void {
                     const as = a.asString();
                     const bs = b.asString();
                     const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
-                    const heap_str = try mem.HeapString.init(self.allocator, result);
+                    const heap_str = try self.heap.allocStringHeader();
+                    heap_str.* = .{ .marked = false, .data = result };
                     try self.push(LoxValue.string(heap_str));
                     try self.trackObject(.{ .string = heap_str }, @sizeOf(mem.HeapString) + result.len);
                 } else {
@@ -542,7 +542,7 @@ pub fn run(self: *VM) !void {
                 const function = current_chunk.readConstant(ip).asFunction();
                 ip += CONST_SIZE;
 
-                const closure_ptr = try self.allocator.create(val.Closure);
+                const closure_ptr = try self.heap.allocClosure();
                 closure_ptr.* = val.Closure.init(function);
                 try self.push(LoxValue.closure(closure_ptr));
                 try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
@@ -574,7 +574,7 @@ pub fn run(self: *VM) !void {
             .Class => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
 
-                const class_ptr = try self.allocator.create(val.Class);
+                const class_ptr = try self.heap.allocClass();
                 class_ptr.* = val.Class.init(self.allocator, name);
                 try self.push(LoxValue.class(class_ptr));
                 try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
@@ -826,10 +826,8 @@ fn markRoots(self: *VM) void {
 }
 
 pub fn collectGarbage(self: *VM) !void {
-    // Mark phase
     self.markRoots();
-    // Sweep phase
-    try self.heap.collectGarbage();
+    self.heap.collectGarbage();
 }
 
 test {

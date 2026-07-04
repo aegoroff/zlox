@@ -9,6 +9,72 @@ pub const Class = val.Class;
 pub const Instance = val.Instance;
 pub const BoundMethod = val.BoundMethod;
 
+const CHUNK_SIZE: usize = 256 * 1024;
+const GC_HEAP_GROW_FACTOR: usize = 2;
+const INITIAL_GC_THRESHOLD: usize = 1024 * 1024;
+const CHUNK_ALIGNMENT: std.mem.Alignment = .@"16";
+
+const FreeList = struct {
+    next: ?*FreeList = null,
+};
+
+const BumpRegion = struct {
+    allocator: std.mem.Allocator,
+    chunks: std.ArrayList([]u8) = .empty,
+    current: ?[]u8 = null,
+    offset: usize = 0,
+
+    fn deinit(self: *BumpRegion) void {
+        for (self.chunks.items) |chunk| {
+            self.allocator.free(chunk);
+        }
+        self.chunks.deinit(self.allocator);
+    }
+
+    fn allocBytes(self: *BumpRegion, size: usize, alignment: usize) ![*]u8 {
+        const aligned_offset = std.mem.alignForward(usize, self.offset, alignment);
+        if (self.current) |chunk| {
+            if (aligned_offset + size <= chunk.len) {
+                self.offset = aligned_offset + size;
+                return chunk[aligned_offset..].ptr;
+            }
+        }
+
+        const chunk_size = @max(CHUNK_SIZE, std.mem.alignForward(usize, size, alignment));
+        const chunk = try self.allocator.alignedAlloc(u8, CHUNK_ALIGNMENT, chunk_size);
+        try self.chunks.append(self.allocator, chunk);
+        self.current = chunk;
+        self.offset = std.mem.alignForward(usize, size, alignment);
+        return chunk[0..size].ptr;
+    }
+
+    fn alloc(self: *BumpRegion, comptime T: type) !*T {
+        const ptr = try self.allocBytes(@sizeOf(T), @alignOf(T));
+        return @ptrCast(@alignCast(ptr));
+    }
+};
+
+fn Pool(comptime T: type) type {
+    return struct {
+        free: ?*T = null,
+
+        fn alloc(self: *@This(), bump: *BumpRegion) !*T {
+            if (self.free) |ptr| {
+                const node: *FreeList = @ptrCast(@alignCast(ptr));
+                self.free = @ptrCast(@alignCast(node.next));
+                return ptr;
+            }
+            return bump.alloc(T);
+        }
+
+        fn release(self: *@This(), ptr: *T) void {
+            const node: *FreeList = @ptrCast(@alignCast(ptr));
+            node.next = @ptrCast(@alignCast(self.free));
+            self.free = ptr;
+        }
+    };
+}
+
 /// Unified type for all heap objects
 pub const HeapObj = union(enum) {
     string: *HeapString,
@@ -42,64 +108,80 @@ pub const HeapObj = union(enum) {
             .bound_method => |b| b.marked = marked,
         }
     }
-
-    pub fn free(self: HeapObj, allocator: std.mem.Allocator) void {
-        switch (self) {
-            .string => |s| {
-                allocator.free(s.data);
-                allocator.destroy(s);
-            },
-            .class => |cl| {
-                cl.deinit();
-                allocator.destroy(cl);
-            },
-            .upvalue => |u| {
-                allocator.destroy(u);
-            },
-            .closure => |c| {
-                allocator.destroy(c);
-            },
-            .function => |f| {
-                f.deinit();
-                allocator.destroy(f);
-            },
-            .instance => |i| {
-                i.deinit();
-                allocator.destroy(i);
-            },
-            .bound_method => |b| {
-                allocator.destroy(b);
-            },
-        }
-    }
 };
 
-/// Heap manager with tracking of all objects
+pub const ObjectNode = struct {
+    obj: HeapObj,
+    size: usize,
+    next: ?*ObjectNode,
+};
+
+/// Heap manager with bump allocation and object tracking
 pub const Heap = struct {
     allocator: std.mem.Allocator,
-    objects: std.ArrayList(HeapObj),
+    objects: ?*ObjectNode = null,
     bytes_allocated: usize = 0,
-    next_gc: usize = 1024 * 1024, // 1MB initial limit
+    next_gc: usize = INITIAL_GC_THRESHOLD,
+
+    bump: BumpRegion,
+    object_nodes: BumpRegion,
+    instance_pool: Pool(Instance) = .{},
+    closure_pool: Pool(Closure) = .{},
+    upvalue_pool: Pool(Upvalue) = .{},
+    bound_method_pool: Pool(BoundMethod) = .{},
+    class_pool: Pool(Class) = .{},
+    string_pool: Pool(HeapString) = .{},
 
     pub fn init(allocator: std.mem.Allocator) Heap {
-        var objects = std.ArrayList(HeapObj).empty;
-        objects.ensureTotalCapacity(allocator, 64) catch {};
         return .{
             .allocator = allocator,
-            .objects = objects,
+            .bump = .{ .allocator = allocator },
+            .object_nodes = .{ .allocator = allocator },
         };
     }
 
     pub fn deinit(self: *Heap) void {
-        // Free all objects
-        for (self.objects.items) |*obj| {
-            obj.free(self.allocator);
+        var current = self.objects;
+        while (current) |node| {
+            self.releaseObject(node.obj);
+            current = node.next;
         }
-        self.objects.deinit(self.allocator);
+        self.bump.deinit();
+        self.object_nodes.deinit();
+    }
+
+    pub fn allocInstance(self: *Heap) !*Instance {
+        return self.instance_pool.alloc(&self.bump);
+    }
+
+    pub fn allocClosure(self: *Heap) !*Closure {
+        return self.closure_pool.alloc(&self.bump);
+    }
+
+    pub fn allocUpvalue(self: *Heap) !*Upvalue {
+        return self.upvalue_pool.alloc(&self.bump);
+    }
+
+    pub fn allocBoundMethod(self: *Heap) !*BoundMethod {
+        return self.bound_method_pool.alloc(&self.bump);
+    }
+
+    pub fn allocClass(self: *Heap) !*Class {
+        return self.class_pool.alloc(&self.bump);
+    }
+
+    pub fn allocStringHeader(self: *Heap) !*HeapString {
+        return self.string_pool.alloc(&self.bump);
     }
 
     pub fn trackObject(self: *Heap, obj: HeapObj, size: usize) !void {
-        try self.objects.append(self.allocator, obj);
+        const node = try self.object_nodes.alloc(ObjectNode);
+        node.* = .{
+            .obj = obj,
+            .size = size,
+            .next = self.objects,
+        };
+        self.objects = node;
         self.bytes_allocated += size;
     }
 
@@ -113,42 +195,64 @@ pub const Heap = struct {
         }
     }
 
-    pub fn shouldCollect(self: *Heap) bool {
-        return self.bytes_allocated >= self.next_gc;
+    pub fn shouldCollect(self: *const Heap) bool {
+        return self.bytes_allocated > self.next_gc;
     }
 
-    pub fn collectGarbage(self: *Heap) !void {
-        // Mark phase already done in VM.markRoots()
-
-        // Sweep phase
-        var i: usize = 0;
-        while (i < self.objects.items.len) {
-            const obj = &self.objects.items[i];
-            if (obj.isMarked()) {
-                // Reset mark for next cycle
-                obj.setMarked(false);
-                i += 1;
+    pub fn collectGarbage(self: *Heap) void {
+        var previous: ?*ObjectNode = null;
+        var current = self.objects;
+        while (current) |node| {
+            if (node.obj.isMarked()) {
+                node.obj.setMarked(false);
+                previous = node;
+                current = node.next;
             } else {
-                // Object unreachable - free it
-                const size = switch (obj.*) {
-                    .string => |s| s.size(),
-                    .class => |cl| cl.size(),
-                    .upvalue => @sizeOf(Upvalue),
-                    .closure => @sizeOf(Closure),
-                    .bound_method => @sizeOf(BoundMethod),
-                    .function => |f| f.size(),
-                    .instance => |inst| inst.size(),
-                };
-                self.bytes_allocated -|= size;
-                obj.free(self.allocator);
-                _ = self.objects.swapRemove(i);
+                self.bytes_allocated -= node.size;
+                self.releaseObject(node.obj);
+
+                const unreached = node;
+                const next = node.next;
+                if (previous) |prev| {
+                    prev.next = next;
+                } else {
+                    self.objects = next;
+                }
+                current = next;
+                _ = unreached;
             }
         }
 
-        // Increase limit for next collection
-        self.next_gc = self.bytes_allocated * 2;
-        if (self.next_gc < 1024 * 1024) {
-            self.next_gc = 1024 * 1024;
+        self.next_gc = self.bytes_allocated * GC_HEAP_GROW_FACTOR;
+    }
+
+    fn releaseObject(self: *Heap, obj: HeapObj) void {
+        switch (obj) {
+            .string => |s| {
+                self.allocator.free(@constCast(s.data));
+                self.string_pool.release(s);
+            },
+            .class => |cl| {
+                cl.deinit();
+                self.class_pool.release(cl);
+            },
+            .upvalue => |u| {
+                self.upvalue_pool.release(u);
+            },
+            .closure => |c| {
+                self.closure_pool.release(c);
+            },
+            .function => |f| {
+                f.deinit();
+                self.allocator.destroy(f);
+            },
+            .instance => |i| {
+                i.deinit();
+                self.instance_pool.release(i);
+            },
+            .bound_method => |b| {
+                self.bound_method_pool.release(b);
+            },
         }
     }
 };
