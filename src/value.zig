@@ -172,10 +172,7 @@ pub const LoxValue = struct {
             try writer.print("{s} instance", .{inst.klass.name.data});
         } else if (self.isBoundMethod()) {
             const b = self.asBoundMethod();
-            try writer.print("{s} instance -> {s}", .{
-                b.receiver.klass.name.data,
-                b.method.asClosure().function.name.?,
-            });
+            try writer.print("<fn {s}>", .{b.method.asClosure().function.name orelse "script"});
         } else if (self.isClosure()) {
             const cl = self.asClosure();
             try writer.print("<fn {s}>", .{cl.function.name orelse "script"});
