@@ -633,6 +633,7 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     }
     if (can_assign and try self.match(.Equal)) {
         try self.errorAtCurrent("Invalid assignment target.");
+        return e.Error.CompileError;
     }
 }
 
@@ -733,6 +734,7 @@ fn declareVariable(self: *Compiler) !void {
         const name = self.lexeme(&self.parser.previous);
         if (std.mem.eql(u8, name, local.name)) {
             try self.errorAtPrev("Already a variable with this name in this scope.");
+            return e.Error.CompileError;
         }
     }
 
@@ -792,14 +794,14 @@ fn ifStatement(self: *Compiler) anyerror!void {
 fn returnStatement(self: *Compiler) anyerror!void {
     if (self.current.function_type == .Script) {
         try self.errorAtPrev("Can't return from top-level code.");
-        return;
+        return e.Error.CompileError;
     }
     if (try self.match(.Semicolon)) {
         try self.emitReturn();
     } else {
         if (self.current.function_type == .TypeInitializer) {
             try self.errorAtCurrent("Can't return a value from an initializer.");
-            return;
+            return e.Error.CompileError;
         }
         try self.expression();
         try self.consume(.Semicolon, "Expect ';' after return value.");
@@ -890,6 +892,7 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
             self.current.function.?.arity += 1;
             if (self.current.function.?.arity > 255) {
                 try self.errorAtCurrent("Can't have more than 255 parameters.");
+                return e.Error.CompileError;
             }
             const constant = try self.parseVariable("Expect parameter name.");
             try self.defineVariable(constant);

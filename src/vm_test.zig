@@ -1,5 +1,6 @@
 const std = @import("std");
 const vm = @import("vm.zig");
+const err = @import("error.zig");
 const init = vm.init;
 
 test "Simple add expression" {
@@ -1932,7 +1933,7 @@ test "recursive calls report stack overflow" {
     ;
 
     // Act + Assert
-    try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret(code, false));
+    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret(code, false));
 }
 
 test "native sqrt wrong arity reports runtime error" {
@@ -1943,7 +1944,7 @@ test "native sqrt wrong arity reports runtime error" {
     defer virtualMachine.deinit();
 
     // Act + Assert
-    try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret("sqrt();", false));
+    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret("sqrt();", false));
 }
 
 test "native min wrong arity reports runtime error" {
@@ -1954,7 +1955,7 @@ test "native min wrong arity reports runtime error" {
     defer virtualMachine.deinit();
 
     // Act + Assert
-    try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret("min(1);", false));
+    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret("min(1);", false));
 }
 
 test "long closure opcode with large constant pool" {
@@ -2000,4 +2001,84 @@ test "long invoke opcode with large constant pool" {
 
     // Assert
     try std.testing.expectEqualStrings("256\n", writer.written());
+}
+
+test "compile error on duplicate local variable" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(
+        \\{
+        \\  var x = 1;
+        \\  var x = 2;
+        \\}
+    ,
+        false,
+    ));
+}
+
+test "compile error on invalid assignment target" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("1 = 2;", false));
+}
+
+test "compile error on top-level return" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("return;", false));
+}
+
+test "compile error on initializer return value" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(
+        \\class C {
+        \\  init() {
+        \\    return 1;
+        \\  }
+        \\}
+    ,
+        false,
+    ));
+}
+
+test "compile error on too many function parameters" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("fun f(");
+    var i: usize = 0;
+    while (i < 256) : (i += 1) {
+        if (i > 0) try code.writer.writeAll(", ");
+        try code.writer.print("a{d}", .{i});
+    }
+    try code.writer.writeAll(") {}\n");
+
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(code.written(), false));
 }
