@@ -32,6 +32,7 @@ open_upvalues: ?*val.Upvalue,
 pub const CallFrame = struct {
     closure: *val.Closure,
     slots_offset: usize, // points to vm's value's stack first value it can use
+    ip: usize = 0,
 };
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
@@ -39,7 +40,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     @memset(stack, LoxValue.nil);
 
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
-    @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0 });
+    @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0, .ip = 0 });
 
     var vm = VM{
         .allocator = gpa,
@@ -111,7 +112,8 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     closure_ptr.* = val.Closure.init(func);
     try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
-    _ = try self.call(1, closure_ptr, 0);
+    if (!try self.call(1, closure_ptr, 0)) return err.Error.RuntimeError;
+    try self.run();
     _ = try self.pop();
 }
 
@@ -205,9 +207,9 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
         .slots_offset = self.stack_top - arg_count - 1,
+        .ip = 0,
     };
     self.frame_count += 1;
-    try self.run();
     return true;
 }
 
@@ -358,13 +360,18 @@ fn println(self: *VM) !void {
 }
 
 pub fn run(self: *VM) !void {
-    var ip: usize = 0;
-    while (ip < self.chunk().code.items.len) {
-        const opcode = self.chunk().readOpcode(ip);
+    while (self.frame_count > 0) {
+        const frame_index = self.frame_count - 1;
+        var ip = self.frames[frame_index].ip;
+        const current_chunk = &self.frames[frame_index].closure.function.chunk;
+
+        if (ip >= current_chunk.code.items.len) return;
+
+        const opcode = current_chunk.readOpcode(ip);
         ip += 1;
         switch (opcode) {
             .JumpIfFalse => {
-                const offset = self.chunk().readShort(ip);
+                const offset = current_chunk.readShort(ip);
                 const v = try self.peek(0);
                 ip += 2; // offset is two bytes
                 if (v.isFalsee()) {
@@ -372,22 +379,22 @@ pub fn run(self: *VM) !void {
                 }
             },
             .Jump => {
-                const offset = self.chunk().readShort(ip);
+                const offset = current_chunk.readShort(ip);
                 ip += 2; // offset is two bytes
                 ip += offset;
             },
             .Loop => {
-                const offset = self.chunk().readShort(ip);
+                const offset = current_chunk.readShort(ip);
                 ip += 2; // offset is two bytes
                 ip -= offset;
             },
             .Constant => {
-                const value = self.chunk().readConstant(ip);
+                const value = current_chunk.readConstant(ip);
                 try self.push(value);
                 ip += CONST_SIZE;
             },
             .ConstantLong => {
-                const value = self.chunk().readConstantLong(ip);
+                const value = current_chunk.readConstantLong(ip);
                 try self.push(value);
                 ip += CONST_LONG_SIZE;
             },
@@ -416,39 +423,39 @@ pub fn run(self: *VM) !void {
                 ip += CONST_LONG_SIZE;
             },
             .GetLocal => {
-                const slots_offset = self.frame().slots_offset;
-                const frame_offset = self.chunk().readByte(ip);
+                const slots_offset = self.frames[frame_index].slots_offset;
+                const frame_offset = current_chunk.readByte(ip);
                 try self.push(self.stack[slots_offset + frame_offset]);
                 ip += 1;
             },
             .GetLocalLong => {
-                const slots_offset = self.frame().slots_offset;
-                const frame_offset = self.chunk().readThreeBytes(ip);
+                const slots_offset = self.frames[frame_index].slots_offset;
+                const frame_offset = current_chunk.readThreeBytes(ip);
                 try self.push(self.stack[slots_offset + frame_offset]);
                 ip += CONST_LONG_SIZE;
             },
             .SetLocal => {
-                const slots_offset = self.frame().slots_offset;
-                const frame_offset = self.chunk().readByte(ip);
+                const slots_offset = self.frames[frame_index].slots_offset;
+                const frame_offset = current_chunk.readByte(ip);
                 self.stack[slots_offset + frame_offset] = try self.peek(0);
                 ip += 1;
             },
             .SetLocalLong => {
-                const slots_offset = self.frame().slots_offset;
-                const frame_offset = self.chunk().readThreeBytes(ip);
+                const slots_offset = self.frames[frame_index].slots_offset;
+                const frame_offset = current_chunk.readThreeBytes(ip);
                 self.stack[slots_offset + frame_offset] = try self.peek(0);
                 ip += CONST_LONG_SIZE;
             },
             .GetUpvalue => {
-                const slot = self.chunk().readByte(ip);
-                const upvalue = self.frame().closure.upvalues[slot];
+                const slot = current_chunk.readByte(ip);
+                const upvalue = self.frames[frame_index].closure.upvalues[slot];
                 try self.push(upvalue.get());
                 ip += 1;
             },
             .SetUpvalue => {
-                const slot = self.chunk().readByte(ip);
+                const slot = current_chunk.readByte(ip);
                 const value = try self.peek(0);
-                self.frame().closure.upvalues[slot].set(value);
+                self.frames[frame_index].closure.upvalues[slot].set(value);
                 ip += 1;
             },
             .Nil => {
@@ -532,7 +539,7 @@ pub fn run(self: *VM) !void {
                 _ = try self.pop();
             },
             .Closure => {
-                const function = self.chunk().readConstant(ip).asFunction();
+                const function = current_chunk.readConstant(ip).asFunction();
                 ip += CONST_SIZE;
 
                 const closure_ptr = try self.allocator.create(val.Closure);
@@ -540,30 +547,29 @@ pub fn run(self: *VM) !void {
                 try self.push(LoxValue.closure(closure_ptr));
                 try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
-                const current_frame = self.frame();
-                const slots_offset = current_frame.slots_offset;
+                const slots_offset = self.frames[frame_index].slots_offset;
                 for (0..function.upvalue_count) |_| {
-                    const is_local = self.chunk().readByte(ip);
-                    const index = self.chunk().readByte(ip + 1);
+                    const is_local = current_chunk.readByte(ip);
+                    const index = current_chunk.readByte(ip + 1);
                     ip += 2;
                     const upvalue: *val.Upvalue = if (is_local == 1)
                         try self.captureUpvalue(slots_offset + index)
                     else
-                        current_frame.closure.upvalues[index];
+                        self.frames[frame_index].closure.upvalues[index];
                     closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
                     closure_ptr.upvalue_count += 1;
                 }
             },
             .Call => {
-                const arg_count = self.chunk().readByte(ip);
+                const arg_count = current_chunk.readByte(ip);
+                ip += 1;
+                self.frames[frame_index].ip = ip;
                 const value = try self.peek(arg_count);
                 if (!try self.callValue(ip, value, arg_count)) {
                     try self.errorAt(ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
                 }
-                ip += 1;
-                // After call returns, frame_count is already decremented by Return
-                // Continue with next instruction
+                continue;
             },
             .Class => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
@@ -613,23 +619,27 @@ pub fn run(self: *VM) !void {
             },
             .Invoke => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
-                const arg_count = self.chunk().readByte(ip + CONST_SIZE);
+                const arg_count = current_chunk.readByte(ip + CONST_SIZE);
+                ip += CONST_SIZE + 1;
+                self.frames[frame_index].ip = ip;
                 if (!try self.invoke(ip, name, arg_count)) {
                     try self.errorAt(ip, "Invoke '{s}'' failed", .{name.data});
                     return err.Error.RuntimeError;
                 }
-                ip += CONST_SIZE + 1;
+                continue;
             },
             .SuperInvoke => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
-                const arg_count = self.chunk().readByte(ip + CONST_SIZE);
+                const arg_count = current_chunk.readByte(ip + CONST_SIZE);
+                ip += CONST_SIZE + 1;
+                self.frames[frame_index].ip = ip;
                 const super_class = try (try self.pop()).tryClass();
 
                 if (!try self.invokeFromClass(ip, super_class, name, arg_count)) {
                     try self.errorAt(ip, "Super invoke '{s}' failed", .{name.data});
                     return err.Error.RuntimeError;
                 }
-                ip += CONST_SIZE + 1;
+                continue;
             },
             .SetProperty => {
                 const prop_name = try self.readStringConstant(ip, CONST_SIZE);
@@ -650,7 +660,7 @@ pub fn run(self: *VM) !void {
             .Return => {
                 const result = if (self.stack_top > 0) try self.pop() else LoxValue.nil;
 
-                const slots_offset = self.frame().slots_offset;
+                const slots_offset = self.frames[frame_index].slots_offset;
                 self.closeUpvalues(@intFromPtr(&self.stack[slots_offset]));
 
                 self.frame_count -= 1;
@@ -659,13 +669,14 @@ pub fn run(self: *VM) !void {
                 }
                 self.stack_top = slots_offset;
                 try self.push(result);
-                return;
+                continue;
             },
             .CloseUpvalue => {
                 self.closeUpvalues(@intFromPtr(&self.stack[self.stack_top - 1]));
                 _ = try self.pop();
             },
         }
+        self.frames[frame_index].ip = ip;
     }
 }
 
