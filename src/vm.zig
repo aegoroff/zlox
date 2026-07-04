@@ -111,11 +111,12 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
 
     const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = val.Closure.init(func);
-    try self.push(LoxValue.closure(closure_ptr));
+    self.stack[self.stack_top] = LoxValue.closure(closure_ptr);
+    self.stack_top += 1;
     try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
     if (!try self.call(1, closure_ptr, 0)) return err.Error.RuntimeError;
     try self.run();
-    _ = try self.pop();
+    self.stack_top -= 1;
 }
 
 fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
@@ -170,30 +171,17 @@ fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
     _ = try self.globals.set(key, LoxValue.native(function));
 }
 
-inline fn push(self: *VM, value: LoxValue) err.Error!void {
-    if (self.stack_top == STACK_MAX) {
-        std.log.err("Stack overflow. Current stack top: {d}", .{self.stack_top});
-        return err.Error.RuntimeError;
-    }
+inline fn push(self: *VM, value: LoxValue) void {
     self.stack[self.stack_top] = value;
     self.stack_top += 1;
 }
 
-inline fn pop(self: *VM) err.Error!LoxValue {
-    if (self.stack_top == 0) {
-        std.log.err("Stack underflow. Stack is empty", .{});
-        return err.Error.RuntimeError;
-    }
-    const result = self.stack[self.stack_top - 1];
+inline fn pop(self: *VM) LoxValue {
     self.stack_top -= 1;
-    return result;
+    return self.stack[self.stack_top];
 }
 
-inline fn peek(self: *VM, distance: usize) err.Error!LoxValue {
-    if (self.stack_top < distance + 1) {
-        std.log.err("Stack peek failed. Stack size is: {d} but requested distance is: {d}", .{ self.stack_top, distance });
-        return err.Error.RuntimeError;
-    }
+inline fn peek(self: *VM, distance: usize) LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
@@ -227,7 +215,7 @@ fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapStrin
 }
 
 fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerror!bool {
-    const receiver = try self.peek(arg_count);
+    const receiver = self.peek(arg_count);
     const instance = receiver.tryInstance() catch {
         try self.errorAt(ip, "Only instances have methods.", .{});
         return err.Error.RuntimeError;
@@ -269,7 +257,7 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
         const args_start = self.stack_top - arg_count;
         const result = try native_fn(self.io, self.stack[args_start..self.stack_top]);
         self.stack_top -= arg_count + 1;
-        try self.push(result);
+        self.push(result);
         return true;
     }
     std.log.err("Can only call functions and classes.", .{});
@@ -324,21 +312,21 @@ fn closeUpvalues(self: *VM, last: usize) void {
 }
 
 fn defineMethod(self: *VM, name: *val.HeapString) !void {
-    const method = try self.pop();
-    const klass = try (try self.peek(0)).tryClass();
+    const method = self.pop();
+    const klass = try (self.peek(0)).tryClass();
     const old_capacity = klass.methods.capacity;
     _ = try klass.methods.set(name, method);
     try self.adjustMapAllocation(old_capacity, klass.methods.capacity);
 }
 
 fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
-    const instance = try (try self.peek(0)).tryInstance();
+    const instance = try (self.peek(0)).tryInstance();
     if (klass.methods.get(name)) |method| {
-        _ = try self.pop(); // instance
+        _ = self.pop(); // instance
 
         const bound_ptr = try self.heap.allocBoundMethod();
         bound_ptr.* = val.BoundMethod.init(instance, method);
-        try self.push(LoxValue.boundMethod(bound_ptr));
+        self.push(LoxValue.boundMethod(bound_ptr));
         try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
         return true;
     }
@@ -377,7 +365,7 @@ pub fn run(self: *VM) !void {
         switch (opcode) {
             .JumpIfFalse => {
                 const offset = current_chunk.readShort(ip);
-                const v = try self.peek(0);
+                const v = self.peek(0);
                 ip += 2; // offset is two bytes
                 if (v.isFalsee()) {
                     ip += offset;
@@ -395,12 +383,12 @@ pub fn run(self: *VM) !void {
             },
             .Constant => {
                 const value = current_chunk.readConstant(ip);
-                try self.push(value);
+                self.push(value);
                 ip += CONST_SIZE;
             },
             .ConstantLong => {
                 const value = current_chunk.readConstantLong(ip);
-                try self.push(value);
+                self.push(value);
                 ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
@@ -430,79 +418,79 @@ pub fn run(self: *VM) !void {
             .GetLocal => {
                 const slots_offset = self.frames[frame_index].slots_offset;
                 const frame_offset = current_chunk.readByte(ip);
-                try self.push(self.stack[slots_offset + frame_offset]);
+                self.push(self.stack[slots_offset + frame_offset]);
                 ip += 1;
             },
             .GetLocalLong => {
                 const slots_offset = self.frames[frame_index].slots_offset;
                 const frame_offset = current_chunk.readThreeBytes(ip);
-                try self.push(self.stack[slots_offset + frame_offset]);
+                self.push(self.stack[slots_offset + frame_offset]);
                 ip += CONST_LONG_SIZE;
             },
             .SetLocal => {
                 const slots_offset = self.frames[frame_index].slots_offset;
                 const frame_offset = current_chunk.readByte(ip);
-                self.stack[slots_offset + frame_offset] = try self.peek(0);
+                self.stack[slots_offset + frame_offset] = self.peek(0);
                 ip += 1;
             },
             .SetLocalLong => {
                 const slots_offset = self.frames[frame_index].slots_offset;
                 const frame_offset = current_chunk.readThreeBytes(ip);
-                self.stack[slots_offset + frame_offset] = try self.peek(0);
+                self.stack[slots_offset + frame_offset] = self.peek(0);
                 ip += CONST_LONG_SIZE;
             },
             .GetUpvalue => {
                 const slot = current_chunk.readByte(ip);
                 const upvalue = self.frames[frame_index].closure.upvalues[slot];
-                try self.push(upvalue.get());
+                self.push(upvalue.get());
                 ip += 1;
             },
             .SetUpvalue => {
                 const slot = current_chunk.readByte(ip);
-                const value = try self.peek(0);
+                const value = self.peek(0);
                 self.frames[frame_index].closure.upvalues[slot].set(value);
                 ip += 1;
             },
             .Nil => {
-                try self.push(LoxValue.nil);
+                self.push(LoxValue.nil);
             },
             .True => {
-                try self.push(LoxValue.boolean(true));
+                self.push(LoxValue.boolean(true));
             },
             .False => {
-                try self.push(LoxValue.boolean(false));
+                self.push(LoxValue.boolean(false));
             },
             .Equal => {
-                const b = try self.pop();
-                const a = try self.pop();
-                try self.push(LoxValue.boolean(a.equal(b)));
+                const b = self.pop();
+                const a = self.pop();
+                self.push(LoxValue.boolean(a.equal(b)));
             },
             .Less => {
-                const b = try self.pop();
-                const a = try self.pop();
-                try self.push(LoxValue.boolean(try a.less(b)));
+                const b = self.pop();
+                const a = self.pop();
+                self.push(LoxValue.boolean(try a.less(b)));
             },
             .Greater => {
-                const b = try self.pop();
-                const a = try self.pop();
+                const b = self.pop();
+                const a = self.pop();
                 const lt = try a.less(b);
                 const eq = a.equal(b);
-                try self.push(LoxValue.boolean(!lt and !eq));
+                self.push(LoxValue.boolean(!lt and !eq));
             },
             .Negate => {
-                const value = try self.pop();
-                try self.push(LoxValue.number(-try value.tryNumber()));
+                const value = self.pop();
+                self.push(LoxValue.number(-try value.tryNumber()));
             },
             .Not => {
-                const value = try self.pop();
-                try self.push(LoxValue.boolean(value.isFalsee()));
+                const value = self.pop();
+                self.push(LoxValue.boolean(value.isFalsee()));
             },
             .Add => {
-                const b = try self.pop();
-                const a = try self.pop();
+                const b = self.pop();
+                const a = self.pop();
 
                 if (a.isNumber() and b.isNumber()) {
-                    try self.push(LoxValue.number(a.asNumber() + b.asNumber()));
+                    self.push(LoxValue.number(a.asNumber() + b.asNumber()));
                 } else if (a.isString() and b.isString()) {
                     const as = a.asString();
                     const bs = b.asString();
@@ -512,39 +500,39 @@ pub fn run(self: *VM) !void {
                         self.allocator.free(result);
                         break :blk existing;
                     } else try self.takeString(result, hash);
-                    try self.push(LoxValue.string(heap_str));
+                    self.push(LoxValue.string(heap_str));
                 } else {
                     return err.Error.RuntimeError;
                 }
             },
             .Subtract => {
-                const b = try self.pop();
-                const a = try self.pop();
-                try self.push(LoxValue.number(try a.tryNumber() - try b.tryNumber()));
+                const b = self.pop();
+                const a = self.pop();
+                self.push(LoxValue.number(try a.tryNumber() - try b.tryNumber()));
             },
             .Multiply => {
-                const b = try self.pop();
-                const a = try self.pop();
-                try self.push(LoxValue.number(try a.tryNumber() * try b.tryNumber()));
+                const b = self.pop();
+                const a = self.pop();
+                self.push(LoxValue.number(try a.tryNumber() * try b.tryNumber()));
             },
             .Divide => {
-                const b = try self.pop();
-                const a = try self.pop();
+                const b = self.pop();
+                const a = self.pop();
                 const bn = try b.tryNumber();
                 if (bn == 0) {
-                    try self.push(LoxValue.number(std.math.nan(f64)));
+                    self.push(LoxValue.number(std.math.nan(f64)));
                 } else {
                     const an = try a.tryNumber();
-                    try self.push(LoxValue.number(an / bn));
+                    self.push(LoxValue.number(an / bn));
                 }
             },
             .Print => {
-                const value = try self.pop();
+                const value = self.pop();
                 try value.print(self.writer);
                 try self.println();
             },
             .Pop => {
-                _ = try self.pop();
+                _ = self.pop();
             },
             .Closure => {
                 const function = current_chunk.readConstant(ip).asFunction();
@@ -552,7 +540,7 @@ pub fn run(self: *VM) !void {
 
                 const closure_ptr = try self.heap.allocClosure();
                 closure_ptr.* = val.Closure.init(function);
-                try self.push(LoxValue.closure(closure_ptr));
+                self.push(LoxValue.closure(closure_ptr));
                 try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
 
                 const slots_offset = self.frames[frame_index].slots_offset;
@@ -572,7 +560,7 @@ pub fn run(self: *VM) !void {
                 const arg_count = current_chunk.readByte(ip);
                 ip += 1;
                 self.frames[frame_index].ip = ip;
-                const value = try self.peek(arg_count);
+                const value = self.peek(arg_count);
                 if (!try self.callValue(ip, value, arg_count)) {
                     try self.errorAt(ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
@@ -584,25 +572,25 @@ pub fn run(self: *VM) !void {
 
                 const class_ptr = try self.heap.allocClass();
                 class_ptr.* = val.Class.init(self.allocator, name);
-                try self.push(LoxValue.class(class_ptr));
+                self.push(LoxValue.class(class_ptr));
                 try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
 
                 ip += CONST_SIZE;
             },
             .Inherit => {
-                const sub_class = try (try self.peek(0)).tryClass();
-                const super_class = (try self.peek(1)).tryClass() catch {
+                const sub_class = try (self.peek(0)).tryClass();
+                const super_class = (self.peek(1)).tryClass() catch {
                     try self.errorAt(ip, "Superclass must be a class.", .{});
                     return err.Error.RuntimeError;
                 };
                 const old_capacity = sub_class.methods.capacity;
                 try sub_class.methods.addAll(&super_class.methods);
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
-                _ = try self.pop(); // subclass
+                _ = self.pop(); // subclass
             },
             .GetSuper => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
-                const super_class = try (try self.pop()).tryClass();
+                const super_class = try (self.pop()).tryClass();
                 if (!try self.bindMethod(super_class, name)) {
                     try self.errorAt(ip, "Undefined method or property '{s}'", .{name.data});
                     return err.Error.RuntimeError;
@@ -612,10 +600,10 @@ pub fn run(self: *VM) !void {
             },
             .GetProperty => {
                 const name = try self.readStringConstant(ip, CONST_SIZE);
-                const instance = try (try self.peek(0)).tryInstance();
+                const instance = try (self.peek(0)).tryInstance();
                 if (instance.fields.get(name)) |field| {
-                    _ = try self.pop(); // instance
-                    try self.push(field);
+                    _ = self.pop(); // instance
+                    self.push(field);
                 } else if (!try self.bindMethod(instance.klass, name)) {
                     try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
                     return err.Error.RuntimeError;
@@ -638,7 +626,7 @@ pub fn run(self: *VM) !void {
                 const arg_count = current_chunk.readByte(ip + CONST_SIZE);
                 ip += CONST_SIZE + 1;
                 self.frames[frame_index].ip = ip;
-                const super_class = try (try self.pop()).tryClass();
+                const super_class = try (self.pop()).tryClass();
 
                 if (!try self.invokeFromClass(ip, super_class, name, arg_count)) {
                     try self.errorAt(ip, "Super invoke '{s}' failed", .{name.data});
@@ -648,13 +636,13 @@ pub fn run(self: *VM) !void {
             },
             .SetProperty => {
                 const prop_name = try self.readStringConstant(ip, CONST_SIZE);
-                const prop_value = try self.pop();
-                const instance = try (try self.pop()).tryInstance();
+                const prop_value = self.pop();
+                const instance = try (self.pop()).tryInstance();
 
                 const old_capacity = instance.fields.capacity;
                 _ = try instance.fields.set(prop_name, prop_value);
                 try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
-                try self.push(prop_value);
+                self.push(prop_value);
                 ip += CONST_SIZE;
             },
             .Method => {
@@ -663,7 +651,7 @@ pub fn run(self: *VM) !void {
                 ip += CONST_SIZE;
             },
             .Return => {
-                const result = if (self.stack_top > 0) try self.pop() else LoxValue.nil;
+                const result = if (self.stack_top > 0) self.pop() else LoxValue.nil;
 
                 const slots_offset = self.frames[frame_index].slots_offset;
                 self.closeUpvalues(@intFromPtr(&self.stack[slots_offset]));
@@ -673,12 +661,12 @@ pub fn run(self: *VM) !void {
                     return;
                 }
                 self.stack_top = slots_offset;
-                try self.push(result);
+                self.push(result);
                 continue;
             },
             .CloseUpvalue => {
                 self.closeUpvalues(@intFromPtr(&self.stack[self.stack_top - 1]));
-                _ = try self.pop();
+                _ = self.pop();
             },
         }
         self.frames[frame_index].ip = ip;
@@ -697,15 +685,15 @@ fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val
 
 fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
-    const value = try self.peek(0);
+    const value = self.peek(0);
     _ = try self.globals.set(name, value);
-    _ = try self.pop();
+    _ = self.pop();
 }
 
 inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     if (self.globals.get(name)) |constant_value| {
-        try self.push(constant_value);
+        self.push(constant_value);
     } else {
         try self.errorAt(ip, "Unknown global to get: {s}.", .{name.data});
         return err.Error.RuntimeError;
@@ -718,7 +706,7 @@ inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
         try self.errorAt(ip, "Unknown global to set: {s}.", .{name.data});
         return err.Error.RuntimeError;
     }
-    const new_value = try self.peek(0);
+    const new_value = self.peek(0);
     _ = try self.globals.set(name, new_value);
 }
 
