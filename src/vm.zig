@@ -478,8 +478,13 @@ pub fn run(self: *VM) !void {
                 const a = self.pop();
                 if (a.isNumber() and b.isNumber()) {
                     self.push(LoxValue.boolean(numberLess(a, b)));
+                } else if (a.isString() and b.isString()) {
+                    self.push(LoxValue.boolean(std.mem.lessThan(u8, a.asString().data, b.asString().data)));
+                } else if (a.isBool() and b.isBool()) {
+                    self.push(LoxValue.boolean(!a.asBool() and b.asBool()));
                 } else {
-                    self.push(LoxValue.boolean(try a.less(b)));
+                    try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
+                    return err.Error.RuntimeError;
                 }
             },
             .Greater => {
@@ -487,8 +492,14 @@ pub fn run(self: *VM) !void {
                 const a = self.pop();
                 const lt = if (a.isNumber() and b.isNumber())
                     numberLess(a, b)
-                else
-                    try a.less(b);
+                else if (a.isString() and b.isString())
+                    std.mem.lessThan(u8, a.asString().data, b.asString().data)
+                else if (a.isBool() and b.isBool())
+                    !a.asBool() and b.asBool()
+                else {
+                    try self.errorAt(current_frame.ip, "Operands must be numbers.", .{});
+                    return err.Error.RuntimeError;
+                };
                 self.push(LoxValue.boolean(!lt and !a.equal(b)));
             },
             .Negate => {
