@@ -1934,3 +1934,25 @@ test "recursive calls report stack overflow" {
     // Act + Assert
     try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret(code, false));
 }
+
+test "native sqrt wrong arity reports runtime error" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret("sqrt();", false));
+}
+
+test "native min wrong arity reports runtime error" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(@import("error.zig").Error.RuntimeError, virtualMachine.interpret("min(1);", false));
+}
