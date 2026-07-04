@@ -1712,6 +1712,210 @@ test "class and bound method identity equality" {
     try std.testing.expectEqualStrings("true\nfalse\ntrue\nfalse\n", writer.written());
 }
 
+test "inheritance inherits methods from superclass" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  methodOnFoo() { print "foo"; }
+        \\}
+        \\class Bar < Foo {
+        \\  methodOnBar() { print "bar"; }
+        \\}
+        \\var bar = Bar();
+        \\bar.methodOnFoo();
+        \\bar.methodOnBar();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("foo\nbar\n", writer.written());
+}
+
+test "inheritance subclass method overrides superclass" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  override() { print "foo"; }
+        \\}
+        \\class Bar < Foo {
+        \\  override() { print "bar"; }
+        \\}
+        \\Bar().override();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("bar\n", writer.written());
+}
+
+test "inheritance base initializer sets fields on subclass instance" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Foo {
+        \\  setFields(a, b) {
+        \\    this.field1 = a;
+        \\    this.field2 = b;
+        \\  }
+        \\  printFields() {
+        \\    print this.field1;
+        \\    print this.field2;
+        \\  }
+        \\}
+        \\class Bar < Foo {}
+        \\var bar = Bar();
+        \\bar.setFields("foo 1", "foo 2");
+        \\bar.printFields();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("foo 1\nfoo 2\n", writer.written());
+}
+
+test "super calls superclass method" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Base {
+        \\  foo() { print "Base.foo()"; }
+        \\}
+        \\class Derived < Base {
+        \\  foo() {
+        \\    print "Derived.foo()";
+        \\    super.foo();
+        \\  }
+        \\}
+        \\Derived().foo();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("Derived.foo()\nBase.foo()\n", writer.written());
+}
+
+test "super init calls superclass constructor" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Base {
+        \\  init(a, b) {
+        \\    print "Base.init(" + a + ", " + b + ")";
+        \\  }
+        \\}
+        \\class Derived < Base {
+        \\  init() {
+        \\    print "Derived.init()";
+        \\    super.init("a", "b");
+        \\  }
+        \\}
+        \\Derived();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("Derived.init()\nBase.init(a, b)\n", writer.written());
+}
+
+test "super resolves through multiple inheritance levels" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class A {
+        \\  foo() { print "A.foo()"; }
+        \\}
+        \\class B < A {}
+        \\class C < B {
+        \\  foo() {
+        \\    print "C.foo()";
+        \\    super.foo();
+        \\  }
+        \\}
+        \\C().foo();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("C.foo()\nA.foo()\n", writer.written());
+}
+
+test "super method binds to superclass implementation" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class A {
+        \\  method(arg) {
+        \\    print "A.method(" + arg + ")";
+        \\  }
+        \\}
+        \\class B < A {
+        \\  getClosure() {
+        \\    return super.method;
+        \\  }
+        \\  method(arg) {
+        \\    print "B.method(" + arg + ")";
+        \\  }
+        \\}
+        \\var closure = B().getClosure();
+        \\closure("arg");
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("A.method(arg)\n", writer.written());
+}
+
 test "recursive calls report stack overflow" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
