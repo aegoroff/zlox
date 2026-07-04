@@ -637,7 +637,12 @@ pub fn run(self: *VM) !void {
             },
             .GetProperty => {
                 const name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
-                const instance = try (self.peek(0)).tryInstance();
+                const receiver = self.peek(0);
+                if (!receiver.isInstance()) {
+                    try self.errorAt(current_frame.ip, "Only instances have properties.", .{});
+                    return err.Error.RuntimeError;
+                }
+                const instance = receiver.asInstance();
                 if (instance.fields.get(name)) |field| {
                     _ = self.pop();
                     self.push(field);
@@ -672,7 +677,12 @@ pub fn run(self: *VM) !void {
             .SetProperty => {
                 const prop_name = try self.readStringConstant(current_frame.ip, CONST_SIZE);
                 const prop_value = self.pop();
-                const instance = try (self.pop()).tryInstance();
+                const receiver = self.pop();
+                if (!receiver.isInstance()) {
+                    try self.errorAt(current_frame.ip, "Only instances have fields.", .{});
+                    return err.Error.RuntimeError;
+                }
+                const instance = receiver.asInstance();
 
                 const old_capacity = instance.fields.capacity;
                 _ = try instance.fields.set(prop_name, prop_value);
