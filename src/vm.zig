@@ -262,7 +262,7 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
         self.push(result);
         return true;
     }
-    std.log.err("Can only call functions and classes.", .{});
+    try self.errorAt(ip, "Can only call functions and classes.", .{});
     return err.Error.RuntimeError;
 }
 
