@@ -2082,3 +2082,36 @@ test "compile error on too many function parameters" {
     // Act + Assert
     try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(code.written(), false));
 }
+
+test "runtime error on undefined variable" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret("print not_defined;", false));
+}
+
+test "compile error on this outside class" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("print this;", false));
+}
+
+test "compile error on class inheriting from itself" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("class A < A {};", false));
+}
