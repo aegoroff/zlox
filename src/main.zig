@@ -1,7 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const configuration = @import("configuration.zig");
 const yazap = @import("yazap");
 const vm = @import("vm.zig");
+const err = @import("error.zig");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
@@ -19,8 +21,14 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const args = try init.minimal.args.toSlice(allocator);
-    try run(allocator, stdout_writer, io, args[1..]); // skip exe itself
-
+    if (builtin.mode == .Debug) {
+        try run(allocator, stdout_writer, io, args[1..]); // skip exe itself
+    } else {
+        run(allocator, stdout_writer, io, args[1..]) catch |e| { // skip exe itself
+            stdout_writer.flush() catch {};
+            std.process.exit(err.exitCode(e));
+        };
+    }
 }
 
 pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
