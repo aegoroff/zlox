@@ -1,6 +1,9 @@
 const std = @import("std");
 const err = @import("error.zig");
 const Chunk = @import("chunk.zig");
+const tbl = @import("table.zig");
+const Table = tbl.Table;
+const TableEntry = tbl.Entry;
 
 const ERROR_MARGIN = 0.000001;
 
@@ -284,9 +287,6 @@ pub const HeapString = struct {
         return @sizeOf(HeapString) + self.data.len;
     }
 };
-
-const Table = @import("table.zig").Table;
-pub const TableEntry = @import("table.zig").Entry;
 
 pub const Upvalue = struct {
     gc: Obj,
