@@ -112,7 +112,7 @@ pub fn init(
     intern_ctx: *anyopaque,
     intern_string_fn: *const fn (ctx: *anyopaque, bytes: []const u8) anyerror!*val.HeapString,
 ) Compiler {
-    return Compiler{
+    return .{
         .allocator = gpa,
         .writer = writer,
         .print_code = print_code,

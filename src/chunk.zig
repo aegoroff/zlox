@@ -67,7 +67,7 @@ constants: std.ArrayList(LoxValue),
 lines: std.ArrayList(usize),
 
 pub fn init(gpa: std.mem.Allocator) Chunk {
-    return Chunk{
+    return .{
         .allocator = gpa,
         .code = .empty,
         .constants = .empty,

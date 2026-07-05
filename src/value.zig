@@ -320,7 +320,7 @@ pub const Function = struct {
     upvalue_count: usize,
 
     pub fn init(gpa: std.mem.Allocator, name: ?[]const u8) Function {
-        return Function{
+        return .{
             .gc = .{ .kind = .function },
             .arity = 0,
             .chunk = Chunk.init(gpa),
@@ -375,7 +375,7 @@ pub const Class = struct {
     methods: Table,
 
     pub fn init(gpa: std.mem.Allocator, name: *HeapString) Class {
-        return Class{
+        return .{
             .gc = .{ .kind = .class },
             .name = name,
             .methods = Table.init(gpa),
@@ -397,7 +397,7 @@ pub const Instance = struct {
     fields: Table,
 
     pub fn init(gpa: std.mem.Allocator, klass: *Class) Instance {
-        return Instance{
+        return .{
             .gc = .{ .kind = .instance },
             .klass = klass,
             .fields = Table.init(gpa),
@@ -419,7 +419,7 @@ pub const BoundMethod = struct {
     method: LoxValue,
 
     pub fn init(receiver: *Instance, method: LoxValue) BoundMethod {
-        return BoundMethod{
+        return .{
             .gc = .{ .kind = .bound_method },
             .receiver = receiver,
             .method = method,
