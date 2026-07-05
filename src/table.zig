@@ -93,16 +93,6 @@ pub const Table = struct {
         }
     }
 
-    pub fn markTable(self: *Table) void {
-        if (self.capacity == 0) return;
-        for (self.entries) |entry| {
-            if (entry.key) |key| {
-                LoxValue.string(key).markValue();
-                entry.value.markValue();
-            }
-        }
-    }
-
     inline fn adjustCapacity(self: *Table, new_capacity: usize) !void {
         const entries = try self.allocator.alloc(Entry, new_capacity);
         for (entries) |*entry| {

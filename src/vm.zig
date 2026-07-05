@@ -13,6 +13,7 @@ const Table = tbl.Table;
 const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = 256 * FRAMES_MAX;
+const GRAY_STACK_INITIAL: usize = 1024;
 const CONST_SIZE: usize = 1;
 const CONST_LONG_SIZE: usize = 3;
 
@@ -30,6 +31,8 @@ init_string: *val.HeapString,
 heap: mem.Heap,
 strings: Table,
 open_upvalues: ?*val.Upvalue,
+gray_stack: []mem.HeapObj = &.{},
+gray_count: usize = 0,
 
 pub const CallFrame = struct {
     closure: *val.Closure,
@@ -59,6 +62,8 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .open_upvalues = null,
         .compiler = null,
         .init_string = undefined,
+        .gray_stack = &.{},
+        .gray_count = 0,
     };
     errdefer {
         gpa.free(stack);
@@ -66,7 +71,9 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         vm.strings.deinit();
         vm.globals.deinit();
         vm.heap.deinit();
+        if (vm.gray_stack.len > 0) gpa.free(vm.gray_stack);
     }
+    vm.gray_stack = try gpa.alloc(mem.HeapObj, GRAY_STACK_INITIAL);
     vm.init_string = try vm.internString("init");
     try vm.defineNative("clock", builtin.clock);
     try vm.defineNative("max", builtin.max);
@@ -81,6 +88,7 @@ pub fn deinit(self: *VM) void {
     }
     self.globals.deinit();
     self.strings.deinit();
+    if (self.gray_stack.len > 0) self.allocator.free(self.gray_stack);
     self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
@@ -828,34 +836,115 @@ inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 
 // Garbage Collection
 
-fn markRoots(self: *VM) void {
-    // 1. Stack
-    for (self.stack[0..self.stack_top]) |*slot| {
-        slot.markValue();
+inline fn growGrayStack(self: *VM) !void {
+    const new_capacity = if (self.gray_stack.len == 0) GRAY_STACK_INITIAL else self.gray_stack.len * 2;
+    self.gray_stack = try self.allocator.realloc(self.gray_stack, new_capacity);
+}
+
+inline fn markObject(self: *VM, obj: mem.HeapObj) !void {
+    if (obj.isMarked()) return;
+    obj.setMarked(true);
+    if (self.gray_count >= self.gray_stack.len) {
+        try self.growGrayStack();
     }
+    self.gray_stack[self.gray_count] = obj;
+    self.gray_count += 1;
+}
 
-    // 2. Globals
-    self.globals.markTable();
-
-    // 3. Interned strings
-    self.strings.markTable();
-
-    // 4. Call frames
-    for (self.frames[0..self.frame_count]) |f| {
-        LoxValue.closure(f.closure).markValue();
-    }
-
-    // 5. Open upvalues
-    var upvalue = self.open_upvalues;
-    while (upvalue) |up| {
-        up.markValue();
-        upvalue = up.next;
+fn markValue(self: *VM, value: LoxValue) !void {
+    if (value.isString()) {
+        try self.markObject(.{ .string = value.asString() });
+    } else if (value.isFunction()) {
+        try self.markObject(.{ .function = value.asFunction() });
+    } else if (value.isClosure()) {
+        try self.markObject(.{ .closure = value.asClosure() });
+    } else if (value.isClass()) {
+        try self.markObject(.{ .class = value.asClass() });
+    } else if (value.isInstance()) {
+        try self.markObject(.{ .instance = value.asInstance() });
+    } else if (value.isBoundMethod()) {
+        try self.markObject(.{ .bound_method = value.asBoundMethod() });
     }
 }
 
+fn markTable(self: *VM, table: *const Table) !void {
+    if (table.capacity == 0) return;
+    for (table.entries) |entry| {
+        if (entry.key) |key| {
+            try self.markObject(.{ .string = key });
+            try self.markValue(entry.value);
+        }
+    }
+}
+
+fn blackenObject(self: *VM, obj: mem.HeapObj) !void {
+    switch (obj) {
+        .bound_method => |bound| {
+            try self.markValue(LoxValue.instance(bound.receiver));
+            try self.markValue(bound.method);
+        },
+        .class => |klass| {
+            try self.markObject(.{ .string = klass.name });
+            try self.markTable(&klass.methods);
+        },
+        .closure => |closure| {
+            try self.markObject(.{ .function = closure.function });
+            for (closure.upvalues[0..closure.upvalue_count]) |upvalue| {
+                try self.markObject(.{ .upvalue = upvalue });
+            }
+        },
+        .function => |function| {
+            for (function.chunk.constants.items) |constant| {
+                try self.markValue(constant);
+            }
+        },
+        .instance => |instance| {
+            try self.markObject(.{ .class = instance.klass });
+            try self.markTable(&instance.fields);
+        },
+        .upvalue => |upvalue| {
+            if (upvalue.isClosed()) {
+                try self.markValue(upvalue.closed);
+            }
+        },
+        .string => {},
+    }
+}
+
+inline fn traceReferences(self: *VM) !void {
+    while (self.gray_count > 0) {
+        self.gray_count -= 1;
+        const obj = self.gray_stack[self.gray_count];
+        try self.blackenObject(obj);
+    }
+}
+
+fn markRoots(self: *VM) !void {
+    for (self.stack[0..self.stack_top]) |slot| {
+        try self.markValue(slot);
+    }
+
+    try self.markTable(&self.globals);
+    try self.markTable(&self.strings);
+
+    for (self.frames[0..self.frame_count]) |call_frame| {
+        try self.markObject(.{ .closure = call_frame.closure });
+    }
+
+    var upvalue = self.open_upvalues;
+    while (upvalue) |up| {
+        try self.markObject(.{ .upvalue = up });
+        upvalue = up.next;
+    }
+
+    try self.markObject(.{ .string = self.init_string });
+}
+
 pub fn collectGarbage(self: *VM) !void {
-    self.markRoots();
+    try self.markRoots();
+    try self.traceReferences();
     self.heap.collectGarbage();
+    self.gray_count = 0;
 }
 
 test "tracked table growth updates gc heap bytes" {
