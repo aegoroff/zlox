@@ -373,8 +373,8 @@ fn println(self: *VM) !void {
     try self.writer.print("\n", .{});
 }
 
-// After CALL, RETURN, or INVOKE the active call frame changes. Refresh the
-// cached frame pointer and its derived closure, chunk, and slots base.
+/// After CALL, RETURN, or INVOKE the active call frame changes. Refresh the
+/// cached frame pointer and its derived closure, chunk, and slots base.
 inline fn syncFrame(
     self: *VM,
     frame_out: **CallFrame,
