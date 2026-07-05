@@ -169,8 +169,11 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
     const heap_str = try self.heap.allocStringHeader();
     heap_str.* = .{ .marked = false, .hash = hash, .data = owned };
+    try self.push(LoxValue.string(heap_str));
+    errdefer _ = self.pop();
     _ = try self.setTrackedTable(&self.strings, heap_str, LoxValue.nil);
     try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
+    _ = self.pop();
     return heap_str;
 }
 
@@ -674,10 +677,12 @@ pub fn run(self: *VM) !void {
                 try self.push(LoxValue.boolean(value.isFalsee()));
             },
             .Add => {
-                const b = self.pop();
-                const a = self.pop();
+                const b = self.peek(0);
+                const a = self.peek(1);
 
                 if (a.isNumber() and b.isNumber()) {
+                    _ = self.pop();
+                    _ = self.pop();
                     try self.push(LoxValue.number(a.asNumber() + b.asNumber()));
                 } else if (a.isString() and b.isString()) {
                     const as = a.asString();
@@ -688,6 +693,8 @@ pub fn run(self: *VM) !void {
                         self.allocator.free(result);
                         break :blk existing;
                     } else try self.takeString(result, hash);
+                    _ = self.pop();
+                    _ = self.pop();
                     try self.push(LoxValue.string(heap_str));
                 } else {
                     try self.errorAt(current_frame.ip, "Operands must be two numbers or two strings.", .{});
@@ -834,7 +841,6 @@ fn markRoots(self: *VM) !void {
     }
 
     try self.heap.markTable(&self.globals);
-    try self.heap.markTable(&self.strings);
 
     for (self.frames[0..self.frame_count]) |call_frame| {
         try self.heap.markObject(.{ .closure = call_frame.closure });
@@ -852,6 +858,7 @@ fn markRoots(self: *VM) !void {
 pub fn collectGarbage(self: *VM) !void {
     try self.markRoots();
     try self.heap.traceReferences();
+    self.strings.removeWhite();
     self.heap.sweep();
 }
 
@@ -872,6 +879,26 @@ test "tracked table growth updates gc heap bytes" {
 
     try std.testing.expect(virtual_machine.globals.capacity > 0);
     try std.testing.expect(virtual_machine.heap.bytes_allocated > before);
+}
+
+test "unreferenced interned strings are collected from string pool" {
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtual_machine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+
+    const ephemeral = "ephemeral";
+    const hash = tbl.hashString(ephemeral);
+    {
+        const owned = try virtual_machine.allocator.dupe(u8, ephemeral);
+        _ = try virtual_machine.takeString(owned, hash);
+    }
+    try std.testing.expect(virtual_machine.strings.findString(ephemeral, hash) != null);
+
+    try virtual_machine.collectGarbage();
+
+    try std.testing.expect(virtual_machine.strings.findString(ephemeral, hash) == null);
+    try std.testing.expect(virtual_machine.strings.findString("init", virtual_machine.init_string.hash) != null);
 }
 
 test "value stack overflow is reported" {

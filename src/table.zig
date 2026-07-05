@@ -78,6 +78,26 @@ pub const Table = struct {
         return entry.key;
     }
 
+    pub inline fn delete(self: *Table, key: *HeapString) bool {
+        if (self.count == 0) return false;
+        const entry = findSlot(self.entries, self.capacity, .{ .pointer = key }, false) orelse return false;
+        self.count -= 1;
+        entry.key = null;
+        entry.value = LoxValue.boolean(true);
+        return true;
+    }
+
+    pub fn removeWhite(self: *Table) void {
+        if (self.capacity == 0) return;
+        for (self.entries) |*entry| {
+            if (entry.key) |key| {
+                if (!key.marked) {
+                    _ = self.delete(key);
+                }
+            }
+        }
+    }
+
     pub fn addAll(self: *Table, from: *const Table) !void {
         if (from.count == 0) return;
 
@@ -229,6 +249,38 @@ test "table findString" {
 
     try std.testing.expect(table.findString(bytes, str.hash) == &str);
     try std.testing.expect(table.findString("world", hashString("world")) == null);
+}
+
+test "table delete leaves tombstone" {
+    const bytes = "hello";
+    var str = val.HeapString{ .hash = hashString(bytes), .data = bytes };
+
+    var table = Table.init(std.testing.allocator);
+    defer table.deinit();
+
+    _ = try table.set(&str, LoxValue.nil);
+    try std.testing.expect(table.delete(&str));
+    try std.testing.expect(table.get(&str) == null);
+    try std.testing.expectEqual(@as(usize, 0), table.count);
+}
+
+test "table removeWhite deletes unmarked strings" {
+    const live_bytes = "live";
+    const dead_bytes = "dead";
+    var live = val.HeapString{ .hash = hashString(live_bytes), .data = live_bytes, .marked = true };
+    var dead = val.HeapString{ .hash = hashString(dead_bytes), .data = dead_bytes, .marked = false };
+
+    var table = Table.init(std.testing.allocator);
+    defer table.deinit();
+
+    _ = try table.set(&live, LoxValue.nil);
+    _ = try table.set(&dead, LoxValue.nil);
+
+    table.removeWhite();
+
+    try std.testing.expect(table.findString(live_bytes, live.hash) == &live);
+    try std.testing.expect(table.findString(dead_bytes, dead.hash) == null);
+    try std.testing.expectEqual(@as(usize, 1), table.count);
 }
 
 test "table addAll copies entries" {
