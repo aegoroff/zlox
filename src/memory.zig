@@ -1,5 +1,6 @@
 const std = @import("std");
 const val = @import("value.zig");
+const tbl = @import("table.zig");
 
 pub const Upvalue = val.Upvalue;
 pub const Closure = val.Closure;
@@ -9,8 +10,12 @@ pub const Class = val.Class;
 pub const Instance = val.Instance;
 pub const BoundMethod = val.BoundMethod;
 
+const Table = tbl.Table;
+const LoxValue = val.LoxValue;
+
 const GC_HEAP_GROW_FACTOR: usize = 2;
 const INITIAL_GC_THRESHOLD: usize = 1024 * 1024;
+const GRAY_STACK_INITIAL: usize = 1024;
 
 /// Unified type for all heap objects
 pub const HeapObj = union(enum) {
@@ -100,9 +105,14 @@ pub const Heap = struct {
     objects: ?*ObjectNode = null,
     bytes_allocated: usize = 0,
     next_gc: usize = INITIAL_GC_THRESHOLD,
+    gray_stack: []HeapObj = &.{},
+    gray_count: usize = 0,
 
-    pub fn init(allocator: std.mem.Allocator) Heap {
-        return .{ .allocator = allocator };
+    pub fn init(allocator: std.mem.Allocator) !Heap {
+        return .{
+            .allocator = allocator,
+            .gray_stack = try allocator.alloc(HeapObj, GRAY_STACK_INITIAL),
+        };
     }
 
     pub fn deinit(self: *Heap) void {
@@ -112,6 +122,9 @@ pub const Heap = struct {
             const next = node.next;
             self.allocator.destroy(node);
             current = next;
+        }
+        if (self.gray_stack.len > 0) {
+            self.allocator.free(self.gray_stack);
         }
     }
 
@@ -163,7 +176,90 @@ pub const Heap = struct {
         return self.bytes_allocated > self.next_gc;
     }
 
-    pub fn collectGarbage(self: *Heap) void {
+    inline fn growGrayStack(self: *Heap) !void {
+        const new_capacity = if (self.gray_stack.len == 0) GRAY_STACK_INITIAL else self.gray_stack.len * 2;
+        self.gray_stack = try self.allocator.realloc(self.gray_stack, new_capacity);
+    }
+
+    pub inline fn markObject(self: *Heap, obj: HeapObj) !void {
+        if (obj.isMarked()) return;
+        obj.setMarked(true);
+        if (self.gray_count >= self.gray_stack.len) {
+            try self.growGrayStack();
+        }
+        self.gray_stack[self.gray_count] = obj;
+        self.gray_count += 1;
+    }
+
+    pub fn markValue(self: *Heap, value: LoxValue) !void {
+        if (value.isString()) {
+            try self.markObject(.{ .string = value.asString() });
+        } else if (value.isFunction()) {
+            try self.markObject(.{ .function = value.asFunction() });
+        } else if (value.isClosure()) {
+            try self.markObject(.{ .closure = value.asClosure() });
+        } else if (value.isClass()) {
+            try self.markObject(.{ .class = value.asClass() });
+        } else if (value.isInstance()) {
+            try self.markObject(.{ .instance = value.asInstance() });
+        } else if (value.isBoundMethod()) {
+            try self.markObject(.{ .bound_method = value.asBoundMethod() });
+        }
+    }
+
+    pub fn markTable(self: *Heap, table: *const Table) !void {
+        if (table.capacity == 0) return;
+        for (table.entries) |entry| {
+            if (entry.key) |key| {
+                try self.markObject(.{ .string = key });
+                try self.markValue(entry.value);
+            }
+        }
+    }
+
+    fn blackenObject(self: *Heap, obj: HeapObj) !void {
+        switch (obj) {
+            .bound_method => |bound| {
+                try self.markValue(LoxValue.instance(bound.receiver));
+                try self.markValue(bound.method);
+            },
+            .class => |klass| {
+                try self.markObject(.{ .string = klass.name });
+                try self.markTable(&klass.methods);
+            },
+            .closure => |closure| {
+                try self.markObject(.{ .function = closure.function });
+                for (closure.upvalues[0..closure.upvalue_count]) |upvalue| {
+                    try self.markObject(.{ .upvalue = upvalue });
+                }
+            },
+            .function => |function| {
+                for (function.chunk.constants.items) |constant| {
+                    try self.markValue(constant);
+                }
+            },
+            .instance => |instance| {
+                try self.markObject(.{ .class = instance.klass });
+                try self.markTable(&instance.fields);
+            },
+            .upvalue => |upvalue| {
+                if (upvalue.isClosed()) {
+                    try self.markValue(upvalue.closed);
+                }
+            },
+            .string => {},
+        }
+    }
+
+    pub fn traceReferences(self: *Heap) !void {
+        while (self.gray_count > 0) {
+            self.gray_count -= 1;
+            const obj = self.gray_stack[self.gray_count];
+            try self.blackenObject(obj);
+        }
+    }
+
+    pub fn sweep(self: *Heap) void {
         var previous: ?*ObjectNode = null;
         var current = self.objects;
         while (current) |node| {
