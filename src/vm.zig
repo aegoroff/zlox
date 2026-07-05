@@ -168,7 +168,7 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 
 fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
     const heap_str = try self.heap.allocStringHeader();
-    heap_str.* = .{ .marked = false, .hash = hash, .data = owned };
+    heap_str.* = .{ .gc = .{ .kind = .string }, .hash = hash, .data = owned };
     try self.push(LoxValue.string(heap_str));
     errdefer _ = self.pop();
     _ = try self.setTrackedTable(&self.strings, heap_str, LoxValue.nil);
@@ -232,7 +232,7 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
 
 fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
     if (klass.methods.get(name)) |method| {
-        return self.call(ip, try method.tryClosure(), arg_count);
+        return self.call(ip, method.asClosure(), arg_count);
     }
     try self.errorAt(ip, "Undefined property '{s}'.", .{name.data});
     return err.Error.RuntimeError;
@@ -264,7 +264,7 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
         self.stack[self.stack_top - arg_count - 1] = LoxValue.instance(instance_ptr);
         try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
         if (instance_ptr.klass.methods.get(self.init_string)) |in| {
-            return try self.call(ip, try in.tryClosure(), arg_count);
+            return try self.call(ip, in.asClosure(), arg_count);
         } else if (arg_count != 0) {
             try self.errorAt(ip, "Expected 0 arguments but got {d}.", .{arg_count});
             return err.Error.RuntimeError;
@@ -274,7 +274,7 @@ fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!b
     if (value.isBoundMethod()) {
         const b = value.asBoundMethod();
         self.stack[self.stack_top - arg_count - 1] = LoxValue.instance(b.receiver);
-        return self.call(ip, try b.method.tryClosure(), arg_count);
+        return self.call(ip, b.method.asClosure(), arg_count);
     }
     if (value.isNative()) {
         const native_fn = value.asNative();
@@ -305,10 +305,10 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
 
     const created = try self.heap.allocUpvalue();
     created.* = .{
+        .gc = .{ .kind = .upvalue },
         .location = slot,
         .closed = LoxValue.nil,
         .next = null,
-        .marked = false,
     };
 
     if (prev) |p| {

@@ -253,14 +253,30 @@ pub const LoxValue = struct {
     }
 };
 
-pub const HeapString = struct {
+pub const ObjKind = enum {
+    string,
+    upvalue,
+    closure,
+    class,
+    instance,
+    bound_method,
+    function,
+};
+
+pub const Obj = struct {
+    next: ?*Obj = null,
     marked: bool = false,
+    kind: ObjKind,
+};
+
+pub const HeapString = struct {
+    gc: Obj,
     hash: u32 = 0,
     data: []const u8,
 
     pub fn init(allocator: std.mem.Allocator, bytes: []const u8) !*HeapString {
         const self = try allocator.create(HeapString);
-        self.* = .{ .marked = false, .data = bytes };
+        self.* = .{ .gc = .{ .kind = .string }, .data = bytes };
         return self;
     }
 
@@ -273,10 +289,10 @@ const Table = @import("table.zig").Table;
 pub const TableEntry = @import("table.zig").Entry;
 
 pub const Upvalue = struct {
+    gc: Obj,
     location: *LoxValue,
     closed: LoxValue = LoxValue.nil,
     next: ?*Upvalue = null,
-    marked: bool = false,
 
     pub inline fn get(self: *const Upvalue) LoxValue {
         return self.location.*;
@@ -297,14 +313,15 @@ pub const Upvalue = struct {
 };
 
 pub const Function = struct {
+    gc: Obj,
     arity: usize,
     chunk: Chunk,
     name: ?[]const u8,
     upvalue_count: usize,
-    marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, name: ?[]const u8) Function {
         return Function{
+            .gc = .{ .kind = .function },
             .arity = 0,
             .chunk = Chunk.init(gpa),
             .name = name,
@@ -325,18 +342,18 @@ pub const Function = struct {
 };
 
 pub const Closure = struct {
+    gc: Obj,
     function: *Function,
     upvalues: []*Upvalue,
     upvalue_count: usize,
-    marked: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, function: *Function) !Closure {
         const upvalues = try allocator.alloc(*Upvalue, function.upvalue_count);
         return .{
+            .gc = .{ .kind = .closure },
             .function = function,
             .upvalues = upvalues,
             .upvalue_count = function.upvalue_count,
-            .marked = false,
         };
     }
 
@@ -353,15 +370,15 @@ pub const Closure = struct {
 };
 
 pub const Class = struct {
+    gc: Obj,
     name: *HeapString,
     methods: Table,
-    marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, name: *HeapString) Class {
         return Class{
+            .gc = .{ .kind = .class },
             .name = name,
             .methods = Table.init(gpa),
-            .marked = false,
         };
     }
 
@@ -375,15 +392,15 @@ pub const Class = struct {
 };
 
 pub const Instance = struct {
+    gc: Obj,
     klass: *Class,
     fields: Table,
-    marked: bool = false,
 
     pub fn init(gpa: std.mem.Allocator, klass: *Class) Instance {
         return Instance{
+            .gc = .{ .kind = .instance },
             .klass = klass,
             .fields = Table.init(gpa),
-            .marked = false,
         };
     }
 
@@ -397,14 +414,14 @@ pub const Instance = struct {
 };
 
 pub const BoundMethod = struct {
+    gc: Obj,
     receiver: *Instance,
     method: LoxValue,
-    marked: bool = false,
 
     pub fn init(receiver: *Instance, method: LoxValue) BoundMethod {
         return BoundMethod{
+            .gc = .{ .kind = .bound_method },
             .receiver = receiver,
-            .marked = false,
             .method = method,
         };
     }

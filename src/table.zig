@@ -91,7 +91,7 @@ pub const Table = struct {
         if (self.capacity == 0) return;
         for (self.entries) |*entry| {
             if (entry.key) |key| {
-                if (!key.marked) {
+                if (!key.gc.marked) {
                     _ = self.delete(key);
                 }
             }
@@ -208,7 +208,7 @@ pub inline fn hashString(bytes: []const u8) u32 {
 
 test "table set and get" {
     const bytes = "foo";
-    var str = val.HeapString{ .hash = hashString(bytes), .data = bytes };
+    var str = val.HeapString{ .gc = .{ .kind = .string }, .hash = hashString(bytes), .data = bytes };
 
     var table = Table.init(std.testing.allocator);
     defer table.deinit();
@@ -226,7 +226,7 @@ test "table set and get" {
 
 test "table setExisting" {
     const bytes = "foo";
-    var str = val.HeapString{ .hash = hashString(bytes), .data = bytes };
+    var str = val.HeapString{ .gc = .{ .kind = .string }, .hash = hashString(bytes), .data = bytes };
 
     var table = Table.init(std.testing.allocator);
     defer table.deinit();
@@ -240,7 +240,7 @@ test "table setExisting" {
 
 test "table findString" {
     const bytes = "hello";
-    var str = val.HeapString{ .hash = hashString(bytes), .data = bytes };
+    var str = val.HeapString{ .gc = .{ .kind = .string }, .hash = hashString(bytes), .data = bytes };
 
     var table = Table.init(std.testing.allocator);
     defer table.deinit();
@@ -253,7 +253,7 @@ test "table findString" {
 
 test "table delete leaves tombstone" {
     const bytes = "hello";
-    var str = val.HeapString{ .hash = hashString(bytes), .data = bytes };
+    var str = val.HeapString{ .gc = .{ .kind = .string }, .hash = hashString(bytes), .data = bytes };
 
     var table = Table.init(std.testing.allocator);
     defer table.deinit();
@@ -267,8 +267,8 @@ test "table delete leaves tombstone" {
 test "table removeWhite deletes unmarked strings" {
     const live_bytes = "live";
     const dead_bytes = "dead";
-    var live = val.HeapString{ .hash = hashString(live_bytes), .data = live_bytes, .marked = true };
-    var dead = val.HeapString{ .hash = hashString(dead_bytes), .data = dead_bytes, .marked = false };
+    var live = val.HeapString{ .gc = .{ .kind = .string, .marked = true }, .hash = hashString(live_bytes), .data = live_bytes };
+    var dead = val.HeapString{ .gc = .{ .kind = .string, .marked = false }, .hash = hashString(dead_bytes), .data = dead_bytes };
 
     var table = Table.init(std.testing.allocator);
     defer table.deinit();
@@ -286,8 +286,8 @@ test "table removeWhite deletes unmarked strings" {
 test "table addAll copies entries" {
     const a_bytes = "a";
     const b_bytes = "b";
-    var a = val.HeapString{ .hash = hashString(a_bytes), .data = a_bytes };
-    var b = val.HeapString{ .hash = hashString(b_bytes), .data = b_bytes };
+    var a = val.HeapString{ .gc = .{ .kind = .string }, .hash = hashString(a_bytes), .data = a_bytes };
+    var b = val.HeapString{ .gc = .{ .kind = .string }, .hash = hashString(b_bytes), .data = b_bytes };
 
     var from = Table.init(std.testing.allocator);
     defer from.deinit();

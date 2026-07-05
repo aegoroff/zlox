@@ -9,6 +9,7 @@ pub const HeapString = val.HeapString;
 pub const Class = val.Class;
 pub const Instance = val.Instance;
 pub const BoundMethod = val.BoundMethod;
+pub const Obj = val.Obj;
 
 const Table = tbl.Table;
 const LoxValue = val.LoxValue;
@@ -27,31 +28,27 @@ pub const HeapObj = union(enum) {
     bound_method: *BoundMethod,
     function: *Function,
 
-    pub fn isMarked(self: HeapObj) bool {
+    pub inline fn obj(self: HeapObj) *Obj {
         return switch (self) {
-            .string => |s| s.marked,
-            .upvalue => |u| u.marked,
-            .closure => |c| c.marked,
-            .function => |f| f.marked,
-            .class => |c| c.marked,
-            .instance => |i| i.marked,
-            .bound_method => |b| b.marked,
+            .string => |s| &s.gc,
+            .upvalue => |u| &u.gc,
+            .closure => |c| &c.gc,
+            .function => |f| &f.gc,
+            .class => |c| &c.gc,
+            .instance => |i| &i.gc,
+            .bound_method => |b| &b.gc,
         };
     }
 
-    pub fn setMarked(self: HeapObj, marked: bool) void {
-        switch (self) {
-            .string => |s| s.marked = marked,
-            .upvalue => |u| u.marked = marked,
-            .closure => |c| c.marked = marked,
-            .function => |f| f.marked = marked,
-            .class => |c| c.marked = marked,
-            .instance => |i| i.marked = marked,
-            .bound_method => |b| b.marked = marked,
-        }
+    pub inline fn isMarked(self: HeapObj) bool {
+        return self.obj().marked;
     }
 
-    pub fn liveSize(self: HeapObj) usize {
+    pub inline fn setMarked(self: HeapObj, marked: bool) void {
+        self.obj().marked = marked;
+    }
+
+    pub inline fn liveSize(self: HeapObj) usize {
         return switch (self) {
             .string => |s| s.size(),
             .class => |c| c.size(),
@@ -95,15 +92,22 @@ pub const HeapObj = union(enum) {
     }
 };
 
-pub const ObjectNode = struct {
-    obj: HeapObj,
-    next: ?*ObjectNode,
-};
+inline fn heapObjFromObj(obj: *Obj) HeapObj {
+    return switch (obj.kind) {
+        .string => .{ .string = @fieldParentPtr("gc", obj) },
+        .upvalue => .{ .upvalue = @fieldParentPtr("gc", obj) },
+        .closure => .{ .closure = @fieldParentPtr("gc", obj) },
+        .class => .{ .class = @fieldParentPtr("gc", obj) },
+        .instance => .{ .instance = @fieldParentPtr("gc", obj) },
+        .bound_method => .{ .bound_method = @fieldParentPtr("gc", obj) },
+        .function => .{ .function = @fieldParentPtr("gc", obj) },
+    };
+}
 
-/// Heap manager with linked-list object tracking
+/// Heap manager with intrusive linked-list object tracking
 pub const Heap = struct {
     allocator: std.mem.Allocator,
-    objects: ?*ObjectNode = null,
+    objects: ?*Obj = null,
     bytes_allocated: usize = 0,
     next_gc: usize = INITIAL_GC_THRESHOLD,
     gray_stack: []HeapObj = &.{},
@@ -118,10 +122,9 @@ pub const Heap = struct {
 
     pub fn deinit(self: *Heap) void {
         var current = self.objects;
-        while (current) |node| {
-            node.obj.free(self.allocator);
-            const next = node.next;
-            self.allocator.destroy(node);
+        while (current) |obj| {
+            const next = obj.next;
+            heapObjFromObj(obj).free(self.allocator);
             current = next;
         }
         if (self.gray_stack.len > 0) {
@@ -154,12 +157,9 @@ pub const Heap = struct {
     }
 
     pub fn trackObject(self: *Heap, obj: HeapObj, size: usize) !void {
-        const node = try self.allocator.create(ObjectNode);
-        node.* = .{
-            .obj = obj,
-            .next = self.objects,
-        };
-        self.objects = node;
+        const header = obj.obj();
+        header.next = self.objects;
+        self.objects = header;
         self.bytes_allocated += size;
     }
 
@@ -261,26 +261,24 @@ pub const Heap = struct {
     }
 
     pub fn sweep(self: *Heap) void {
-        var previous: ?*ObjectNode = null;
+        var previous: ?*Obj = null;
         var current = self.objects;
-        while (current) |node| {
-            if (node.obj.isMarked()) {
-                node.obj.setMarked(false);
-                previous = node;
-                current = node.next;
+        while (current) |obj| {
+            if (obj.marked) {
+                obj.marked = false;
+                previous = obj;
+                current = obj.next;
             } else {
-                self.bytes_allocated -= node.obj.liveSize();
-                node.obj.free(self.allocator);
-
-                const unreached = node;
-                const next = node.next;
+                const heap_obj = heapObjFromObj(obj);
+                self.bytes_allocated -= heap_obj.liveSize();
+                const next = obj.next;
                 if (previous) |prev| {
                     prev.next = next;
                 } else {
                     self.objects = next;
                 }
+                heap_obj.free(self.allocator);
                 current = next;
-                self.allocator.destroy(unreached);
             }
         }
 
