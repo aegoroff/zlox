@@ -7,7 +7,8 @@ const val = @import("value.zig");
 const mem = @import("memory.zig");
 const builtin = @import("builtin.zig");
 const Compiler = @import("compiler.zig");
-const Table = @import("table.zig").Table;
+const tbl = @import("table.zig");
+const Table = tbl.Table;
 
 const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
@@ -128,7 +129,7 @@ fn trackObject(self: *VM, obj: mem.HeapObj, size: usize) !void {
 
 fn adjustMapAllocation(self: *VM, old_capacity: usize, new_capacity: usize) !void {
     if (old_capacity == new_capacity) return;
-    self.heap.adjustMapCapacity(old_capacity, new_capacity, @sizeOf(@import("table.zig").Entry));
+    self.heap.adjustMapCapacity(old_capacity, new_capacity, @sizeOf(tbl.Entry));
     if (self.heap.shouldCollect()) {
         try self.collectGarbage();
     }
@@ -156,7 +157,7 @@ fn compilerInternString(ctx: *anyopaque, bytes: []const u8) !*val.HeapString {
 }
 
 fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
-    const hash = @import("table.zig").hashString(bytes);
+    const hash = tbl.hashString(bytes);
     if (self.strings.findString(bytes, hash)) |existing| {
         return existing;
     }
@@ -682,7 +683,7 @@ pub fn run(self: *VM) !void {
                     const as = a.asString();
                     const bs = b.asString();
                     const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
-                    const hash = @import("table.zig").hashString(result);
+                    const hash = tbl.hashString(result);
                     const heap_str = if (self.strings.findString(result, hash)) |existing| blk: {
                         self.allocator.free(result);
                         break :blk existing;
