@@ -353,11 +353,11 @@ fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
     return false;
 }
 
-fn frame(self: *VM) *CallFrame {
+inline fn frame(self: *VM) *CallFrame {
     return &self.frames[self.frame_count - 1];
 }
 
-fn chunk(self: *VM) *Chunk {
+inline fn chunk(self: *VM) *Chunk {
     return &self.frame().closure.function.chunk;
 }
 
@@ -790,7 +790,7 @@ pub fn run(self: *VM) !void {
     }
 }
 
-fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val.HeapString {
+inline fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val.HeapString {
     const value = switch (constant_size) {
         CONST_SIZE => self.chunk().readConstant(ip),
         CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
@@ -800,7 +800,7 @@ fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val
     return value.asString();
 }
 
-fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
+inline fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     const value = self.peek(0);
     _ = try self.setTrackedTable(&self.globals, name, value);

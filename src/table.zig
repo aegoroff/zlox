@@ -34,18 +34,18 @@ pub const Table = struct {
         self.* = .init(self.allocator);
     }
 
-    pub fn get(self: *const Table, key: *HeapString) ?LoxValue {
+    pub inline fn get(self: *const Table, key: *HeapString) ?LoxValue {
         if (self.count == 0) return null;
         const entry = findSlot(self.entries, self.capacity, .{ .pointer = key }, false) orelse return null;
         return entry.value;
     }
 
-    pub fn contains(self: *const Table, key: *HeapString) bool {
+    pub inline fn contains(self: *const Table, key: *HeapString) bool {
         if (self.count == 0) return false;
         return findSlot(self.entries, self.capacity, .{ .pointer = key }, false) != null;
     }
 
-    pub fn set(self: *Table, key: *HeapString, value: LoxValue) !bool {
+    pub inline fn set(self: *Table, key: *HeapString, value: LoxValue) !bool {
         if (self.count + 1 > self.max_load) {
             try self.adjustCapacity(growCapacity(self.capacity));
         }
@@ -61,13 +61,13 @@ pub const Table = struct {
         return is_new_key;
     }
 
-    pub fn setExisting(self: *Table, key: *HeapString, value: LoxValue) bool {
+    pub inline fn setExisting(self: *Table, key: *HeapString, value: LoxValue) bool {
         const entry = findSlot(self.entries, self.capacity, .{ .pointer = key }, false) orelse return false;
         entry.value = value;
         return true;
     }
 
-    pub fn findString(self: *const Table, chars: []const u8, hash: u32) ?*HeapString {
+    pub inline fn findString(self: *const Table, chars: []const u8, hash: u32) ?*HeapString {
         if (self.count == 0) return null;
         const entry = findSlot(
             self.entries,
@@ -127,12 +127,12 @@ pub const Table = struct {
         self.max_load = maxLoad(new_capacity);
     }
 
-    fn growCapacity(capacity: usize) usize {
+    inline fn growCapacity(capacity: usize) usize {
         if (capacity < INITIAL_CAPACITY) return INITIAL_CAPACITY;
         return capacity * 2;
     }
 
-    fn maxLoad(capacity: usize) usize {
+    inline fn maxLoad(capacity: usize) usize {
         if (capacity == 0) return 0;
         return (capacity * 3) / 4;
     }
@@ -187,7 +187,7 @@ inline fn findSlot(
     }
 }
 
-pub fn hashString(bytes: []const u8) u32 {
+pub inline fn hashString(bytes: []const u8) u32 {
     var hash: u32 = 2166136261;
     for (bytes) |byte| {
         hash ^= byte;

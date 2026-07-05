@@ -84,121 +84,121 @@ pub const LoxValue = struct {
         }
     }
 
-    pub fn boolean(b: bool) LoxValue {
+    pub inline fn boolean(b: bool) LoxValue {
         return .{ .raw = if (b) QNAN | TAG_TRUE else QNAN | TAG_FALSE };
     }
 
-    pub fn number(n: f64) LoxValue {
+    pub inline fn number(n: f64) LoxValue {
         return .{ .raw = @as(u64, @bitCast(n)) };
     }
 
-    pub fn string(s: *HeapString) LoxValue {
+    pub inline fn string(s: *HeapString) LoxValue {
         return fromTaggedPtr(.string, s);
     }
 
-    pub fn function(f: *Function) LoxValue {
+    pub inline fn function(f: *Function) LoxValue {
         return fromTaggedPtr(.function, f);
     }
 
-    pub fn closure(c: *Closure) LoxValue {
+    pub inline fn closure(c: *Closure) LoxValue {
         return fromTaggedPtr(.closure, c);
     }
 
-    pub fn class(c: *Class) LoxValue {
+    pub inline fn class(c: *Class) LoxValue {
         return fromTaggedPtr(.class, c);
     }
 
-    pub fn instance(i: *Instance) LoxValue {
+    pub inline fn instance(i: *Instance) LoxValue {
         return fromTaggedPtr(.instance, i);
     }
 
-    pub fn boundMethod(b: *BoundMethod) LoxValue {
+    pub inline fn boundMethod(b: *BoundMethod) LoxValue {
         return fromTaggedPtr(.bound_method, b);
     }
 
-    pub fn native(n: NativeFn) LoxValue {
+    pub inline fn native(n: NativeFn) LoxValue {
         return fromTaggedPtr(.native, @constCast(n));
     }
 
-    pub fn isNil(self: LoxValue) bool {
+    pub inline fn isNil(self: LoxValue) bool {
         return self.raw == QNAN | TAG_NIL;
     }
 
-    pub fn isBool(self: LoxValue) bool {
+    pub inline fn isBool(self: LoxValue) bool {
         if (self.isNil()) return false;
         return (self.raw | 1) == QNAN | TAG_TRUE;
     }
 
-    pub fn isNumber(self: LoxValue) bool {
+    pub inline fn isNumber(self: LoxValue) bool {
         return (self.raw & QNAN) != QNAN;
     }
 
-    pub fn isBoxed(self: LoxValue) bool {
+    pub inline fn isBoxed(self: LoxValue) bool {
         if (self.isNumber()) return false;
         return (self.raw & BOXED_MASK) == BOXED_MASK;
     }
 
-    pub fn isString(self: LoxValue) bool {
+    pub inline fn isString(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .string;
     }
 
-    pub fn isFunction(self: LoxValue) bool {
+    pub inline fn isFunction(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .function;
     }
 
-    pub fn isClosure(self: LoxValue) bool {
+    pub inline fn isClosure(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .closure;
     }
 
-    pub fn isClass(self: LoxValue) bool {
+    pub inline fn isClass(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .class;
     }
 
-    pub fn isInstance(self: LoxValue) bool {
+    pub inline fn isInstance(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .instance;
     }
 
-    pub fn isBoundMethod(self: LoxValue) bool {
+    pub inline fn isBoundMethod(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .bound_method;
     }
 
-    pub fn isNative(self: LoxValue) bool {
+    pub inline fn isNative(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .native;
     }
 
-    pub fn asBool(self: LoxValue) bool {
+    pub inline fn asBool(self: LoxValue) bool {
         return self.raw == QNAN | TAG_TRUE;
     }
 
-    pub fn asNumber(self: LoxValue) f64 {
+    pub inline fn asNumber(self: LoxValue) f64 {
         return @bitCast(self.raw);
     }
 
-    pub fn asString(self: LoxValue) *HeapString {
+    pub inline fn asString(self: LoxValue) *HeapString {
         return @ptrCast(@alignCast(decodePtr(.string, self)));
     }
 
-    pub fn asFunction(self: LoxValue) *Function {
+    pub inline fn asFunction(self: LoxValue) *Function {
         return @ptrCast(@alignCast(decodePtr(.function, self)));
     }
 
-    pub fn asClosure(self: LoxValue) *Closure {
+    pub inline fn asClosure(self: LoxValue) *Closure {
         return @ptrCast(@alignCast(decodePtr(.closure, self)));
     }
 
-    pub fn asClass(self: LoxValue) *Class {
+    pub inline fn asClass(self: LoxValue) *Class {
         return @ptrCast(@alignCast(decodePtr(.class, self)));
     }
 
-    pub fn asInstance(self: LoxValue) *Instance {
+    pub inline fn asInstance(self: LoxValue) *Instance {
         return @ptrCast(@alignCast(decodePtr(.instance, self)));
     }
 
-    pub fn asBoundMethod(self: LoxValue) *BoundMethod {
+    pub inline fn asBoundMethod(self: LoxValue) *BoundMethod {
         return @ptrCast(@alignCast(decodePtr(.bound_method, self)));
     }
 
-    pub fn asNative(self: LoxValue) NativeFn {
+    pub inline fn asNative(self: LoxValue) NativeFn {
         return @ptrCast(decodePtr(.native, self));
     }
 
@@ -260,13 +260,13 @@ pub const LoxValue = struct {
         return self.asClosure();
     }
 
-    pub fn isFalsee(self: LoxValue) bool {
+    pub inline fn isFalsee(self: LoxValue) bool {
         if (self.isNil()) return true;
         if (self.isBool()) return !self.asBool();
         return false;
     }
 
-    pub fn equal(self: LoxValue, other: LoxValue) bool {
+    pub inline fn equal(self: LoxValue, other: LoxValue) bool {
         if (self.isNumber() and other.isNumber()) {
             const l = self.asNumber();
             const r = other.asNumber();
@@ -292,16 +292,16 @@ pub const LoxValue = struct {
         return err.Error.CompileError;
     }
 
-    fn fromTaggedPtr(comptime tag: ObjTag, ptr: anytype) LoxValue {
+    inline fn fromTaggedPtr(comptime tag: ObjTag, ptr: anytype) LoxValue {
         const addr: u64 = @intFromPtr(ptr) & PTR_MASK;
         return .{ .raw = BOXED_MASK | (@as(u64, @intFromEnum(tag))) | addr };
     }
 
-    fn objTag(self: LoxValue) ObjTag {
+    inline fn objTag(self: LoxValue) ObjTag {
         return @enumFromInt(self.raw & PTR_TYPE_MASK);
     }
 
-    fn decodePtr(comptime tag: ObjTag, self: LoxValue) *anyopaque {
+    inline fn decodePtr(comptime tag: ObjTag, self: LoxValue) *anyopaque {
         std.debug.assert(isBoxed(self) and objTag(self) == tag);
         return @ptrFromInt(self.raw & PTR_MASK);
     }
