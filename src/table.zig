@@ -4,7 +4,6 @@ const val = @import("value.zig");
 const LoxValue = val.LoxValue;
 const HeapString = val.HeapString;
 
-const TABLE_MAX_LOAD: f64 = 0.75;
 const INITIAL_CAPACITY: usize = 8;
 
 pub const Entry = struct {
@@ -12,9 +11,15 @@ pub const Entry = struct {
     value: LoxValue = LoxValue.nil,
 };
 
+const ProbeMatch = union(enum) {
+    pointer: *HeapString,
+    bytes: struct { chars: []const u8, hash: u32 },
+};
+
 pub const Table = struct {
     count: usize = 0,
     capacity: usize = 0,
+    max_load: usize = 0,
     entries: []Entry = &.{},
     allocator: std.mem.Allocator,
 
@@ -31,21 +36,21 @@ pub const Table = struct {
 
     pub fn get(self: *const Table, key: *HeapString) ?LoxValue {
         if (self.count == 0) return null;
-        const entry = findEntry(self.entries, self.capacity, key) orelse return null;
-        if (entry.key == null) return null;
+        const entry = findSlot(self.entries, self.capacity, .{ .pointer = key }, false) orelse return null;
         return entry.value;
     }
 
     pub fn contains(self: *const Table, key: *HeapString) bool {
-        return self.get(key) != null;
+        if (self.count == 0) return false;
+        return findSlot(self.entries, self.capacity, .{ .pointer = key }, false) != null;
     }
 
     pub fn set(self: *Table, key: *HeapString, value: LoxValue) !bool {
-        if (self.count + 1 > loadThreshold(self.capacity)) {
+        if (self.count + 1 > self.max_load) {
             try self.adjustCapacity(growCapacity(self.capacity));
         }
 
-        const entry = findEntry(self.entries, self.capacity, key).?;
+        const entry = findSlot(self.entries, self.capacity, .{ .pointer = key }, true).?;
         const is_new_key = entry.key == null;
         if (is_new_key and entry.value.isNil()) {
             self.count += 1;
@@ -56,29 +61,31 @@ pub const Table = struct {
         return is_new_key;
     }
 
+    pub fn setExisting(self: *Table, key: *HeapString, value: LoxValue) bool {
+        const entry = findSlot(self.entries, self.capacity, .{ .pointer = key }, false) orelse return false;
+        entry.value = value;
+        return true;
+    }
+
     pub fn findString(self: *const Table, chars: []const u8, hash: u32) ?*HeapString {
         if (self.count == 0) return null;
-
-        var index: usize = @intCast(hash & @as(u32, @intCast(self.capacity - 1)));
-        while (true) {
-            const entry = &self.entries[index];
-            if (entry.key == null) {
-                if (entry.value.isNil()) return null;
-            } else {
-                const key = entry.key.?;
-                if (key.hash == hash and key.data.len == chars.len and
-                    std.mem.eql(u8, key.data, chars))
-                {
-                    return key;
-                }
-            }
-
-            index = (index + 1) & (self.capacity - 1);
-        }
+        const entry = findSlot(
+            self.entries,
+            self.capacity,
+            .{ .bytes = .{ .chars = chars, .hash = hash } },
+            false,
+        ) orelse return null;
+        return entry.key;
     }
 
     pub fn addAll(self: *Table, from: *const Table) !void {
-        if (from.capacity == 0) return;
+        if (from.count == 0) return;
+
+        const needed = self.count + from.count;
+        while (needed > self.max_load) {
+            try self.adjustCapacity(growCapacity(self.capacity));
+        }
+
         for (from.entries) |entry| {
             if (entry.key) |key| {
                 _ = try self.set(key, entry.value);
@@ -109,7 +116,7 @@ pub const Table = struct {
         if (self.capacity > 0) {
             for (self.entries) |entry| {
                 if (entry.key) |key| {
-                    const dest = findEntry(entries, new_capacity, key).?;
+                    const dest = findSlot(entries, new_capacity, .{ .pointer = key }, true).?;
                     dest.key = key;
                     dest.value = entry.value;
                     self.count += 1;
@@ -120,6 +127,7 @@ pub const Table = struct {
 
         self.entries = entries;
         self.capacity = new_capacity;
+        self.max_load = maxLoad(new_capacity);
     }
 
     fn growCapacity(capacity: usize) usize {
@@ -127,32 +135,60 @@ pub const Table = struct {
         return capacity * 2;
     }
 
-    fn loadThreshold(capacity: usize) usize {
+    fn maxLoad(capacity: usize) usize {
         if (capacity == 0) return 0;
-        return @intFromFloat(@as(f64, @floatFromInt(capacity)) * TABLE_MAX_LOAD);
-    }
-
-    inline fn findEntry(entries: []Entry, capacity: usize, key: *HeapString) ?*Entry {
-        if (capacity == 0) return null;
-
-        var index: usize = @intCast(key.hash & @as(u32, @intCast(capacity - 1)));
-        var tombstone: ?*Entry = null;
-
-        while (true) {
-            const entry = &entries[index];
-            if (entry.key == null) {
-                if (entry.value.isNil()) {
-                    return tombstone orelse entry;
-                }
-                if (tombstone == null) tombstone = entry;
-            } else if (entry.key.? == key) {
-                return entry;
-            }
-
-            index = (index + 1) & (capacity - 1);
-        }
+        return (capacity * 3) / 4;
     }
 };
+
+inline fn hashIndex(hash: u32, capacity: usize) usize {
+    return @intCast(hash & @as(u32, @intCast(capacity - 1)));
+}
+
+inline fn nextIndex(index: usize, capacity: usize) usize {
+    return (index + 1) & (capacity - 1);
+}
+
+inline fn keysEqual(entry_key: *HeapString, match: ProbeMatch) bool {
+    return switch (match) {
+        .pointer => |ptr| entry_key == ptr,
+        .bytes => |b| entry_key.hash == b.hash and
+            entry_key.data.len == b.chars.len and
+            std.mem.eql(u8, entry_key.data, b.chars),
+    };
+}
+
+inline fn findSlot(
+    entries: []Entry,
+    capacity: usize,
+    match: ProbeMatch,
+    comptime for_insert: bool,
+) ?*Entry {
+    if (capacity == 0) return null;
+
+    const hash = switch (match) {
+        .pointer => |ptr| ptr.hash,
+        .bytes => |b| b.hash,
+    };
+
+    var index = hashIndex(hash, capacity);
+    var tombstone: ?*Entry = null;
+
+    while (true) {
+        const entry = &entries[index];
+        if (entry.key) |entry_key| {
+            if (keysEqual(entry_key, match)) return entry;
+        } else {
+            if (entry.value.isNil()) {
+                if (for_insert) return tombstone orelse entry;
+                return null;
+            }
+            if (for_insert and tombstone == null) tombstone = entry;
+        }
+
+        index = nextIndex(index, capacity);
+    }
+}
 
 pub fn hashString(bytes: []const u8) u32 {
     var hash: u32 = 2166136261;
@@ -178,6 +214,20 @@ test "table set and get" {
 
     const is_new_again = try table.set(&str, LoxValue.number(7));
     try std.testing.expect(!is_new_again);
+    try std.testing.expectEqual(@as(f64, 7), table.get(&str).?.asNumber());
+}
+
+test "table setExisting" {
+    const bytes = "foo";
+    var str = val.HeapString{ .hash = hashString(bytes), .data = bytes };
+
+    var table = Table.init(std.testing.allocator);
+    defer table.deinit();
+
+    try std.testing.expect(!table.setExisting(&str, LoxValue.number(1)));
+
+    _ = try table.set(&str, LoxValue.number(42));
+    try std.testing.expect(table.setExisting(&str, LoxValue.number(7)));
     try std.testing.expectEqual(@as(f64, 7), table.get(&str).?.asNumber());
 }
 

@@ -819,12 +819,10 @@ inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
 
 inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
-    if (!self.globals.contains(name)) {
+    if (!self.globals.setExisting(name, self.peek(0))) {
         try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     }
-    const new_value = self.peek(0);
-    _ = try self.setTrackedTable(&self.globals, name, new_value);
 }
 
 // ============================================
