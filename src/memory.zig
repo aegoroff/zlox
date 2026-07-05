@@ -58,7 +58,7 @@ pub const HeapObj = union(enum) {
             .function => |f| f.size(),
             .instance => |i| i.size(),
             .upvalue => @sizeOf(Upvalue),
-            .closure => @sizeOf(Closure),
+            .closure => |c| c.size(),
             .bound_method => @sizeOf(BoundMethod),
         };
     }
@@ -77,6 +77,7 @@ pub const HeapObj = union(enum) {
                 allocator.destroy(u);
             },
             .closure => |c| {
+                c.deinit(allocator);
                 allocator.destroy(c);
             },
             .function => |f| {
@@ -229,7 +230,7 @@ pub const Heap = struct {
             },
             .closure => |closure| {
                 try self.markObject(.{ .function = closure.function });
-                for (closure.upvalues[0..closure.upvalue_count]) |upvalue| {
+                for (closure.upvalues) |upvalue| {
                     try self.markObject(.{ .upvalue = upvalue });
                 }
             },

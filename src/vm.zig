@@ -112,9 +112,9 @@ pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, fi
     self.compiler.?.current.function = null;
 
     const closure_ptr = try self.heap.allocClosure();
-    closure_ptr.* = val.Closure.init(func);
+    closure_ptr.* = try val.Closure.init(self.allocator, func);
     try self.push(LoxValue.closure(closure_ptr));
-    try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
+    try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
     if (!try self.call(1, closure_ptr, 0)) return err.Error.RuntimeError;
     try self.run();
     _ = self.pop();
@@ -418,20 +418,18 @@ inline fn opClosure(
     current_frame.ip += constant_size;
 
     const closure_ptr = try self.heap.allocClosure();
-    closure_ptr.* = val.Closure.init(function);
+    closure_ptr.* = try val.Closure.init(self.allocator, function);
     try self.push(LoxValue.closure(closure_ptr));
-    try self.trackObject(.{ .closure = closure_ptr }, @sizeOf(val.Closure));
+    try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
 
-    for (0..function.upvalue_count) |_| {
+    for (0..function.upvalue_count) |i| {
         const is_local = current_chunk.readByte(current_frame.ip);
         const index = current_chunk.readByte(current_frame.ip + 1);
         current_frame.ip += 2;
-        const upvalue: *val.Upvalue = if (is_local == 1)
+        closure_ptr.upvalues[i] = if (is_local == 1)
             try self.captureUpvalue(current_frame.slots_offset + index)
         else
             closure.*.upvalues[index];
-        closure_ptr.upvalues[closure_ptr.upvalue_count] = upvalue;
-        closure_ptr.upvalue_count += 1;
     }
 }
 

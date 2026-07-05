@@ -324,21 +324,31 @@ pub const Function = struct {
     }
 };
 
-const UPVALUE_MAX: usize = 256;
-
 pub const Closure = struct {
     function: *Function,
-    upvalues: [UPVALUE_MAX]*Upvalue,
+    upvalues: []*Upvalue,
     upvalue_count: usize,
     marked: bool = false,
 
-    pub fn init(function: *Function) Closure {
-        return Closure{
+    pub fn init(allocator: std.mem.Allocator, function: *Function) !Closure {
+        const upvalues = try allocator.alloc(*Upvalue, function.upvalue_count);
+        return .{
             .function = function,
-            .upvalues = [_]*Upvalue{undefined} ** UPVALUE_MAX,
-            .upvalue_count = 0,
+            .upvalues = upvalues,
+            .upvalue_count = function.upvalue_count,
             .marked = false,
         };
+    }
+
+    pub fn deinit(self: *Closure, allocator: std.mem.Allocator) void {
+        if (self.upvalues.len > 0) {
+            allocator.free(self.upvalues);
+            self.upvalues = &.{};
+        }
+    }
+
+    pub fn size(self: *const Closure) usize {
+        return @sizeOf(Closure) + self.upvalue_count * @sizeOf(*Upvalue);
     }
 };
 
@@ -402,4 +412,17 @@ pub const BoundMethod = struct {
 
 test "LoxValue is 8 bytes" {
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(LoxValue));
+}
+
+test "Closure size scales with upvalue count" {
+    var func = Function.init(std.testing.allocator, "fn");
+    func.upvalue_count = 3;
+    var closure = try Closure.init(std.testing.allocator, &func);
+    defer closure.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), closure.upvalues.len);
+    try std.testing.expectEqual(
+        @sizeOf(Closure) + 3 * @sizeOf(*Upvalue),
+        closure.size(),
+    );
 }
