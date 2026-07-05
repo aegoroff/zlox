@@ -18,7 +18,12 @@ pub fn exitCode(e: anyerror) u8 {
     };
 }
 
-test "exit code in debug mode" {
-    try std.testing.expectEqual(EXIT_DEBUG_ERROR, exitCode(Error.CompileError));
-    try std.testing.expectEqual(EXIT_DEBUG_ERROR, exitCode(Error.RuntimeError));
+test "exit code" {
+    if (@import("builtin").mode == .Debug) {
+        try std.testing.expectEqual(EXIT_DEBUG_ERROR, exitCode(Error.CompileError));
+        try std.testing.expectEqual(EXIT_DEBUG_ERROR, exitCode(Error.RuntimeError));
+    } else {
+        try std.testing.expectEqual(EXIT_COMPILE_ERROR, exitCode(Error.CompileError));
+        try std.testing.expectEqual(EXIT_RUNTIME_ERROR, exitCode(Error.RuntimeError));
+    }
 }

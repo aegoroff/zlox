@@ -1657,6 +1657,46 @@ test "gc global variable survives collection" {
     try std.testing.expectEqualStrings("ok\n", writer.written());
 }
 
+test "gc deep linked instance chain survives collection" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Node {}
+        \\var head = Node();
+        \\var cur = head;
+        \\var depth = 0;
+        \\while (depth < 50000) {
+        \\  var next = Node();
+        \\  cur.next = next;
+        \\  cur = next;
+        \\  depth = depth + 1;
+        \\}
+        \\var i = 0;
+        \\while (i < 5000) {
+        \\  var s = "aaaa" + "bbbb";
+        \\  i = i + 1;
+        \\}
+        \\var node = head;
+        \\var count = 0;
+        \\while (count < depth) {
+        \\  node = node.next;
+        \\  count = count + 1;
+        \\}
+        \\print count;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("50000\n", writer.written());
+}
+
 test "gc bound methods are collected during method calls" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
