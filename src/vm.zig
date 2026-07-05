@@ -825,115 +825,29 @@ inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     }
 }
 
-// ============================================
 // Garbage Collection
-// ============================================
-
-fn markTable(self: *VM, table: *const Table) void {
-    const Ctx = struct {
-        vm: *VM,
-        fn callback(ctx: @This(), key: *val.HeapString, value: LoxValue) void {
-            ctx.vm.markValue(LoxValue.string(key));
-            ctx.vm.markValue(value);
-        }
-    };
-    const ctx: Ctx = .{ .vm = self };
-    table.forEach(ctx, Ctx.callback);
-}
-
-fn markValue(self: *VM, value: LoxValue) void {
-    if (value.isClosure()) {
-        const c = value.asClosure();
-        if (!c.marked) {
-            c.marked = true;
-            self.markValue(LoxValue.function(c.function));
-            for (c.upvalues[0..c.upvalue_count]) |up| {
-                self.markUpvalue(up);
-            }
-        }
-        return;
-    }
-    if (value.isClass()) {
-        const c = value.asClass();
-        if (!c.marked) {
-            c.marked = true;
-            self.markValue(LoxValue.string(c.name));
-            self.markTable(&c.methods);
-        }
-        return;
-    }
-    if (value.isInstance()) {
-        const inst = value.asInstance();
-        if (!inst.marked) {
-            inst.marked = true;
-            self.markValue(LoxValue.class(inst.klass));
-            self.markTable(&inst.fields);
-        }
-        return;
-    }
-    if (value.isBoundMethod()) {
-        const b = value.asBoundMethod();
-        if (!b.marked) {
-            b.marked = true;
-            self.markValue(LoxValue.instance(b.receiver));
-            self.markValue(b.method);
-        }
-        return;
-    }
-    if (value.isFunction()) {
-        const f = value.asFunction();
-        if (!f.marked) {
-            f.marked = true;
-            for (f.chunk.constants.items) |const_val| {
-                self.markValue(const_val);
-            }
-        }
-        return;
-    }
-    if (value.isString()) {
-        value.asString().marked = true;
-    }
-}
-
-fn markUpvalue(self: *VM, upvalue: *val.Upvalue) void {
-    if (!upvalue.marked) {
-        upvalue.marked = true;
-        if (upvalue.isClosed()) {
-            self.markValue(upvalue.closed);
-        } else {
-            self.markValue(upvalue.location.*);
-        }
-    }
-}
 
 fn markRoots(self: *VM) void {
     // 1. Stack
-    for (self.stack[0..self.stack_top]) |slot| {
-        self.markValue(slot);
+    for (self.stack[0..self.stack_top]) |*slot| {
+        slot.markValue();
     }
 
     // 2. Globals
-    self.markTable(&self.globals);
+    self.globals.markTable();
 
     // 3. Interned strings
-    const StringCtx = struct {
-        vm: *VM,
-        fn callback(ctx: @This(), key: *val.HeapString, _: LoxValue) void {
-            ctx.vm.markValue(LoxValue.string(key));
-        }
-    };
-    const string_ctx: StringCtx = .{ .vm = self };
-    self.strings.forEach(string_ctx, StringCtx.callback);
+    self.strings.markTable();
 
     // 4. Call frames
     for (self.frames[0..self.frame_count]) |f| {
-        self.markValue(LoxValue.closure(f.closure));
+        LoxValue.closure(f.closure).markValue();
     }
 
     // 5. Open upvalues
     var upvalue = self.open_upvalues;
     while (upvalue) |up| {
-        self.markUpvalue(up);
+        up.markValue();
         upvalue = up.next;
     }
 }

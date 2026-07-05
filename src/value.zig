@@ -30,6 +30,60 @@ pub const LoxValue = struct {
 
     pub const nil: LoxValue = .{ .raw = QNAN | TAG_NIL };
 
+    pub fn markValue(self: *const LoxValue) void {
+        if (self.isClosure()) {
+            var c = self.asClosure();
+            if (!c.marked) {
+                c.marked = true;
+                LoxValue.function(c.function).markValue();
+                for (c.upvalues[0..c.upvalue_count]) |up| {
+                    up.markValue();
+                }
+            }
+            return;
+        }
+        if (self.isClass()) {
+            const c = self.asClass();
+            if (!c.marked) {
+                c.marked = true;
+                LoxValue.string(c.name).markValue();
+                c.methods.markTable();
+            }
+            return;
+        }
+        if (self.isInstance()) {
+            const inst = self.asInstance();
+            if (!inst.marked) {
+                inst.marked = true;
+                LoxValue.class(inst.klass).markValue();
+                inst.fields.markTable();
+            }
+            return;
+        }
+        if (self.isBoundMethod()) {
+            const b = self.asBoundMethod();
+            if (!b.marked) {
+                b.marked = true;
+                LoxValue.instance(b.receiver).markValue();
+                b.method.markValue();
+            }
+            return;
+        }
+        if (self.isFunction()) {
+            const f = self.asFunction();
+            if (!f.marked) {
+                f.marked = true;
+                for (f.chunk.constants.items) |const_val| {
+                    const_val.markValue();
+                }
+            }
+            return;
+        }
+        if (self.isString()) {
+            self.asString().marked = true;
+        }
+    }
+
     pub fn boolean(b: bool) LoxValue {
         return .{ .raw = if (b) QNAN | TAG_TRUE else QNAN | TAG_FALSE };
     }
@@ -278,21 +332,32 @@ pub const Upvalue = struct {
     next: ?*Upvalue = null,
     marked: bool = false,
 
-    pub fn get(self: *const Upvalue) LoxValue {
+    pub inline fn get(self: *const Upvalue) LoxValue {
         return self.location.*;
     }
 
-    pub fn set(self: *Upvalue, val: LoxValue) void {
+    pub inline fn set(self: *Upvalue, val: LoxValue) void {
         self.location.* = val;
     }
 
-    pub fn close(self: *Upvalue) void {
+    pub inline fn close(self: *Upvalue) void {
         self.closed = self.location.*;
         self.location = &self.closed;
     }
 
-    pub fn isClosed(self: *const Upvalue) bool {
+    pub inline fn isClosed(self: *const Upvalue) bool {
         return self.location == &self.closed;
+    }
+
+    pub inline fn markValue(self: *Upvalue) void {
+        if (!self.marked) {
+            self.marked = true;
+            if (self.isClosed()) {
+                self.closed.markValue();
+            } else {
+                self.location.*.markValue();
+            }
+        }
     }
 };
 

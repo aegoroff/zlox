@@ -93,15 +93,12 @@ pub const Table = struct {
         }
     }
 
-    pub fn forEach(
-        self: *const Table,
-        ctx: anytype,
-        callback: *const fn (ctx: @TypeOf(ctx), key: *HeapString, value: LoxValue) void,
-    ) void {
+    pub fn markTable(self: *Table) void {
         if (self.capacity == 0) return;
         for (self.entries) |entry| {
             if (entry.key) |key| {
-                callback(ctx, key, entry.value);
+                LoxValue.string(key).markValue();
+                entry.value.markValue();
             }
         }
     }
