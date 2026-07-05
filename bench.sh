@@ -17,5 +17,6 @@ fi
 
 poop \
     "./zig-out/bin/zlox $LOX_FILE" \
-    "/home/egr/code/rlox/target/release/rlox c $LOX_FILE" \
-    "/home/egr/code/craftinginterpreters/build/clox $LOX_FILE"
+    "/home/egr/code/craftinginterpreters/build/clox $LOX_FILE" \
+    #"/home/egr/code/rlox/target/release/rlox c $LOX_FILE"
+    
