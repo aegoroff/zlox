@@ -16,7 +16,7 @@ for LOX_FILE in "$@"; do
 done
 
 for LOX_FILE in "$@"; do
-    echo "=== Benchmarking: $LOX_FILE ==="
+    echo "----------- Benchmarking: $LOX_FILE ----------"
     poop \
         "./zig-out/bin/zlox $LOX_FILE" \
         "/home/egr/code/craftinginterpreters/build/clox $LOX_FILE"
