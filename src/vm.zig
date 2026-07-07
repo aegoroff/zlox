@@ -87,15 +87,15 @@ pub fn deinit(self: *VM) void {
 }
 
 pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
-    return self.interpretWithFilename(source, print_code, "<stdin>");
+    return self.interpretFrom(source, print_code, "<stdin>");
 }
 
-pub fn interpretWithFilename(self: *VM, source: []const u8, print_code: bool, filename: []const u8) !void {
+pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []const u8) !void {
     self.compiler = Compiler.init(
         self.allocator,
         self.writer,
         print_code,
-        filename,
+        from,
         self,
         compilerInternString,
     );

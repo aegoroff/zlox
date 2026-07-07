@@ -53,8 +53,8 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
 
     var virtualMachine = try vm.init(gpa, writer, io);
     defer virtualMachine.deinit();
-    const fname = if (filename.len == 0) "<stdin>" else filename;
-    try virtualMachine.interpretWithFilename(memory.written(), config.printCode(), fname);
+    const from = if (filename.len == 0) "<stdin>" else filename;
+    try virtualMachine.interpretFrom(memory.written(), config.printCode(), from);
 }
 
 test {
