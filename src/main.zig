@@ -10,7 +10,7 @@ const Io = std.Io;
 const allocator: std.mem.Allocator = if (build_options.use_mimalloc)
     @import("mimalloc_allocator").allocator
 else
-    std.heap.smp_allocator;
+    std.heap.c_allocator;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

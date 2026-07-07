@@ -41,11 +41,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .strip = strip,
+            .link_libc = true,
         }),
     });
-    if (use_mimalloc) {
-        exe.root_module.link_libc = true;
-    }
     deps.applyTo(exe.root_module);
 
     if (use_mimalloc) {
