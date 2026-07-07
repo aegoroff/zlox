@@ -1,13 +1,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const configuration = @import("configuration.zig");
 const yazap = @import("yazap");
 const vm = @import("vm.zig");
 const err = @import("error.zig");
 const Io = std.Io;
 
+const allocator: std.mem.Allocator = if (build_options.use_mimalloc)
+    @import("mimalloc_allocator").allocator
+else
+    std.heap.smp_allocator;
+
 pub fn main(init: std.process.Init) !void {
-    const allocator = std.heap.smp_allocator;
     const io = init.io;
 
     // Stdout is for the actual output of your application, for example if you

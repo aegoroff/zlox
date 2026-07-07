@@ -1,7 +1,16 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const use_mimalloc = b.option(bool, "mimalloc", "Use mimalloc as the heap allocator") orelse true;
+
+    // Zig 0.16's linker cannot handle .sframe relocations in the system crt1.o
+    // from GCC >= 15. Pin glibc so Zig links its bundled CRT when libc is needed.
+    const target = b.standardTargetOptions(.{
+        .default_target = if (use_mimalloc) .{
+            .abi = .gnu,
+            .glibc_version = .{ .major = 2, .minor = 38, .patch = 0 },
+        } else .{},
+    });
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
@@ -11,6 +20,8 @@ pub fn build(b: *std.Build) void {
 
     const version_opt = b.option([]const u8, "version", "The version of the app") orelse "0.1.0-dev";
     options.addOption([]const u8, "version", version_opt);
+
+    options.addOption(bool, "use_mimalloc", use_mimalloc);
 
     const yazap = b.dependency("yazap", .{});
     const fehler = b.dependency("fehler", .{});
@@ -32,7 +43,45 @@ pub fn build(b: *std.Build) void {
             .strip = strip,
         }),
     });
+    if (use_mimalloc) {
+        exe.root_module.link_libc = true;
+    }
     deps.applyTo(exe.root_module);
+
+    if (use_mimalloc) {
+        const mimalloc_src = b.dependency("mimalloc-src", .{});
+        const root = exe.root_module;
+
+        const translate_mi = b.addTranslateC(.{
+            .root_source_file = mimalloc_src.path("include/mimalloc.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        translate_mi.addIncludePath(mimalloc_src.path("include"));
+
+        root.addIncludePath(mimalloc_src.path("include"));
+        root.addCSourceFile(.{
+            .file = mimalloc_src.path("src/static.c"),
+            .flags = &.{"-Wno-error=date-time"},
+        });
+
+        if (target.result.isMuslLibC()) {
+            root.addCMacro("MI_LIBC_MUSL", "1");
+        }
+        switch (optimize) {
+            .ReleaseFast, .ReleaseSmall => root.addCMacro("NDEBUG", "1"),
+            .Debug, .ReleaseSafe => {},
+        }
+
+        const mimalloc_mod = b.createModule(.{
+            .root_source_file = b.path("src/mimalloc_allocator.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        mimalloc_mod.addImport("mi", translate_mi.createModule());
+        root.addImport("mimalloc_allocator", mimalloc_mod);
+    }
 
     b.installArtifact(exe);
 
