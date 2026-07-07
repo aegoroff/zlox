@@ -148,7 +148,7 @@ pub const LoxValue = struct {
     }
 
     pub inline fn asNative(self: LoxValue) NativeFn {
-        return @ptrCast(decodePtr(.native, self));
+        return @ptrCast(@alignCast(decodePtr(.native, self)));
     }
 
     pub fn print(self: LoxValue, writer: *std.Io.Writer) !void {
