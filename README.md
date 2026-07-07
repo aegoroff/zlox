@@ -113,11 +113,11 @@ Managed via `build.zig.zon`:
 - [fehler](https://github.com/ciathefed/fehler) — diagnostic reporting
 - [mimalloc](https://github.com/microsoft/mimalloc) — heap allocator (optional)
 
-## Known limitations
+## Reference test compatibility
 
-Two limit tests from the reference suite are not enforced yet:
+All runnable reference tests pass except two limit tests that are written for clox's smaller constant pool:
 
 - `test/limit/no_reuse_constants.lox`
 - `test/limit/too_many_constants.lox`
 
-All other runnable reference tests pass.
+Those tests expect a compile error, but zlox accepts the programs because it supports a larger constant table than clox.
