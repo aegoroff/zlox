@@ -33,9 +33,8 @@ open_upvalues: ?*val.Upvalue,
 
 pub const CallFrame = struct {
     closure: *val.Closure,
-    slots_offset: usize,
     slots: [*]LoxValue,
-    ip: usize = 0,
+    ip: [*]const u8,
 };
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
@@ -43,7 +42,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     @memset(stack, LoxValue.nil);
 
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
-    @memset(frames, CallFrame{ .closure = undefined, .slots_offset = 0, .slots = undefined, .ip = 0 });
+    @memset(frames, CallFrame{ .closure = undefined, .slots = undefined, .ip = undefined });
 
     var vm = VM{
         .allocator = gpa,
@@ -115,7 +114,8 @@ pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []co
     closure_ptr.* = try val.Closure.init(self.allocator, func);
     try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
-    if (!try self.call(1, closure_ptr, 0)) return err.Error.RuntimeError;
+    const script_ip = closure_ptr.function.chunk.code.items.ptr;
+    if (!try self.call(script_ip, closure_ptr, 0)) return err.Error.RuntimeError;
     try self.run();
     _ = self.pop();
 }
@@ -207,7 +207,11 @@ inline fn peek(self: *VM, distance: usize) LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
-inline fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!bool {
+inline fn stackIndex(self: *const VM, slots: [*]LoxValue) usize {
+    return (@intFromPtr(slots) - @intFromPtr(self.stack.ptr)) / @sizeOf(LoxValue);
+}
+
+inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usize) anyerror!bool {
     if (closure.function.arity != arg_count) {
         try self.errorAt(ip, "Expected {d} arguments but got {d}.", .{
             closure.function.arity,
@@ -220,17 +224,17 @@ inline fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) an
         return err.Error.RuntimeError;
     }
     const slots_offset = self.stack_top - arg_count - 1;
+    const function_chunk = &closure.function.chunk;
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
-        .slots_offset = slots_offset,
         .slots = @ptrCast(&self.stack[slots_offset]),
-        .ip = 0,
+        .ip = function_chunk.code.items.ptr,
     };
     self.frame_count += 1;
     return true;
 }
 
-inline fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
+inline fn invokeFromClass(self: *VM, ip: [*]const u8, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
     if (klass.methods.get(name)) |method| {
         return self.call(ip, method.asClosure(), arg_count);
     }
@@ -238,7 +242,7 @@ inline fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.He
     return err.Error.RuntimeError;
 }
 
-inline fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerror!bool {
+inline fn invoke(self: *VM, ip: [*]const u8, name: *val.HeapString, arg_count: usize) anyerror!bool {
     const receiver = self.peek(arg_count);
     const instance = receiver.tryInstance() catch {
         try self.errorAt(ip, "Only instances have methods.", .{});
@@ -253,7 +257,7 @@ inline fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) 
     return self.invokeFromClass(ip, instance.klass, name, arg_count);
 }
 
-inline fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!bool {
+inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usize) anyerror!bool {
     if (value.isClosure()) {
         return try self.call(ip, value.asClosure(), arg_count);
     }
@@ -365,8 +369,10 @@ inline fn chunk(self: *VM) *Chunk {
     return &self.frame().closure.function.chunk;
 }
 
-fn errorAt(self: *VM, ip: usize, comptime fmt: []const u8, args: anytype) !void {
-    const line = self.chunk().lines.items[ip];
+fn errorAt(self: *VM, ip: [*]const u8, comptime fmt: []const u8, args: anytype) !void {
+    const chunk_ptr = self.chunk();
+    const offset = chunk_ptr.offsetOf(ip);
+    const line = chunk_ptr.lines.items[offset];
     const message = try std.fmt.allocPrint(self.allocator, fmt, args);
     defer self.allocator.free(message);
     try self.compiler.?.reportErrorAt(line, 1, line, 1, message);
@@ -398,10 +404,10 @@ inline fn numberLess(a: LoxValue, b: LoxValue) bool {
     return l < r;
 }
 
-inline fn readFunctionConstant(code: *Chunk, ip: usize, constant_size: usize) *val.Function {
+inline fn readFunctionConstant(code: *Chunk, ip: [*]const u8, constant_size: usize) *val.Function {
     const value = switch (constant_size) {
-        CONST_SIZE => code.readConstant(ip),
-        CONST_LONG_SIZE => code.readConstantLong(ip),
+        CONST_SIZE => code.readConstantAt(ip, CONST_SIZE),
+        CONST_LONG_SIZE => code.readConstantAt(ip, CONST_LONG_SIZE),
         else => unreachable,
     };
     return value.asFunction();
@@ -423,11 +429,11 @@ fn opClosure(
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
 
     for (0..function.upvalue_count) |i| {
-        const is_local = current_chunk.readByte(current_frame.ip);
-        const index = current_chunk.readByte(current_frame.ip + 1);
+        const is_local = current_chunk.readByteAt(current_frame.ip);
+        const index = current_chunk.readByteAt(current_frame.ip + 1);
         current_frame.ip += 2;
         closure_ptr.upvalues[i] = if (is_local == 1)
-            try self.captureUpvalue(current_frame.slots_offset + index)
+            try self.captureUpvalue(self.stackIndex(current_frame.slots) + index)
         else
             closure.*.upvalues[index];
     }
@@ -483,7 +489,7 @@ inline fn opInvoke(
     constant_size: usize,
 ) !void {
     const name = try self.readStringConstant(current_frame.*.ip, constant_size);
-    const arg_count = current_chunk.readByte(current_frame.*.ip + constant_size);
+    const arg_count = current_chunk.readByteAt(current_frame.*.ip + constant_size);
     current_frame.*.ip += constant_size + 1;
     if (!try self.invoke(current_frame.*.ip, name, arg_count)) {
         try self.errorAt(current_frame.*.ip, "Invoke '{s}'' failed", .{name.data});
@@ -502,7 +508,7 @@ inline fn opSuperInvoke(
     constant_size: usize,
 ) !void {
     const name = try self.readStringConstant(current_frame.*.ip, constant_size);
-    const arg_count = current_chunk.readByte(current_frame.*.ip + constant_size);
+    const arg_count = current_chunk.readByteAt(current_frame.*.ip + constant_size);
     current_frame.*.ip += constant_size + 1;
     const super_class = try (self.pop()).tryClass();
 
@@ -544,32 +550,32 @@ pub fn run(self: *VM) !void {
     var slots = current_frame.slots;
 
     while (true) {
-        const opcode = current_chunk.readOpcode(current_frame.ip);
+        const opcode = current_chunk.readOpcodeAt(current_frame.ip);
         current_frame.ip += 1;
         switch (opcode) {
             .JumpIfFalse => {
-                const offset = current_chunk.readShort(current_frame.ip);
+                const offset = current_chunk.readShortAt(current_frame.ip);
                 current_frame.ip += 2;
                 if (self.peek(0).isFalsee()) {
                     current_frame.ip += offset;
                 }
             },
             .Jump => {
-                const offset = current_chunk.readShort(current_frame.ip);
+                const offset = current_chunk.readShortAt(current_frame.ip);
                 current_frame.ip += 2;
                 current_frame.ip += offset;
             },
             .Loop => {
-                const offset = current_chunk.readShort(current_frame.ip);
+                const offset = current_chunk.readShortAt(current_frame.ip);
                 current_frame.ip += 2;
                 current_frame.ip -= offset;
             },
             .Constant => {
-                try self.push(current_chunk.readConstant(current_frame.ip));
+                try self.push(current_chunk.readConstantAt(current_frame.ip, CONST_SIZE));
                 current_frame.ip += CONST_SIZE;
             },
             .ConstantLong => {
-                try self.push(current_chunk.readConstantLong(current_frame.ip));
+                try self.push(current_chunk.readConstantAt(current_frame.ip, CONST_LONG_SIZE));
                 current_frame.ip += CONST_LONG_SIZE;
             },
             .DefineGlobal => {
@@ -597,32 +603,32 @@ pub fn run(self: *VM) !void {
                 current_frame.ip += CONST_LONG_SIZE;
             },
             .GetLocal => {
-                const slot = current_chunk.readByte(current_frame.ip);
+                const slot = current_frame.ip[0];
                 current_frame.ip += 1;
                 try self.push(slots[slot]);
             },
             .GetLocalLong => {
-                const slot = current_chunk.readThreeBytes(current_frame.ip);
+                const slot = current_chunk.readThreeBytesAt(current_frame.ip);
                 current_frame.ip += CONST_LONG_SIZE;
                 try self.push(slots[slot]);
             },
             .SetLocal => {
-                const slot = current_chunk.readByte(current_frame.ip);
+                const slot = current_frame.ip[0];
                 current_frame.ip += 1;
                 slots[slot] = self.peek(0);
             },
             .SetLocalLong => {
-                const slot = current_chunk.readThreeBytes(current_frame.ip);
+                const slot = current_chunk.readThreeBytesAt(current_frame.ip);
                 current_frame.ip += CONST_LONG_SIZE;
                 slots[slot] = self.peek(0);
             },
             .GetUpvalue => {
-                const slot = current_chunk.readByte(current_frame.ip);
+                const slot = current_frame.ip[0];
                 current_frame.ip += 1;
                 try self.push(closure.upvalues[slot].get());
             },
             .SetUpvalue => {
-                const slot = current_chunk.readByte(current_frame.ip);
+                const slot = current_frame.ip[0];
                 current_frame.ip += 1;
                 closure.upvalues[slot].set(self.peek(0));
             },
@@ -741,7 +747,7 @@ pub fn run(self: *VM) !void {
             .Closure => try self.opClosure(current_frame, current_chunk, &closure, CONST_SIZE),
             .ClosureLong => try self.opClosure(current_frame, current_chunk, &closure, CONST_LONG_SIZE),
             .Call => {
-                const arg_count = current_chunk.readByte(current_frame.ip);
+                const arg_count = current_frame.ip[0];
                 current_frame.ip += 1;
                 const value = self.peek(arg_count);
                 if (!try self.callValue(current_frame.ip, value, arg_count)) {
@@ -785,7 +791,7 @@ pub fn run(self: *VM) !void {
                     return;
                 }
 
-                self.stack_top = current_frame.slots_offset;
+                self.stack_top = self.stackIndex(current_frame.slots);
                 try self.push(result);
                 syncFrame(self, &current_frame, &closure, &current_chunk, &slots);
             },
@@ -797,24 +803,25 @@ pub fn run(self: *VM) !void {
     }
 }
 
-inline fn readStringConstant(self: *VM, ip: usize, constant_size: usize) err.Error!*val.HeapString {
+inline fn readStringConstant(self: *VM, ip: [*]const u8, constant_size: usize) err.Error!*val.HeapString {
+    const chunk_ptr = self.chunk();
     const value = switch (constant_size) {
-        CONST_SIZE => self.chunk().readConstant(ip),
-        CONST_LONG_SIZE => self.chunk().readConstantLong(ip),
+        CONST_SIZE => chunk_ptr.readConstantAt(ip, CONST_SIZE),
+        CONST_LONG_SIZE => chunk_ptr.readConstantAt(ip, CONST_LONG_SIZE),
         else => return err.Error.CompileError,
     };
     if (!value.isString()) return err.Error.RuntimeError;
     return value.asString();
 }
 
-inline fn defineGlobal(self: *VM, ip: usize, constant_size: usize) !void {
+inline fn defineGlobal(self: *VM, ip: [*]const u8, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     const value = self.peek(0);
     _ = try self.setTrackedTable(&self.globals, name, value);
     _ = self.pop();
 }
 
-inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
+inline fn getGlobal(self: *VM, ip: [*]const u8, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     if (self.globals.get(name)) |constant_value| {
         try self.push(constant_value);
@@ -824,7 +831,7 @@ inline fn getGlobal(self: *VM, ip: usize, constant_size: usize) !void {
     }
 }
 
-inline fn setGlobal(self: *VM, ip: usize, constant_size: usize) !void {
+inline fn setGlobal(self: *VM, ip: [*]const u8, constant_size: usize) !void {
     const name = try self.readStringConstant(ip, constant_size);
     if (!self.globals.setExisting(name, self.peek(0))) {
         try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});

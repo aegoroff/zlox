@@ -163,6 +163,41 @@ pub inline fn readThreeBytes(self: *Chunk, offset: usize) usize {
     return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
 }
 
+pub inline fn offsetOf(self: *const Chunk, ip: [*]const u8) usize {
+    return @intFromPtr(ip) - @intFromPtr(self.code.items.ptr);
+}
+
+pub inline fn readOpcodeAt(_: *const Chunk, ip: [*]const u8) OpCode {
+    return @enumFromInt(ip[0]);
+}
+
+pub inline fn readByteAt(_: *const Chunk, ip: [*]const u8) u8 {
+    return ip[0];
+}
+
+pub inline fn readShortAt(_: *const Chunk, ip: [*]const u8) usize {
+    const op1: usize = ip[0];
+    const op2: usize = ip[1];
+    return op2 << 8 | op1;
+}
+
+pub inline fn readThreeBytesAt(_: *const Chunk, ip: [*]const u8) usize {
+    return @as(usize, ip[2]) << 16 | @as(usize, ip[1]) << 8 | ip[0];
+}
+
+pub inline fn getConstantIxAt(self: *const Chunk, ip: [*]const u8, constant_size: usize) usize {
+    return switch (constant_size) {
+        1 => ip[0],
+        3 => self.readThreeBytesAt(ip),
+        else => @panic("Invalid constant size"),
+    };
+}
+
+pub inline fn readConstantAt(self: *const Chunk, ip: [*]const u8, constant_size: usize) LoxValue {
+    const ix = self.getConstantIxAt(ip, constant_size);
+    return self.constants.items[ix];
+}
+
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
     try writer.print("{d:0>4} ", .{offset});
 
