@@ -207,7 +207,7 @@ inline fn peek(self: *VM, distance: usize) LoxValue {
     return self.stack[self.stack_top - 1 - distance];
 }
 
-fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!bool {
+inline fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!bool {
     if (closure.function.arity != arg_count) {
         try self.errorAt(ip, "Expected {d} arguments but got {d}.", .{
             closure.function.arity,
@@ -230,7 +230,7 @@ fn call(self: *VM, ip: usize, closure: *val.Closure, arg_count: usize) anyerror!
     return true;
 }
 
-fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
+inline fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
     if (klass.methods.get(name)) |method| {
         return self.call(ip, method.asClosure(), arg_count);
     }
@@ -238,7 +238,7 @@ fn invokeFromClass(self: *VM, ip: usize, klass: *val.Class, name: *val.HeapStrin
     return err.Error.RuntimeError;
 }
 
-fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerror!bool {
+inline fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerror!bool {
     const receiver = self.peek(arg_count);
     const instance = receiver.tryInstance() catch {
         try self.errorAt(ip, "Only instances have methods.", .{});
@@ -253,7 +253,7 @@ fn invoke(self: *VM, ip: usize, name: *val.HeapString, arg_count: usize) anyerro
     return self.invokeFromClass(ip, instance.klass, name, arg_count);
 }
 
-fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!bool {
+inline fn callValue(self: *VM, ip: usize, value: LoxValue, arg_count: usize) anyerror!bool {
     if (value.isClosure()) {
         return try self.call(ip, value.asClosure(), arg_count);
     }
@@ -343,7 +343,7 @@ fn defineMethod(self: *VM, name: *val.HeapString) !void {
     try self.adjustMapAllocation(old_capacity, klass.methods.capacity);
 }
 
-fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
+inline fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
     const instance = try (self.peek(0)).tryInstance();
     if (klass.methods.get(name)) |method| {
         _ = self.pop(); // instance
@@ -537,6 +537,7 @@ inline fn opMethod(self: *VM, current_frame: *CallFrame, constant_size: usize) !
 }
 
 pub fn run(self: *VM) !void {
+    @setEvalBranchQuota(10_000);
     var current_frame = &self.frames[self.frame_count - 1];
     var closure = current_frame.closure;
     var current_chunk = &closure.function.chunk;

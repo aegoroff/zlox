@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
         .options = options,
     };
 
-    const strip = optimize != .Debug;
+    const strip = b.option(bool, "strip", "Strip debug info from the binary") orelse (optimize != .Debug);
     const exe = b.addExecutable(.{
         .name = "zlox",
         .root_module = b.createModule(.{
