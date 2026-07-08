@@ -407,7 +407,7 @@ inline fn readFunctionConstant(code: *Chunk, ip: usize, constant_size: usize) *v
     return value.asFunction();
 }
 
-inline fn opClosure(
+fn opClosure(
     self: *VM,
     current_frame: *CallFrame,
     current_chunk: *Chunk,
