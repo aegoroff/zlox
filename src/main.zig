@@ -20,16 +20,16 @@ pub fn main(init: std.process.Init) !void {
         stdout_writer.flush() catch {};
     }
 
-    const allocator: std.mem.Allocator = if (build_options.use_mimalloc)
+    const gpa: std.mem.Allocator = if (build_options.use_mimalloc)
         @import("mimalloc_allocator").allocator
     else
         std.heap.c_allocator;
 
-    const args = try init.minimal.args.toSlice(allocator);
+    const args = try init.minimal.args.toSlice(gpa);
     if (builtin.mode == .Debug) {
-        try run(allocator, stdout_writer, io, args[1..]); // skip exe itself
+        try run(gpa, stdout_writer, io, args[1..]); // skip exe itself
     } else {
-        run(allocator, stdout_writer, io, args[1..]) catch |e| { // skip exe itself
+        run(gpa, stdout_writer, io, args[1..]) catch |e| { // skip exe itself
             stdout_writer.flush() catch {};
             std.process.exit(err.exitCode(e));
         };
