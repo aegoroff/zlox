@@ -7,11 +7,6 @@ const vm = @import("vm.zig");
 const err = @import("error.zig");
 const Io = std.Io;
 
-const allocator: std.mem.Allocator = if (build_options.use_mimalloc)
-    @import("mimalloc_allocator").allocator
-else
-    std.heap.c_allocator;
-
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
@@ -24,6 +19,11 @@ pub fn main(init: std.process.Init) !void {
     defer {
         stdout_writer.flush() catch {};
     }
+
+    const allocator: std.mem.Allocator = if (build_options.use_mimalloc)
+        @import("mimalloc_allocator").allocator
+    else
+        std.heap.c_allocator;
 
     const args = try init.minimal.args.toSlice(allocator);
     if (builtin.mode == .Debug) {
