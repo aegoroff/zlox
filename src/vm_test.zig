@@ -59,7 +59,7 @@ test "string not equal" {
     try std.testing.expectEqualStrings("true\n", writer.written());
 }
 
-test "string equal true" {
+test "short string equal true" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
@@ -68,6 +68,20 @@ test "string equal true" {
 
     // Act
     try virtualMachine.interpret("print (\"ab\" == \"ab\");", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("true\n", writer.written());
+}
+
+test "big string equal true" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print (\"abcdefg\" == \"abcdefg\");", false);
 
     // Assert
     try std.testing.expectEqualStrings("true\n", writer.written());
@@ -115,7 +129,7 @@ test "string greater or equal true" {
     try std.testing.expectEqualStrings("true\n", writer.written());
 }
 
-test "string less or equal false" {
+test "short string less or equal false" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();
@@ -124,6 +138,20 @@ test "string less or equal false" {
 
     // Act
     try virtualMachine.interpret("print (\"bba\" <= \"aaa\");", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("false\n", writer.written());
+}
+
+test "big string less or equal false" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    // Act
+    try virtualMachine.interpret("print (\"bbaaaa\" <= \"aaaaaa\");", false);
 
     // Assert
     try std.testing.expectEqualStrings("false\n", writer.written());
