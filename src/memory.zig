@@ -209,11 +209,14 @@ pub const Heap = struct {
     }
 
     pub fn markTable(self: *Heap, table: *const Table) !void {
-        if (table.capacity == 0) return;
+        if (table.count == 0) return;
+        var found: usize = 0;
         for (table.entries) |entry| {
             if (entry.key) |key| {
                 try self.markObject(.{ .string = key });
                 try self.markValue(entry.value);
+                found += 1;
+                if (found == table.count) return;
             }
         }
     }
