@@ -1,0 +1,30 @@
+ver := "0.1.0"
+target := "x86_64-linux-musl"
+cpu := "native"
+
+build optimize = "ReleaseFast":
+  zig build  -Doptimize={{optimize}} -Dtarget={{target}} --summary all -Dcpu={{cpu}} -Dversion={{ver}}
+
+test optimize = "ReleaseFast":
+  zig build test -Doptimize={{optimize}} -Dtarget={{target}} --summary all -Dcpu={{cpu}} -Dversion={{ver}}
+
+all optimize = "ReleaseFast": (build optimize) (test optimize)
+
+build_all optimize = "ReleaseFast" version = "0.1.0":
+    #!/usr/bin/env bash
+    rm -rf ./zig-out/*.tar.gz
+    rm -rf ./zig-out/bin-*
+    for target in \
+        "x86_64-linux-musl haswell" \
+        "aarch64-linux-musl generic" \
+        "x86_64-macos-none haswell" \
+        "aarch64-macos-none apple_m1" \
+        "x86_64-windows-gnu haswell" \
+        "aarch64-windows-gnu generic"
+    do
+        set -- $target
+        ARCH_OS_ABI=$1
+        CPU=$2
+        echo "Building for $ARCH_OS_ABI ($CPU)..."
+        zig build -Doptimize={{optimize}} -Dtarget="$ARCH_OS_ABI" -Dversion="{{version}}" --summary all -Dcpu="$CPU" --prefix-exe-dir "bin-$ARCH_OS_ABI"
+    done
