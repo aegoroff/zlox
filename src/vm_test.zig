@@ -1705,7 +1705,7 @@ test "gc deep linked instance chain survives collection" {
         \\}
         \\var i = 0;
         \\while (i < 5000) {
-        \\  var s = "aaaa" + "bbbb";
+        \\  var s = "aaaaaaa" + "bbbbbbb";
         \\  i = i + 1;
         \\}
         \\var node = head;
