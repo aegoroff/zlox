@@ -655,12 +655,12 @@ pub fn run(self: *VM) !void {
                 try self.push(LoxValue.boolean(!lt and !a.equal(b)));
             },
             .Negate => {
-                const value = self.pop();
+                const value = self.peek(0);
                 if (!value.isNumber()) {
                     try self.errorAt(cursor.frame.ip, "Operand must be a number.", .{});
                     return err.Error.RuntimeError;
                 }
-                try self.push(LoxValue.number(-value.asNumber()));
+                self.stack[self.stack_top - 1] = LoxValue.number(-value.asNumber());
             },
             .Not => {
                 const value = self.pop();
