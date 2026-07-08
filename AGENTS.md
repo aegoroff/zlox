@@ -33,13 +33,13 @@
 ## Build & Test Commands
 ```bash
 # Build
-zig build
+just build Debug
 
 # Run tests
-zig build test --summary all
+just test Debug
 
 # Build release
-zig build -Doptimize=ReleaseFast
+just build
 ```
 
 ## Important Notes
