@@ -631,7 +631,7 @@ pub fn run(self: *VM) !void {
                 if (a.isNumber() and b.isNumber()) {
                     try self.push(LoxValue.boolean(numberLess(a, b)));
                 } else if (a.isString() and b.isString()) {
-                    try self.push(LoxValue.boolean(std.mem.lessThan(u8, a.asString().data, b.asString().data)));
+                    try self.push(LoxValue.boolean(LoxValue.stringsLess(a, b)));
                 } else if (a.isBool() and b.isBool()) {
                     try self.push(LoxValue.boolean(!a.asBool() and b.asBool()));
                 } else {
@@ -645,7 +645,7 @@ pub fn run(self: *VM) !void {
                 const lt = if (a.isNumber() and b.isNumber())
                     numberLess(a, b)
                 else if (a.isString() and b.isString())
-                    std.mem.lessThan(u8, a.asString().data, b.asString().data)
+                    LoxValue.stringsLess(a, b)
                 else if (a.isBool() and b.isBool())
                     !a.asBool() and b.asBool()
                 else {
@@ -675,17 +675,26 @@ pub fn run(self: *VM) !void {
                     _ = self.pop();
                     try self.push(LoxValue.number(a.asNumber() + b.asNumber()));
                 } else if (a.isString() and b.isString()) {
-                    const as = a.asString();
-                    const bs = b.asString();
-                    const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as.data, bs.data });
-                    const hash = tbl.hashString(result);
-                    const heap_str = if (self.strings.findString(result, hash)) |existing| blk: {
-                        self.allocator.free(result);
-                        break :blk existing;
-                    } else try self.takeString(result, hash);
+                    var buf_a: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
+                    var buf_b: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
+                    const as = a.stringBytes(&buf_a);
+                    const bs = b.stringBytes(&buf_b);
                     _ = self.pop();
                     _ = self.pop();
-                    try self.push(LoxValue.string(heap_str));
+                    if (as.len + bs.len <= val.SHORT_STRING_MAX_LEN) {
+                        var combined: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
+                        @memcpy(combined[0..as.len], as);
+                        @memcpy(combined[as.len..][0..bs.len], bs);
+                        try self.push(LoxValue.shortString(combined[0 .. as.len + bs.len]));
+                    } else {
+                        const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
+                        const hash = tbl.hashString(result);
+                        const heap_str = if (self.strings.findString(result, hash)) |existing| blk: {
+                            self.allocator.free(result);
+                            break :blk existing;
+                        } else try self.takeString(result, hash);
+                        try self.push(LoxValue.string(heap_str));
+                    }
                 } else {
                     try self.errorAt(cursor.frame.ip, "Operands must be two numbers or two strings.", .{});
                     return err.Error.RuntimeError;
@@ -795,7 +804,7 @@ inline fn readStringConstant(self: *VM, ip: [*]const u8, constant_size: usize) e
         CONST_LONG_SIZE => chunk_ptr.readConstantAt(ip, CONST_LONG_SIZE),
         else => return err.Error.CompileError,
     };
-    if (!value.isString()) return err.Error.RuntimeError;
+    if (!value.isHeapString()) return err.Error.RuntimeError;
     return value.asString();
 }
 

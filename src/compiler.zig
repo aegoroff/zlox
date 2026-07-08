@@ -383,8 +383,13 @@ fn number(self: *Compiler) !void {
 
 fn string(self: *Compiler) !void {
     const s = self.lexeme(&self.parser.previous);
-    const interned = try self.internCompileString(s[1 .. s.len - 1]); // trimming quotes
-    _ = try self.emitConstant(LoxValue.string(interned));
+    const content = s[1 .. s.len - 1];
+    if (content.len <= val.SHORT_STRING_MAX_LEN) {
+        _ = try self.emitConstant(LoxValue.shortString(content));
+    } else {
+        const interned = try self.internCompileString(content);
+        _ = try self.emitConstant(LoxValue.string(interned));
+    }
 }
 
 fn variable(self: *Compiler, can_assign: bool) !void {

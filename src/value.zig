@@ -16,6 +16,8 @@ const BOXED_MASK: u64 = SIGN_BIT | QNAN;
 const PTR_TYPE_MASK: u64 = 0x7;
 const PTR_MASK: u64 = 0x0000_ffff_ffff_fff8;
 
+pub const SHORT_STRING_MAX_LEN: usize = 5;
+
 const ObjTag = enum(u4) {
     string = 0,
     function = 1,
@@ -24,6 +26,7 @@ const ObjTag = enum(u4) {
     instance = 4,
     bound_method = 5,
     native = 6,
+    short_string = 7,
 };
 
 pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) err.Error!LoxValue;
@@ -39,6 +42,17 @@ pub const LoxValue = struct {
 
     pub inline fn number(n: f64) LoxValue {
         return .{ .raw = @as(u64, @bitCast(n)) };
+    }
+
+    pub inline fn shortString(bytes: []const u8) LoxValue {
+        std.debug.assert(bytes.len <= SHORT_STRING_MAX_LEN);
+        var payload: u64 = @intFromEnum(ObjTag.short_string);
+        var i: usize = 0;
+        while (i < bytes.len) : (i += 1) {
+            payload |= @as(u64, bytes[i]) << @intCast(7 + i * 8);
+        }
+        payload |= @as(u64, bytes.len) << 3;
+        return .{ .raw = BOXED_MASK | payload };
     }
 
     pub inline fn string(s: *HeapString) LoxValue {
@@ -87,8 +101,16 @@ pub const LoxValue = struct {
         return (self.raw & BOXED_MASK) == BOXED_MASK;
     }
 
-    pub inline fn isString(self: LoxValue) bool {
+    pub inline fn isHeapString(self: LoxValue) bool {
         return isBoxed(self) and objTag(self) == .string;
+    }
+
+    pub inline fn isShortString(self: LoxValue) bool {
+        return isBoxed(self) and objTag(self) == .short_string;
+    }
+
+    pub inline fn isString(self: LoxValue) bool {
+        return self.isHeapString() or self.isShortString();
     }
 
     pub inline fn isFunction(self: LoxValue) bool {
@@ -125,6 +147,46 @@ pub const LoxValue = struct {
 
     pub inline fn asString(self: LoxValue) *HeapString {
         return @ptrCast(@alignCast(decodePtr(.string, self)));
+    }
+
+    pub inline fn shortStringLen(self: LoxValue) usize {
+        std.debug.assert(self.isShortString());
+        return @intCast((self.raw >> 3) & 0xF);
+    }
+
+    pub fn shortStringChars(self: LoxValue, buf: *[SHORT_STRING_MAX_LEN]u8) []const u8 {
+        const len = self.shortStringLen();
+        var i: usize = 0;
+        while (i < len) : (i += 1) {
+            buf[i] = @intCast((self.raw >> @intCast(7 + i * 8)) & 0xFF);
+        }
+        return buf[0..len];
+    }
+
+    pub fn stringBytes(self: LoxValue, storage: *[SHORT_STRING_MAX_LEN]u8) []const u8 {
+        if (self.isShortString()) return self.shortStringChars(storage);
+        return self.asString().data;
+    }
+
+    pub fn stringLen(self: LoxValue) usize {
+        if (self.isShortString()) return self.shortStringLen();
+        return self.asString().data.len;
+    }
+
+    pub fn stringsEqual(a: LoxValue, b: LoxValue) bool {
+        var buf_a: [SHORT_STRING_MAX_LEN]u8 = undefined;
+        var buf_b: [SHORT_STRING_MAX_LEN]u8 = undefined;
+        const as = a.stringBytes(&buf_a);
+        const bs = b.stringBytes(&buf_b);
+        return std.mem.eql(u8, as, bs);
+    }
+
+    pub fn stringsLess(a: LoxValue, b: LoxValue) bool {
+        var buf_a: [SHORT_STRING_MAX_LEN]u8 = undefined;
+        var buf_b: [SHORT_STRING_MAX_LEN]u8 = undefined;
+        const as = a.stringBytes(&buf_a);
+        const bs = b.stringBytes(&buf_b);
+        return std.mem.lessThan(u8, as, bs);
     }
 
     pub inline fn asFunction(self: LoxValue) *Function {
@@ -164,7 +226,8 @@ pub const LoxValue = struct {
                 try writer.print("{d}", .{n});
             }
         } else if (self.isString()) {
-            try writer.print("{s}", .{self.asString().data});
+            var buf: [SHORT_STRING_MAX_LEN]u8 = undefined;
+            try writer.print("{s}", .{self.stringBytes(&buf)});
         } else if (self.isFunction()) {
             const f = self.asFunction();
             try writer.print("<{s}>", .{f.name orelse "script"});
@@ -189,9 +252,9 @@ pub const LoxValue = struct {
         return self.asNumber();
     }
 
-    pub fn tryString(self: LoxValue) err.Error![]const u8 {
+    pub fn tryString(self: LoxValue, storage: *[SHORT_STRING_MAX_LEN]u8) err.Error![]const u8 {
         if (!self.isString()) return err.Error.RuntimeError;
-        return self.asString().data;
+        return self.stringBytes(storage);
     }
 
     pub fn tryInstance(self: LoxValue) err.Error!*Instance {
@@ -222,6 +285,9 @@ pub const LoxValue = struct {
             if (std.math.isNan(l) or std.math.isNan(r)) return false;
             return @abs(l - r) < ERROR_MARGIN;
         }
+        if (self.isString() and other.isString()) {
+            return stringsEqual(self, other);
+        }
         return self.raw == other.raw;
     }
 
@@ -233,7 +299,7 @@ pub const LoxValue = struct {
             return l < r;
         }
         if (self.isString() and other.isString()) {
-            return std.mem.lessThan(u8, self.asString().data, other.asString().data);
+            return stringsLess(self, other);
         }
         if (self.isBool() and other.isBool()) {
             return !self.asBool() and other.asBool();
@@ -426,6 +492,29 @@ pub const BoundMethod = struct {
         };
     }
 };
+
+test "short string round trip" {
+    const bytes = "hi";
+    const value = LoxValue.shortString(bytes);
+    try std.testing.expect(value.isShortString());
+    try std.testing.expect(value.isString());
+    try std.testing.expect(!value.isHeapString());
+
+    var buf: [SHORT_STRING_MAX_LEN]u8 = undefined;
+    try std.testing.expectEqualStrings(bytes, value.stringBytes(&buf));
+    try std.testing.expect(LoxValue.stringsEqual(value, LoxValue.shortString("hi")));
+    try std.testing.expect(LoxValue.stringsEqual(value, value));
+}
+
+test "short string compares with heap string" {
+    const heap = try HeapString.init(std.testing.allocator, "ab");
+    defer std.testing.allocator.destroy(heap);
+    heap.data = "ab";
+
+    const short = LoxValue.shortString("ab");
+    const long = LoxValue.string(heap);
+    try std.testing.expect(LoxValue.stringsEqual(short, long));
+}
 
 test "LoxValue is 8 bytes" {
     try std.testing.expectEqual(@as(usize, 8), @sizeOf(LoxValue));

@@ -193,7 +193,7 @@ pub const Heap = struct {
     }
 
     pub fn markValue(self: *Heap, value: LoxValue) !void {
-        if (value.isString()) {
+        if (value.isHeapString()) {
             try self.markObject(.{ .string = value.asString() });
         } else if (value.isFunction()) {
             try self.markObject(.{ .function = value.asFunction() });
