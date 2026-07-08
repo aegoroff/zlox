@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const gpa: std.mem.Allocator = if (build_options.use_mimalloc)
-        @import("mimalloc_allocator").allocator
+        @import("mimalloc").allocator
     else
         std.heap.c_allocator;
 

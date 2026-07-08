@@ -49,7 +49,6 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
-        translate_mi.addIncludePath(mimalloc_src.path("include"));
 
         root.addIncludePath(mimalloc_src.path("include"));
         root.addCSourceFile(.{
@@ -66,13 +65,13 @@ pub fn build(b: *std.Build) void {
         }
 
         const mimalloc_mod = b.createModule(.{
-            .root_source_file = b.path("src/mimalloc_allocator.zig"),
+            .root_source_file = b.path("src/mimalloc/allocator.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
         });
         mimalloc_mod.addImport("mi", translate_mi.createModule());
-        root.addImport("mimalloc_allocator", mimalloc_mod);
+        root.addImport("mimalloc", mimalloc_mod);
     }
 
     b.installArtifact(exe);
