@@ -415,8 +415,8 @@ fn opClosure(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
 
     for (0..function.upvalue_count) |i| {
-        const is_local = cursor.chunk.readByteAt(cursor.frame.ip);
-        const index = cursor.chunk.readByteAt(cursor.frame.ip + 1);
+        const is_local = Chunk.readByteAt(cursor.frame.ip);
+        const index = Chunk.readByteAt(cursor.frame.ip + 1);
         cursor.frame.ip += 2;
         closure_ptr.upvalues[i] = if (is_local == 1)
             try self.captureUpvalue(self.stackIndex(cursor.frame.slots) + index)
@@ -467,7 +467,7 @@ inline fn opGetProperty(self: *VM, current_frame: *CallFrame, constant_size: usi
 
 inline fn opInvoke(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
     const name = try self.readStringConstant(cursor.frame.ip, constant_size);
-    const arg_count = cursor.chunk.readByteAt(cursor.frame.ip + constant_size);
+    const arg_count = Chunk.readByteAt(cursor.frame.ip + constant_size);
     cursor.frame.ip += constant_size + 1;
     if (!try self.invoke(cursor.frame.ip, name, arg_count)) {
         try self.errorAt(cursor.frame.ip, "Invoke '{s}'' failed", .{name.data});
@@ -478,7 +478,7 @@ inline fn opInvoke(self: *VM, cursor: *FrameCursor, constant_size: usize) !void 
 
 inline fn opSuperInvoke(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
     const name = try self.readStringConstant(cursor.frame.ip, constant_size);
-    const arg_count = cursor.chunk.readByteAt(cursor.frame.ip + constant_size);
+    const arg_count = Chunk.readByteAt(cursor.frame.ip + constant_size);
     cursor.frame.ip += constant_size + 1;
     const super_class = try (self.pop()).tryClass();
 
@@ -517,23 +517,23 @@ pub fn run(self: *VM) !void {
     var cursor = FrameCursor.fromVm(self);
 
     while (true) {
-        const opcode = cursor.chunk.readOpcodeAt(cursor.frame.ip);
+        const opcode = Chunk.readOpcodeAt(cursor.frame.ip);
         cursor.frame.ip += 1;
         switch (opcode) {
             .JumpIfFalse => {
-                const offset = cursor.chunk.readShortAt(cursor.frame.ip);
+                const offset = Chunk.readShortAt(cursor.frame.ip);
                 cursor.frame.ip += 2;
                 if (self.peek(0).isFalsee()) {
                     cursor.frame.ip += offset;
                 }
             },
             .Jump => {
-                const offset = cursor.chunk.readShortAt(cursor.frame.ip);
+                const offset = Chunk.readShortAt(cursor.frame.ip);
                 cursor.frame.ip += 2;
                 cursor.frame.ip += offset;
             },
             .Loop => {
-                const offset = cursor.chunk.readShortAt(cursor.frame.ip);
+                const offset = Chunk.readShortAt(cursor.frame.ip);
                 cursor.frame.ip += 2;
                 cursor.frame.ip -= offset;
             },
@@ -570,32 +570,32 @@ pub fn run(self: *VM) !void {
                 cursor.frame.ip += Chunk.OPERAND_LONG;
             },
             .GetLocal => {
-                const slot = cursor.frame.ip[0];
+                const slot = Chunk.readByteAt(cursor.frame.ip);
                 cursor.frame.ip += Chunk.OPERAND_SHORT;
                 try self.push(cursor.slots[slot]);
             },
             .GetLocalLong => {
-                const slot = cursor.chunk.readThreeBytesAt(cursor.frame.ip);
+                const slot = Chunk.readThreeBytesAt(cursor.frame.ip);
                 cursor.frame.ip += Chunk.OPERAND_LONG;
                 try self.push(cursor.slots[slot]);
             },
             .SetLocal => {
-                const slot = cursor.frame.ip[0];
+                const slot = Chunk.readByteAt(cursor.frame.ip);
                 cursor.frame.ip += Chunk.OPERAND_SHORT;
                 cursor.slots[slot] = self.peek(0);
             },
             .SetLocalLong => {
-                const slot = cursor.chunk.readThreeBytesAt(cursor.frame.ip);
+                const slot = Chunk.readThreeBytesAt(cursor.frame.ip);
                 cursor.frame.ip += Chunk.OPERAND_LONG;
                 cursor.slots[slot] = self.peek(0);
             },
             .GetUpvalue => {
-                const slot = cursor.frame.ip[0];
+                const slot = Chunk.readByteAt(cursor.frame.ip);
                 cursor.frame.ip += 1;
                 try self.push(cursor.closure.upvalues[slot].get());
             },
             .SetUpvalue => {
-                const slot = cursor.frame.ip[0];
+                const slot = Chunk.readByteAt(cursor.frame.ip);
                 cursor.frame.ip += 1;
                 cursor.closure.upvalues[slot].set(self.peek(0));
             },
@@ -712,7 +712,7 @@ pub fn run(self: *VM) !void {
             .Closure => try self.opClosure(&cursor, Chunk.OPERAND_SHORT),
             .ClosureLong => try self.opClosure(&cursor, Chunk.OPERAND_LONG),
             .Call => {
-                const arg_count = cursor.frame.ip[0];
+                const arg_count = Chunk.readByteAt(cursor.frame.ip);
                 cursor.frame.ip += 1;
                 const value = self.peek(arg_count);
                 if (!try self.callValue(cursor.frame.ip, value, arg_count)) {
