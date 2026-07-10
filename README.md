@@ -90,6 +90,8 @@ Adjust the clox path inside `bench.sh` if needed.
 
 ```
 src/
+  mimalloc/
+    allocator.zig    mimalloc integration
   main.zig           Entry point and file/stdin handling
   configuration.zig  CLI parsing (yazap)
   scanner.zig        Lexer
@@ -101,7 +103,6 @@ src/
   table.zig          Hash table for globals and methods
   builtin.zig        Native functions
   error.zig          Error types and exit codes
-  mimalloc_allocator.zig  mimalloc integration
   vm_test.zig        VM integration tests
 ```
 
