@@ -192,7 +192,7 @@ pub inline fn readThreeBytesAt(ip: [*]const u8) usize {
 
 inline fn getConstantIxAt(ip: [*]const u8, constant_size: usize) usize {
     return switch (constant_size) {
-        OPERAND_SHORT => ip[0],
+        OPERAND_SHORT => readByteAt(ip),
         OPERAND_LONG => readThreeBytesAt(ip),
         else => @panic("Invalid constant size"),
     };
