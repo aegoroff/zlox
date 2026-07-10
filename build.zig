@@ -20,12 +20,21 @@ pub fn build(b: *std.Build) void {
     const yazap = b.dependency("yazap", .{});
     const fehler = b.dependency("fehler", .{});
 
+    const options_mod = options.createModule();
+
     const deps = ModuleDeps{
-        .b = b,
         .yazap = yazap,
         .fehler = fehler,
-        .options = options,
+        .options_mod = options_mod,
     };
+
+    const zlox_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    deps.applyTo(zlox_mod);
 
     const strip = b.option(bool, "strip", "Strip debug info from the binary") orelse (optimize != .Debug);
     const exe = b.addExecutable(.{
@@ -38,7 +47,8 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         }),
     });
-    deps.applyTo(exe.root_module);
+    exe.root_module.addImport("zlox", zlox_mod);
+    exe.root_module.addImport("build_options", options_mod);
 
     if (use_mimalloc) {
         const mimalloc_src = b.dependency("mimalloc-src", .{});
@@ -89,33 +99,26 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    // Creates an executable that will run `test` blocks from the executable's
-    // root module. Note that test executables only test one module at a time,
-    // hence why we have to create two separate ones.
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
+    // Runs `test` blocks from the zlox library module (compiler, vm, scanner, …).
+    const zlox_tests = b.addTest(.{
+        .root_module = zlox_mod,
     });
 
-    // A run step that will run the second test executable.
-    const run_exe_tests = b.addRunArtifact(exe_tests);
+    const run_zlox_tests = b.addRunArtifact(zlox_tests);
 
-    // A top level step for running all tests. dependOn can be called multiple
-    // times and since the two run steps do not depend on one another, this will
-    // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_zlox_tests.step);
 }
 
 const ModuleDeps = struct {
-    b: *std.Build,
     yazap: *std.Build.Dependency,
     fehler: *std.Build.Dependency,
-    options: *std.Build.Step.Options,
+    options_mod: *std.Build.Module,
 
     fn applyTo(self: ModuleDeps, mod: *std.Build.Module) void {
         mod.addImport("yazap", self.yazap.module("yazap"));
         mod.addImport("fehler", self.fehler.module("fehler"));
-        mod.addImport("build_options", self.options.createModule());
+        mod.addImport("build_options", self.options_mod);
     }
 };
 

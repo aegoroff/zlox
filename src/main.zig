@@ -1,10 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
-const configuration = @import("configuration.zig");
-const yazap = @import("yazap");
-const vm = @import("vm.zig");
-const err = @import("error.zig");
+const zlox = @import("zlox");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
@@ -31,13 +28,13 @@ pub fn main(init: std.process.Init) !void {
     } else {
         run(gpa, stdout_writer, io, args[1..]) catch |e| { // skip exe itself
             stdout_writer.flush() catch {};
-            std.process.exit(err.exitCode(e));
+            std.process.exit(zlox.exitCode(e));
         };
     }
 }
 
 pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
-    var config = try configuration.Config.init(gpa, io, argv);
+    var config = try zlox.Config.init(gpa, io, argv);
     defer config.deinit();
     var memory = std.Io.Writer.Allocating.init(gpa);
     defer memory.deinit();
@@ -56,7 +53,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
         _ = try stdin_reader.interface.streamRemaining(&memory.writer);
     }
 
-    var virtualMachine = try vm.init(gpa, writer, io);
+    var virtualMachine = try zlox.VM.init(gpa, writer, io);
     defer virtualMachine.deinit();
     const from = if (filename.len == 0) "<stdin>" else filename;
     try virtualMachine.interpretFrom(memory.written(), config.printCode(), from);
