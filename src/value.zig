@@ -304,7 +304,12 @@ pub const LoxValue = struct {
         if (self.isBool() and other.isBool()) {
             return !self.asBool() and other.asBool();
         }
-        return err.Error.CompileError;
+        return err.Error.RuntimeError;
+    }
+
+    pub inline fn greaterThan(self: LoxValue, other: LoxValue) err.Error!bool {
+        const lt = try self.less(other);
+        return !lt and !self.equal(other);
     }
 
     inline fn fromTaggedPtr(comptime tag: ObjTag, ptr: anytype) LoxValue {

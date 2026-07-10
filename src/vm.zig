@@ -405,13 +405,6 @@ const FrameCursor = struct {
     }
 };
 
-inline fn numberLess(a: LoxValue, b: LoxValue) bool {
-    const l = a.asNumber();
-    const r = b.asNumber();
-    if (std.math.isNan(l) or std.math.isNan(r)) return false;
-    return l < r;
-}
-
 fn opClosure(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
     const function = cursor.chunk.readConstantAt(cursor.frame.ip, constant_size).asFunction();
     cursor.frame.ip += constant_size;
@@ -597,31 +590,20 @@ pub fn run(self: *VM) !void {
             .Less => {
                 const b = self.pop();
                 const a = self.pop();
-                if (a.isNumber() and b.isNumber()) {
-                    try self.push(LoxValue.boolean(numberLess(a, b)));
-                } else if (a.isString() and b.isString()) {
-                    try self.push(LoxValue.boolean(LoxValue.stringsLess(a, b)));
-                } else if (a.isBool() and b.isBool()) {
-                    try self.push(LoxValue.boolean(!a.asBool() and b.asBool()));
-                } else {
+                const result = a.less(b) catch {
                     try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
-                }
+                };
+                try self.push(LoxValue.boolean(result));
             },
             .Greater => {
                 const b = self.pop();
                 const a = self.pop();
-                const lt = if (a.isNumber() and b.isNumber())
-                    numberLess(a, b)
-                else if (a.isString() and b.isString())
-                    LoxValue.stringsLess(a, b)
-                else if (a.isBool() and b.isBool())
-                    !a.asBool() and b.asBool()
-                else {
+                const result = a.greaterThan(b) catch {
                     try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 };
-                try self.push(LoxValue.boolean(!lt and !a.equal(b)));
+                try self.push(LoxValue.boolean(result));
             },
             .Negate => {
                 const value = self.peek(0);
