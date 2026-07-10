@@ -171,39 +171,6 @@ pub fn disassembly(self: *Chunk, writer: *std.Io.Writer, name: ?[]const u8) !voi
     }
 }
 
-pub inline fn readOpcode(self: *Chunk, offset: usize) OpCode {
-    const byte = self.readByte(offset);
-    return @enumFromInt(byte);
-}
-
-pub inline fn readByte(self: *Chunk, offset: usize) u8 {
-    return self.code.items[offset];
-}
-
-pub inline fn readShort(self: *Chunk, offset: usize) usize {
-    const op1: usize = @intCast(self.readByte(offset)); // first operand defines constant index in the constant's vector
-    const op2: usize = @intCast(self.readByte(offset + 1)); // second operand defines constant index in the constant's vector
-    return op2 << 8 | op1;
-}
-
-pub inline fn readConstant(self: *Chunk, offset: usize) LoxValue {
-    const ix = self.getConstantIx(offset, 1);
-    return self.constants.items[ix];
-}
-
-pub inline fn readConstantLong(self: *Chunk, offset: usize) LoxValue {
-    const ix = self.getConstantIx(offset, 3);
-    return self.constants.items[ix];
-}
-
-pub inline fn readThreeBytes(self: *Chunk, offset: usize) usize {
-    const op1: usize = self.readByte(offset); // first operand defines constant index in the constant's vector
-    const op2 = self.readByte(offset + 1); // second operand defines constant index in the constant's vector
-    const op3 = self.readByte(offset + 2); // third operand defines constant index in the constant's vector
-
-    return @as(usize, @intCast(op3)) << 16 | @as(usize, @intCast(op2)) << 8 | op1;
-}
-
 pub inline fn offsetOf(self: *const Chunk, ip: [*]const u8) usize {
     return @intFromPtr(ip) - @intFromPtr(self.code.items.ptr);
 }
@@ -236,8 +203,8 @@ pub inline fn readSlotAt(self: *const Chunk, ip: [*]const u8, operand_size: usiz
 
 pub inline fn getConstantIxAt(self: *const Chunk, ip: [*]const u8, constant_size: usize) usize {
     return switch (constant_size) {
-        1 => ip[0],
-        3 => self.readThreeBytesAt(ip),
+        OPERAND_SHORT => ip[0],
+        OPERAND_LONG => self.readThreeBytesAt(ip),
         else => @panic("Invalid constant size"),
     };
 }
@@ -245,6 +212,30 @@ pub inline fn getConstantIxAt(self: *const Chunk, ip: [*]const u8, constant_size
 pub inline fn readConstantAt(self: *const Chunk, ip: [*]const u8, constant_size: usize) LoxValue {
     const ix = self.getConstantIxAt(ip, constant_size);
     return self.constants.items[ix];
+}
+
+inline fn ipAt(self: *const Chunk, offset: usize) [*]const u8 {
+    return self.code.items.ptr + offset;
+}
+
+inline fn readOpcode(self: *const Chunk, offset: usize) OpCode {
+    return self.readOpcodeAt(self.ipAt(offset));
+}
+
+inline fn readByte(self: *const Chunk, offset: usize) u8 {
+    return self.readByteAt(self.ipAt(offset));
+}
+
+inline fn readShort(self: *const Chunk, offset: usize) usize {
+    return self.readShortAt(self.ipAt(offset));
+}
+
+inline fn readThreeBytes(self: *const Chunk, offset: usize) usize {
+    return self.readThreeBytesAt(self.ipAt(offset));
+}
+
+inline fn getConstantIx(self: *const Chunk, offset: usize, constant_size: usize) usize {
+    return self.getConstantIxAt(self.ipAt(offset), constant_size);
 }
 
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
@@ -408,14 +399,6 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
         current_offset += 2;
     }
     return current_offset;
-}
-
-inline fn getConstantIx(self: *Chunk, offset: usize, constant_size: usize) usize {
-    return switch (constant_size) {
-        1 => self.readByte(offset),
-        3 => self.readThreeBytes(offset),
-        else => @panic("Invalid constant size"),
-    };
 }
 
 fn intoThreeBytes(val: usize) [3]u8 {
