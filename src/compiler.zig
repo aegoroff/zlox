@@ -276,13 +276,8 @@ fn emitOperand(self: *Compiler, value: usize) !void {
     try self.currentChunk().writeOperand(value, self.parser.previous.line);
 }
 
-fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, long_op: Chunk.OpCode, ix: usize) !void {
-    if (ix > Chunk.MAX_SHORT_VALUE) {
-        try self.emitOpcode(long_op);
-    } else {
-        try self.emitOpcode(short_op);
-    }
-    try self.emitOperand(ix);
+fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, ix: usize) !void {
+    try self.currentChunk().writeIndexedOpcode(short_op, ix, self.parser.previous.line);
 }
 
 fn emitLoop(self: *Compiler, loopStart: usize) !void {
@@ -424,11 +419,11 @@ fn super_(self: *Compiler) !void {
     if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
         try self.namedVariable(&syntheticToken("super"), false);
-        try self.emitConstantOpcode(.SuperInvoke, .SuperInvokeLong, name);
+        try self.emitConstantOpcode(.SuperInvoke, name);
         try self.emitOperand(arg_count);
     } else {
         try self.namedVariable(&syntheticToken("super"), false);
-        try self.emitConstantOpcode(.GetSuper, .GetSuperLong, name);
+        try self.emitConstantOpcode(.GetSuper, name);
     }
 }
 
@@ -460,32 +455,10 @@ fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !v
 
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        if (arg.? > Chunk.MAX_SHORT_VALUE) {
-            if (setOp == .SetGlobal) {
-                try self.emitOpcode(.SetGlobalLong);
-            } else if (setOp == .SetLocal) {
-                try self.emitOpcode(.SetLocalLong);
-            } else {
-                try self.emitOpcode(setOp);
-            }
-        } else {
-            try self.emitOpcode(setOp);
-        }
+        try self.currentChunk().writeIndexedOpcode(setOp, arg.?, self.parser.previous.line);
     } else {
-        if (arg.? > Chunk.MAX_SHORT_VALUE) {
-            if (getOp == .GetGlobal) {
-                try self.emitOpcode(.GetGlobalLong);
-            } else if (getOp == .GetLocal) {
-                try self.emitOpcode(.GetLocalLong);
-            } else {
-                try self.emitOpcode(getOp);
-            }
-        } else {
-            try self.emitOpcode(getOp);
-        }
+        try self.currentChunk().writeIndexedOpcode(getOp, arg.?, self.parser.previous.line);
     }
-
-    try self.emitOperand(arg.?);
 }
 
 fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *const scan.Token) !?usize {
@@ -604,13 +577,13 @@ fn dot(self: *Compiler, can_assign: bool) !void {
     const name = try self.identifierConstant(&self.parser.previous);
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        try self.emitConstantOpcode(.SetProperty, .SetPropertyLong, name);
+        try self.emitConstantOpcode(.SetProperty, name);
     } else if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
-        try self.emitConstantOpcode(.Invoke, .InvokeLong, name);
+        try self.emitConstantOpcode(.Invoke, name);
         try self.emitOperand(arg_count);
     } else {
-        try self.emitConstantOpcode(.GetProperty, .GetPropertyLong, name);
+        try self.emitConstantOpcode(.GetProperty, name);
     }
 }
 
@@ -663,12 +636,7 @@ fn defineVariable(self: *Compiler, global: usize) anyerror!void {
         self.markInitialized();
         return;
     }
-    if (global > Chunk.MAX_SHORT_VALUE) {
-        try self.emitOpcode(.DefineGlobalLong);
-    } else {
-        try self.emitOpcode(.DefineGlobal);
-    }
-    try self.emitOperand(global);
+    try self.currentChunk().writeIndexedOpcode(.DefineGlobal, global, self.parser.previous.line);
 }
 
 fn argumentList(self: *Compiler) anyerror!usize {
@@ -926,7 +894,7 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     self.allocator.destroy(new_compile);
 
     const ix = try self.currentChunk().addConstant(LoxValue.function(func));
-    try self.emitConstantOpcode(.Closure, .ClosureLong, ix);
+    try self.emitConstantOpcode(.Closure, ix);
     for (0..upvalue_count) |i| {
         const is_local: usize = if (upvalues[i].is_local) 1 else 0;
         try self.emitOperand(is_local);
@@ -943,7 +911,7 @@ fn method(self: *Compiler) !void {
     else
         .Method;
     try self.function(function_type);
-    try self.emitConstantOpcode(.Method, .MethodLong, methodConstant);
+    try self.emitConstantOpcode(.Method, methodConstant);
 }
 
 fn classDeclaration(self: *Compiler) !void {
@@ -951,7 +919,7 @@ fn classDeclaration(self: *Compiler) !void {
     var class_name = self.parser.previous;
     const name_constant = try self.identifierConstant(&class_name);
     try self.declareVariable();
-    try self.emitConstantOpcode(.Class, .ClassLong, name_constant);
+    try self.emitConstantOpcode(.Class, name_constant);
     try self.defineVariable(name_constant);
 
     var class_compiler = ClassCompiler{

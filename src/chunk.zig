@@ -60,6 +60,13 @@ pub const OpCode = enum(u8) {
 };
 
 pub const MAX_SHORT_VALUE: usize = 255;
+const OPERAND_SHORT: usize = 1;
+const OPERAND_LONG: usize = 3;
+
+const OperandWidth = enum {
+    short,
+    long,
+};
 
 allocator: std.mem.Allocator,
 code: std.ArrayList(u8),
@@ -82,6 +89,18 @@ pub fn deinit(self: *Chunk) void {
     self.lines.deinit(self.allocator);
 }
 
+pub inline fn operandSizeOf(opcode: OpCode) ?usize {
+    const width = operandWidth(opcode) orelse return null;
+    return operandSize(width);
+}
+
+inline fn operandSize(width: OperandWidth) usize {
+    return switch (width) {
+        .short => OPERAND_SHORT,
+        .long => OPERAND_LONG,
+    };
+}
+
 pub fn codeSize(self: *Chunk) usize {
     return self.code.items.len;
 }
@@ -90,13 +109,34 @@ pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
     try self.writeOperand(@intFromEnum(code), line);
 }
 
-pub fn writeConstant(self: *Chunk, ix: usize, line: usize) !void {
-    if (ix > MAX_SHORT_VALUE) {
-        try self.writeCode(.ConstantLong, line);
-    } else {
-        try self.writeCode(.Constant, line);
-    }
+pub fn writeIndexedOpcode(self: *Chunk, short: OpCode, ix: usize, line: usize) !void {
+    const real_code = if (ix > MAX_SHORT_VALUE) longOpcode(short) else short;
+    try self.writeCode(real_code, line);
     try self.writeOperand(ix, line);
+}
+
+inline fn longOpcode(short: OpCode) OpCode {
+    return switch (short) {
+        .Constant => .ConstantLong,
+        .DefineGlobal => .DefineGlobalLong,
+        .GetGlobal => .GetGlobalLong,
+        .SetGlobal => .SetGlobalLong,
+        .GetLocal => .GetLocalLong,
+        .SetLocal => .SetLocalLong,
+        .GetSuper => .GetSuperLong,
+        .GetProperty => .GetPropertyLong,
+        .SetProperty => .SetPropertyLong,
+        .Invoke => .InvokeLong,
+        .SuperInvoke => .SuperInvokeLong,
+        .Closure => .ClosureLong,
+        .Class => .ClassLong,
+        .Method => .MethodLong,
+        else => short,
+    };
+}
+
+pub fn writeConstant(self: *Chunk, ix: usize, line: usize) !void {
+    try self.writeIndexedOpcode(.Constant, ix, line);
 }
 
 pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
@@ -185,6 +225,14 @@ pub inline fn readThreeBytesAt(_: *const Chunk, ip: [*]const u8) usize {
     return @as(usize, ip[2]) << 16 | @as(usize, ip[1]) << 8 | ip[0];
 }
 
+pub inline fn readSlotAt(self: *const Chunk, ip: [*]const u8, operand_size: usize) usize {
+    return switch (operand_size) {
+        OPERAND_SHORT => ip[0],
+        OPERAND_LONG => self.readThreeBytesAt(ip),
+        else => unreachable,
+    };
+}
+
 pub inline fn getConstantIxAt(self: *const Chunk, ip: [*]const u8, constant_size: usize) usize {
     return switch (constant_size) {
         1 => ip[0],
@@ -226,45 +274,69 @@ pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usiz
         .Pop => try disassemblySimpleInstruction(writer, offset, "OP_POP"),
         .CloseUpvalue => try disassemblySimpleInstruction(writer, offset, "OP_CLOSE_UPVALUE"),
         .Inherit => try disassemblySimpleInstruction(writer, offset, "OP_INHERIT"),
-        .Constant => try self.disassemblyConstant(writer, offset, "OP_CONSTANT", 1),
-        .DefineGlobal => try self.disassemblyConstant(writer, offset, "OP_DEFINE_GLOBAL", 1),
-        .GetGlobal => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL", 1),
-        .SetGlobal => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL", 1),
-        .GetSuper => try self.disassemblyConstant(writer, offset, "OP_GET_SUPER", 1),
-        .ConstantLong => try self.disassemblyConstant(writer, offset, "OP_CONSTANT_LONG", 3),
-        .GetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_GET_GLOBAL_LONG", 3),
-        .SetGlobalLong => try self.disassemblyConstant(writer, offset, "OP_SET_GLOBAL_LONG", 3),
-        .DefineGlobalLong => try self.disassemblyConstant(writer, offset, "OP_DEFINE_LONG", 3),
-        .SetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_SET_LOCAL"),
-        .GetLocal => try self.disassemblyByteInstruction(writer, offset, "OP_GET_LOCAL"),
-        .SetLocalLong => try self.disassemblyThreeBytesInstruction(writer, offset, "OP_SET_LOCAL_LONG"),
-        .GetLocalLong => try self.disassemblyThreeBytesInstruction(writer, offset, "OP_GET_LOCAL_LONG"),
+        .Constant, .ConstantLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_CONSTANT", "OP_CONSTANT_LONG", .constant),
+        .DefineGlobal, .DefineGlobalLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_DEFINE_GLOBAL", "OP_DEFINE_LONG", .constant),
+        .GetGlobal, .GetGlobalLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_GET_GLOBAL", "OP_GET_GLOBAL_LONG", .constant),
+        .SetGlobal, .SetGlobalLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_SET_GLOBAL", "OP_SET_GLOBAL_LONG", .constant),
+        .GetSuper, .GetSuperLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_GET_SUPER", "OP_GET_SUPER_LONG", .constant),
+        .GetLocal, .GetLocalLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_GET_LOCAL", "OP_GET_LOCAL_LONG", .local),
+        .SetLocal, .SetLocalLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_SET_LOCAL", "OP_SET_LOCAL_LONG", .local),
         .Call => try self.disassemblyByteInstruction(writer, offset, "OP_CALL"),
         .GetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_GET_UPVALUE"),
-        .Class => try self.disassemblyConstant(writer, offset, "OP_CLASS", 1),
-        .Method => try self.disassemblyConstant(writer, offset, "OP_METHOD", 1),
-        .GetProperty => try self.disassemblyConstant(writer, offset, "OP_GET_PROPERTY", 1),
-        .Invoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE", 1),
-        .SuperInvoke => try self.disassemblyInvokeInstruction(writer, offset, "OP_SUPER_INVOKE", 1),
-        .SetProperty => try self.disassemblyConstant(writer, offset, "OP_SET_PROPERTY", 1),
+        .Class, .ClassLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_CLASS", "OP_CLASS_LONG", .constant),
+        .Method, .MethodLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_METHOD", "OP_METHOD_LONG", .constant),
+        .GetProperty, .GetPropertyLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_GET_PROPERTY", "OP_GET_PROPERTY_LONG", .constant),
+        .Invoke, .InvokeLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_INVOKE", "OP_INVOKE_LONG", .invoke),
+        .SuperInvoke, .SuperInvokeLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_SUPER_INVOKE", "OP_SUPER_INVOKE_LONG", .invoke),
+        .SetProperty, .SetPropertyLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_SET_PROPERTY", "OP_SET_PROPERTY_LONG", .constant),
         .SetUpvalue => try self.disassemblyByteInstruction(writer, offset, "OP_SET_UPVALUE"),
-        .Closure => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE", 1),
-        .ClosureLong => try self.disassemblyClosureInstruction(writer, offset, "OP_CLOSURE_LONG", 3),
-        .ClassLong => try self.disassemblyConstant(writer, offset, "OP_CLASS_LONG", 3),
-        .MethodLong => try self.disassemblyConstant(writer, offset, "OP_METHOD_LONG", 3),
-        .GetPropertyLong => try self.disassemblyConstant(writer, offset, "OP_GET_PROPERTY_LONG", 3),
-        .SetPropertyLong => try self.disassemblyConstant(writer, offset, "OP_SET_PROPERTY_LONG", 3),
-        .GetSuperLong => try self.disassemblyConstant(writer, offset, "OP_GET_SUPER_LONG", 3),
-        .InvokeLong => try self.disassemblyInvokeInstruction(writer, offset, "OP_INVOKE_LONG", 3),
-        .SuperInvokeLong => try self.disassemblyInvokeInstruction(writer, offset, "OP_SUPER_INVOKE_LONG", 3),
+        .Closure, .ClosureLong => try self.disassemblyOperandPair(writer, offset, opcode, "OP_CLOSURE", "OP_CLOSURE_LONG", .closure),
         .JumpIfFalse => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP_IF_FALSE", 1),
         .Jump => try self.disassemblyJumpInstruction(writer, offset, "OP_JUMP", 1),
         .Loop => try self.disassemblyJumpInstruction(writer, offset, "OP_LOOP", -1),
     };
 }
 
+inline fn operandWidth(opcode: OpCode) ?OperandWidth {
+    return switch (opcode) {
+        .Constant, .DefineGlobal, .GetGlobal, .SetGlobal, .GetSuper, .GetLocal, .SetLocal, .Class, .Method, .GetProperty, .SetProperty, .Invoke, .SuperInvoke, .Closure => .short,
+        .ConstantLong, .DefineGlobalLong, .GetGlobalLong, .SetGlobalLong, .GetSuperLong, .GetLocalLong, .SetLocalLong, .ClassLong, .MethodLong, .GetPropertyLong, .SetPropertyLong, .InvokeLong, .SuperInvokeLong, .ClosureLong => .long,
+        else => null,
+    };
+}
+
 fn write(self: *Chunk, byte: u8) !void {
     try self.code.append(self.allocator, byte);
+}
+
+const DisasmOperandKind = enum {
+    constant,
+    local,
+    closure,
+    invoke,
+};
+
+fn disassemblyOperandPair(
+    self: *Chunk,
+    writer: *std.Io.Writer,
+    offset: usize,
+    opcode: OpCode,
+    disasm_short: []const u8,
+    disasm_long: []const u8,
+    kind: DisasmOperandKind,
+) !usize {
+    const width = operandWidth(opcode) orelse unreachable;
+    const size = operandSize(width);
+    const name = if (width == .long) disasm_long else disasm_short;
+    return switch (kind) {
+        .constant => try self.disassemblyConstant(writer, offset, name, size),
+        .local => if (width == .short)
+            try self.disassemblyByteInstruction(writer, offset, name)
+        else
+            try self.disassemblyThreeBytesInstruction(writer, offset, name),
+        .closure => try self.disassemblyClosureInstruction(writer, offset, name, size),
+        .invoke => try self.disassemblyInvokeInstruction(writer, offset, name, size),
+    };
 }
 
 fn disassemblySimpleInstruction(writer: *std.Io.Writer, offset: usize, name: []const u8) !usize {

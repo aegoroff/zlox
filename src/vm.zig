@@ -13,8 +13,6 @@ const Table = tbl.Table;
 const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = 256 * FRAMES_MAX;
-const CONST_SIZE: usize = 1;
-const CONST_LONG_SIZE: usize = 3;
 
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
@@ -414,17 +412,8 @@ inline fn numberLess(a: LoxValue, b: LoxValue) bool {
     return l < r;
 }
 
-inline fn readFunctionConstant(code: *Chunk, ip: [*]const u8, constant_size: usize) *val.Function {
-    const value = switch (constant_size) {
-        CONST_SIZE => code.readConstantAt(ip, CONST_SIZE),
-        CONST_LONG_SIZE => code.readConstantAt(ip, CONST_LONG_SIZE),
-        else => unreachable,
-    };
-    return value.asFunction();
-}
-
 fn opClosure(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
-    const function = readFunctionConstant(cursor.chunk, cursor.frame.ip, constant_size);
+    const function = cursor.chunk.readConstantAt(cursor.frame.ip, constant_size).asFunction();
     cursor.frame.ip += constant_size;
 
     const closure_ptr = try self.heap.allocClosure();
@@ -555,56 +544,36 @@ pub fn run(self: *VM) !void {
                 cursor.frame.ip += 2;
                 cursor.frame.ip -= offset;
             },
-            .Constant => {
-                try self.push(cursor.chunk.readConstantAt(cursor.frame.ip, CONST_SIZE));
-                cursor.frame.ip += CONST_SIZE;
+            .Constant, .ConstantLong => {
+                const size = Chunk.operandSizeOf(opcode).?;
+                try self.push(cursor.chunk.readConstantAt(cursor.frame.ip, size));
+                cursor.frame.ip += size;
             },
-            .ConstantLong => {
-                try self.push(cursor.chunk.readConstantAt(cursor.frame.ip, CONST_LONG_SIZE));
-                cursor.frame.ip += CONST_LONG_SIZE;
+            .DefineGlobal, .DefineGlobalLong => {
+                const size = Chunk.operandSizeOf(opcode).?;
+                try self.defineGlobal(cursor.frame.ip, size);
+                cursor.frame.ip += size;
             },
-            .DefineGlobal => {
-                try self.defineGlobal(cursor.frame.ip, CONST_SIZE);
-                cursor.frame.ip += CONST_SIZE;
+            .GetGlobal, .GetGlobalLong => {
+                const size = Chunk.operandSizeOf(opcode).?;
+                try self.getGlobal(cursor.frame.ip, size);
+                cursor.frame.ip += size;
             },
-            .DefineGlobalLong => {
-                try self.defineGlobal(cursor.frame.ip, CONST_LONG_SIZE);
-                cursor.frame.ip += CONST_LONG_SIZE;
+            .SetGlobal, .SetGlobalLong => {
+                const size = Chunk.operandSizeOf(opcode).?;
+                try self.setGlobal(cursor.frame.ip, size);
+                cursor.frame.ip += size;
             },
-            .GetGlobal => {
-                try self.getGlobal(cursor.frame.ip, CONST_SIZE);
-                cursor.frame.ip += CONST_SIZE;
-            },
-            .GetGlobalLong => {
-                try self.getGlobal(cursor.frame.ip, CONST_LONG_SIZE);
-                cursor.frame.ip += CONST_LONG_SIZE;
-            },
-            .SetGlobal => {
-                try self.setGlobal(cursor.frame.ip, CONST_SIZE);
-                cursor.frame.ip += CONST_SIZE;
-            },
-            .SetGlobalLong => {
-                try self.setGlobal(cursor.frame.ip, CONST_LONG_SIZE);
-                cursor.frame.ip += CONST_LONG_SIZE;
-            },
-            .GetLocal => {
-                const slot = cursor.frame.ip[0];
-                cursor.frame.ip += 1;
+            .GetLocal, .GetLocalLong => {
+                const size = Chunk.operandSizeOf(opcode).?;
+                const slot = cursor.chunk.readSlotAt(cursor.frame.ip, size);
+                cursor.frame.ip += size;
                 try self.push(cursor.slots[slot]);
             },
-            .GetLocalLong => {
-                const slot = cursor.chunk.readThreeBytesAt(cursor.frame.ip);
-                cursor.frame.ip += CONST_LONG_SIZE;
-                try self.push(cursor.slots[slot]);
-            },
-            .SetLocal => {
-                const slot = cursor.frame.ip[0];
-                cursor.frame.ip += 1;
-                cursor.slots[slot] = self.peek(0);
-            },
-            .SetLocalLong => {
-                const slot = cursor.chunk.readThreeBytesAt(cursor.frame.ip);
-                cursor.frame.ip += CONST_LONG_SIZE;
+            .SetLocal, .SetLocalLong => {
+                const size = Chunk.operandSizeOf(opcode).?;
+                const slot = cursor.chunk.readSlotAt(cursor.frame.ip, size);
+                cursor.frame.ip += size;
                 cursor.slots[slot] = self.peek(0);
             },
             .GetUpvalue => {
@@ -738,8 +707,7 @@ pub fn run(self: *VM) !void {
                 try self.println();
             },
             .Pop => _ = self.pop(),
-            .Closure => try self.opClosure(&cursor, CONST_SIZE),
-            .ClosureLong => try self.opClosure(&cursor, CONST_LONG_SIZE),
+            .Closure, .ClosureLong => try self.opClosure(&cursor, Chunk.operandSizeOf(opcode).?),
             .Call => {
                 const arg_count = cursor.frame.ip[0];
                 cursor.frame.ip += 1;
@@ -750,8 +718,7 @@ pub fn run(self: *VM) !void {
                 }
                 cursor.reload(self);
             },
-            .Class => try self.opClass(cursor.frame, CONST_SIZE),
-            .ClassLong => try self.opClass(cursor.frame, CONST_LONG_SIZE),
+            .Class, .ClassLong => try self.opClass(cursor.frame, Chunk.operandSizeOf(opcode).?),
             .Inherit => {
                 const sub_class = try (self.peek(0)).tryClass();
                 const super_class = (self.peek(1)).tryClass() catch {
@@ -763,18 +730,12 @@ pub fn run(self: *VM) !void {
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
                 _ = self.pop();
             },
-            .GetSuper => try self.opGetSuper(cursor.frame, CONST_SIZE),
-            .GetSuperLong => try self.opGetSuper(cursor.frame, CONST_LONG_SIZE),
-            .GetProperty => try self.opGetProperty(cursor.frame, CONST_SIZE),
-            .GetPropertyLong => try self.opGetProperty(cursor.frame, CONST_LONG_SIZE),
-            .Invoke => try self.opInvoke(&cursor, CONST_SIZE),
-            .InvokeLong => try self.opInvoke(&cursor, CONST_LONG_SIZE),
-            .SuperInvoke => try self.opSuperInvoke(&cursor, CONST_SIZE),
-            .SuperInvokeLong => try self.opSuperInvoke(&cursor, CONST_LONG_SIZE),
-            .SetProperty => try self.opSetProperty(cursor.frame, CONST_SIZE),
-            .SetPropertyLong => try self.opSetProperty(cursor.frame, CONST_LONG_SIZE),
-            .Method => try self.opMethod(cursor.frame, CONST_SIZE),
-            .MethodLong => try self.opMethod(cursor.frame, CONST_LONG_SIZE),
+            .GetSuper, .GetSuperLong => try self.opGetSuper(cursor.frame, Chunk.operandSizeOf(opcode).?),
+            .GetProperty, .GetPropertyLong => try self.opGetProperty(cursor.frame, Chunk.operandSizeOf(opcode).?),
+            .Invoke, .InvokeLong => try self.opInvoke(&cursor, Chunk.operandSizeOf(opcode).?),
+            .SuperInvoke, .SuperInvokeLong => try self.opSuperInvoke(&cursor, Chunk.operandSizeOf(opcode).?),
+            .SetProperty, .SetPropertyLong => try self.opSetProperty(cursor.frame, Chunk.operandSizeOf(opcode).?),
+            .Method, .MethodLong => try self.opMethod(cursor.frame, Chunk.operandSizeOf(opcode).?),
             .Return => {
                 const result = if (self.stack_top > 0) self.pop() else LoxValue.nil;
 
@@ -798,12 +759,7 @@ pub fn run(self: *VM) !void {
 }
 
 inline fn readStringConstant(self: *VM, ip: [*]const u8, constant_size: usize) err.Error!*val.HeapString {
-    const chunk_ptr = self.chunk();
-    const value = switch (constant_size) {
-        CONST_SIZE => chunk_ptr.readConstantAt(ip, CONST_SIZE),
-        CONST_LONG_SIZE => chunk_ptr.readConstantAt(ip, CONST_LONG_SIZE),
-        else => return err.Error.CompileError,
-    };
+    const value = self.chunk().readConstantAt(ip, constant_size);
     if (!value.isHeapString()) return err.Error.RuntimeError;
     return value.asString();
 }
