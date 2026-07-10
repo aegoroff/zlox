@@ -537,36 +537,56 @@ pub fn run(self: *VM) !void {
                 cursor.frame.ip += 2;
                 cursor.frame.ip -= offset;
             },
-            .Constant, .ConstantLong => {
-                const size = Chunk.operandSizeOf(opcode).?;
-                try self.push(cursor.chunk.readConstantAt(cursor.frame.ip, size));
-                cursor.frame.ip += size;
+            .Constant => {
+                try self.push(cursor.chunk.readConstantAt(cursor.frame.ip, Chunk.OPERAND_SHORT));
+                cursor.frame.ip += Chunk.OPERAND_SHORT;
             },
-            .DefineGlobal, .DefineGlobalLong => {
-                const size = Chunk.operandSizeOf(opcode).?;
-                try self.defineGlobal(cursor.frame.ip, size);
-                cursor.frame.ip += size;
+            .ConstantLong => {
+                try self.push(cursor.chunk.readConstantAt(cursor.frame.ip, Chunk.OPERAND_LONG));
+                cursor.frame.ip += Chunk.OPERAND_LONG;
             },
-            .GetGlobal, .GetGlobalLong => {
-                const size = Chunk.operandSizeOf(opcode).?;
-                try self.getGlobal(cursor.frame.ip, size);
-                cursor.frame.ip += size;
+            .DefineGlobal => {
+                try self.defineGlobal(cursor.frame.ip, Chunk.OPERAND_SHORT);
+                cursor.frame.ip += Chunk.OPERAND_SHORT;
             },
-            .SetGlobal, .SetGlobalLong => {
-                const size = Chunk.operandSizeOf(opcode).?;
-                try self.setGlobal(cursor.frame.ip, size);
-                cursor.frame.ip += size;
+            .DefineGlobalLong => {
+                try self.defineGlobal(cursor.frame.ip, Chunk.OPERAND_LONG);
+                cursor.frame.ip += Chunk.OPERAND_LONG;
             },
-            .GetLocal, .GetLocalLong => {
-                const size = Chunk.operandSizeOf(opcode).?;
-                const slot = cursor.chunk.readSlotAt(cursor.frame.ip, size);
-                cursor.frame.ip += size;
+            .GetGlobal => {
+                try self.getGlobal(cursor.frame.ip, Chunk.OPERAND_SHORT);
+                cursor.frame.ip += Chunk.OPERAND_SHORT;
+            },
+            .GetGlobalLong => {
+                try self.getGlobal(cursor.frame.ip, Chunk.OPERAND_LONG);
+                cursor.frame.ip += Chunk.OPERAND_LONG;
+            },
+            .SetGlobal => {
+                try self.setGlobal(cursor.frame.ip, Chunk.OPERAND_SHORT);
+                cursor.frame.ip += Chunk.OPERAND_SHORT;
+            },
+            .SetGlobalLong => {
+                try self.setGlobal(cursor.frame.ip, Chunk.OPERAND_LONG);
+                cursor.frame.ip += Chunk.OPERAND_LONG;
+            },
+            .GetLocal => {
+                const slot = cursor.frame.ip[0];
+                cursor.frame.ip += Chunk.OPERAND_SHORT;
                 try self.push(cursor.slots[slot]);
             },
-            .SetLocal, .SetLocalLong => {
-                const size = Chunk.operandSizeOf(opcode).?;
-                const slot = cursor.chunk.readSlotAt(cursor.frame.ip, size);
-                cursor.frame.ip += size;
+            .GetLocalLong => {
+                const slot = cursor.chunk.readThreeBytesAt(cursor.frame.ip);
+                cursor.frame.ip += Chunk.OPERAND_LONG;
+                try self.push(cursor.slots[slot]);
+            },
+            .SetLocal => {
+                const slot = cursor.frame.ip[0];
+                cursor.frame.ip += Chunk.OPERAND_SHORT;
+                cursor.slots[slot] = self.peek(0);
+            },
+            .SetLocalLong => {
+                const slot = cursor.chunk.readThreeBytesAt(cursor.frame.ip);
+                cursor.frame.ip += Chunk.OPERAND_LONG;
                 cursor.slots[slot] = self.peek(0);
             },
             .GetUpvalue => {
@@ -689,7 +709,8 @@ pub fn run(self: *VM) !void {
                 try self.println();
             },
             .Pop => _ = self.pop(),
-            .Closure, .ClosureLong => try self.opClosure(&cursor, Chunk.operandSizeOf(opcode).?),
+            .Closure => try self.opClosure(&cursor, Chunk.OPERAND_SHORT),
+            .ClosureLong => try self.opClosure(&cursor, Chunk.OPERAND_LONG),
             .Call => {
                 const arg_count = cursor.frame.ip[0];
                 cursor.frame.ip += 1;
@@ -700,7 +721,8 @@ pub fn run(self: *VM) !void {
                 }
                 cursor.reload(self);
             },
-            .Class, .ClassLong => try self.opClass(cursor.frame, Chunk.operandSizeOf(opcode).?),
+            .Class => try self.opClass(cursor.frame, Chunk.OPERAND_SHORT),
+            .ClassLong => try self.opClass(cursor.frame, Chunk.OPERAND_LONG),
             .Inherit => {
                 const sub_class = try (self.peek(0)).tryClass();
                 const super_class = (self.peek(1)).tryClass() catch {
@@ -712,12 +734,18 @@ pub fn run(self: *VM) !void {
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
                 _ = self.pop();
             },
-            .GetSuper, .GetSuperLong => try self.opGetSuper(cursor.frame, Chunk.operandSizeOf(opcode).?),
-            .GetProperty, .GetPropertyLong => try self.opGetProperty(cursor.frame, Chunk.operandSizeOf(opcode).?),
-            .Invoke, .InvokeLong => try self.opInvoke(&cursor, Chunk.operandSizeOf(opcode).?),
-            .SuperInvoke, .SuperInvokeLong => try self.opSuperInvoke(&cursor, Chunk.operandSizeOf(opcode).?),
-            .SetProperty, .SetPropertyLong => try self.opSetProperty(cursor.frame, Chunk.operandSizeOf(opcode).?),
-            .Method, .MethodLong => try self.opMethod(cursor.frame, Chunk.operandSizeOf(opcode).?),
+            .GetSuper => try self.opGetSuper(cursor.frame, Chunk.OPERAND_SHORT),
+            .GetSuperLong => try self.opGetSuper(cursor.frame, Chunk.OPERAND_LONG),
+            .GetProperty => try self.opGetProperty(cursor.frame, Chunk.OPERAND_SHORT),
+            .GetPropertyLong => try self.opGetProperty(cursor.frame, Chunk.OPERAND_LONG),
+            .Invoke => try self.opInvoke(&cursor, Chunk.OPERAND_SHORT),
+            .InvokeLong => try self.opInvoke(&cursor, Chunk.OPERAND_LONG),
+            .SuperInvoke => try self.opSuperInvoke(&cursor, Chunk.OPERAND_SHORT),
+            .SuperInvokeLong => try self.opSuperInvoke(&cursor, Chunk.OPERAND_LONG),
+            .SetProperty => try self.opSetProperty(cursor.frame, Chunk.OPERAND_SHORT),
+            .SetPropertyLong => try self.opSetProperty(cursor.frame, Chunk.OPERAND_LONG),
+            .Method => try self.opMethod(cursor.frame, Chunk.OPERAND_SHORT),
+            .MethodLong => try self.opMethod(cursor.frame, Chunk.OPERAND_LONG),
             .Return => {
                 const result = if (self.stack_top > 0) self.pop() else LoxValue.nil;
 

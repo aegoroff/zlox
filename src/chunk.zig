@@ -60,8 +60,8 @@ pub const OpCode = enum(u8) {
 };
 
 pub const MAX_SHORT_VALUE: usize = 255;
-const OPERAND_SHORT: usize = 1;
-const OPERAND_LONG: usize = 3;
+pub const OPERAND_SHORT: usize = 1;
+pub const OPERAND_LONG: usize = 3;
 
 const OperandWidth = enum {
     short,
@@ -87,11 +87,6 @@ pub fn deinit(self: *Chunk) void {
     // Function constants are now in heap and managed by GC, don't free them here
     self.constants.deinit(self.allocator);
     self.lines.deinit(self.allocator);
-}
-
-pub inline fn operandSizeOf(opcode: OpCode) ?usize {
-    const width = operandWidth(opcode) orelse return null;
-    return operandSize(width);
 }
 
 inline fn operandSize(width: OperandWidth) usize {
