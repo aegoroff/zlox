@@ -1923,6 +1923,38 @@ test "super init calls superclass constructor" {
     try std.testing.expectEqualStrings("Derived.init()\nBase.init(a, b)\n", writer.written());
 }
 
+test "super init sets superclass fields accessed on subclass instance" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Base {
+        \\  init(a) {
+        \\    this.a = a;
+        \\  }
+        \\}
+        \\class Derived < Base {
+        \\  init(a, b) {
+        \\    super.init(a);
+        \\    this.b = b;
+        \\  }
+        \\}
+        \\var derived = Derived("a", "b");
+        \\print derived.a;
+        \\print derived.b;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("a\nb\n", writer.written());
+}
+
 test "super resolves through multiple inheritance levels" {
     // Arrange
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
