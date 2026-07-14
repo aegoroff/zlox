@@ -473,8 +473,7 @@ inline fn opGetProperty(self: *VM, current_frame: *CallFrame, constant_size: usi
     }
     const instance = receiver.asInstance();
     if (instance.fields.get(name)) |field| {
-        _ = self.pop();
-        try self.push(field);
+        self.replaceTos(field);
     } else if (!try self.bindMethod(instance.klass, name)) {
         try self.errorAt(current_frame.ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
         return err.Error.RuntimeError;
