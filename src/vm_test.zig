@@ -1800,6 +1800,36 @@ test "class: field shadows method keep old bound" {
     try t.expectOutput("other\n1\nmethod\n2\n");
 }
 
+test "class: field shadow on sibling does not affect other instances" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Shadow a method name as a field on one instance; siblings must keep
+    // calling the class method.
+    const code =
+        \\class Foo {
+        \\  method() { return "method"; }
+        \\  other() { return "other"; }
+        \\}
+        \\
+        \\var plain = Foo();
+        \\print plain.method();
+        \\
+        \\var shadowed = Foo();
+        \\shadowed.method = shadowed.other;
+        \\print shadowed.method();
+        \\print plain.method();
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("method\nother\nmethod\n");
+}
+
 test "class: method no args" {
     // Arrange
     var t: TestHarness = undefined;
