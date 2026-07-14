@@ -30,6 +30,12 @@
 3. Check for similar issues in related code
 4. Verify fix doesn't break existing tests
 
+### Performance
+1. Prefer corectness to speed
+2. Prefer clearness to speed
+3. Benchmark script to compare with clox ./bench.sh
+4. Benchmark all suite to compare with clox ./bench_all.sh
+
 ## Build & Test Commands
 ```bash
 # Build
