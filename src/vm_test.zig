@@ -1,1064 +1,1019 @@
 const std = @import("std");
 const vm = @import("vm.zig");
 const err = @import("error.zig");
-const init = vm.init;
+
+const TestHarness = struct {
+    writer: std.Io.Writer.Allocating,
+    machine: vm.VM,
+
+    fn setup(self: *TestHarness) !void {
+        self.writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+        errdefer self.writer.deinit();
+        self.machine = try vm.init(std.testing.allocator, &self.writer.writer, std.testing.io);
+    }
+
+    fn deinit(self: *TestHarness) void {
+        self.machine.deinit();
+        self.writer.deinit();
+    }
+
+    fn interpret(self: *TestHarness, source: []const u8) !void {
+        try self.machine.interpret(source, false);
+    }
+
+    fn expectOutput(self: *TestHarness, expected: []const u8) !void {
+        try std.testing.expectEqualStrings(expected, self.writer.written());
+    }
+
+    fn expectCompileError(self: *TestHarness, source: []const u8) !void {
+        try std.testing.expectError(err.Error.CompileError, self.machine.interpret(source, false));
+    }
+
+    fn expectRuntimeError(self: *TestHarness, source: []const u8) !void {
+        try std.testing.expectError(err.Error.RuntimeError, self.machine.interpret(source, false));
+    }
+};
 
 test "Simple add expression" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 1 + 2;", false);
+    try t.interpret("print 1 + 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("3\n", writer.written());
+    try t.expectOutput("3\n");
 }
 
 test "String concatentation" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"a\" + \"b\") + \"c\";", false);
+    try t.interpret("print (\"a\" + \"b\") + \"c\";");
 
     // Assert
-    try std.testing.expectEqualStrings("abc\n", writer.written());
+    try t.expectOutput("abc\n");
 }
 
 test "string equal false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"a\" == \"b\");", false);
+    try t.interpret("print (\"a\" == \"b\");");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "string not equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"a\" != \"c\");", false);
+    try t.interpret("print (\"a\" != \"c\");");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "short string equal true" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"ab\" == \"ab\");", false);
+    try t.interpret("print (\"ab\" == \"ab\");");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "big string equal true" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"abcdefg\" == \"abcdefg\");", false);
+    try t.interpret("print (\"abcdefg\" == \"abcdefg\");");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "string greater false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"aa\" > \"bb\");", false);
+    try t.interpret("print (\"aa\" > \"bb\");");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "string greater true" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"bb\" > \"aa\");", false);
+    try t.interpret("print (\"bb\" > \"aa\");");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "string greater or equal true" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"bba\" >= \"aaa\");", false);
+    try t.interpret("print (\"bba\" >= \"aaa\");");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "short string less or equal false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"bba\" <= \"aaa\");", false);
+    try t.interpret("print (\"bba\" <= \"aaa\");");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "big string less or equal false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (\"bbaaaa\" <= \"aaaaaa\");", false);
+    try t.interpret("print (\"bbaaaa\" <= \"aaaaaa\");");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "number equal false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 1 == 2;", false);
+    try t.interpret("print 1 == 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "number equal true" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 2 == 2;", false);
+    try t.interpret("print 2 == 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "number greater or equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 3 >= 3;", false);
+    try t.interpret("print 3 >= 3;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "number greater or equal two" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 3 >= 2;", false);
+    try t.interpret("print 3 >= 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "number less or equal false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 3 <= 1;", false);
+    try t.interpret("print 3 <= 1;");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "expression less or equal false" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (3 - 1) * 200 <= 1;", false);
+    try t.interpret("print (3 - 1) * 200 <= 1;");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "comparison with equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 3 > 1 == true;", false);
+    try t.interpret("print 3 > 1 == true;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "number less or equal equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 20 <= 20;", false);
+    try t.interpret("print 20 <= 20;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "number less or equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 40 <= 50;", false);
+    try t.interpret("print 40 <= 50;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "not nil" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print !nil;", false);
+    try t.interpret("print !nil;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "not number" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print !1;", false);
+    try t.interpret("print !1;");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "not string" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print !\"s\";", false);
+    try t.interpret("print !\"s\";");
 
     // Assert
-    try std.testing.expectEqualStrings("false\n", writer.written());
+    try t.expectOutput("false\n");
 }
 
 test "two ands + or" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 40 <= 50 and 1 > 2 or 2 < 3;", false);
+    try t.interpret("print 40 <= 50 and 1 > 2 or 2 < 3;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "three ands" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 40 <= 50 and 1 < 2 and 2 < 3;", false);
+    try t.interpret("print 40 <= 50 and 1 < 2 and 2 < 3;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "decrement prefix" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print --1;", false);
+    try t.interpret("print --1;");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n", writer.written());
+    try t.expectOutput("1\n");
 }
 
 test "subtract same numbers" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 1 - 1;", false);
+    try t.interpret("print 1 - 1;");
 
     // Assert
-    try std.testing.expectEqualStrings("0\n", writer.written());
+    try t.expectOutput("0\n");
 }
 
 test "subtract negative result" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 1 - 2;", false);
+    try t.interpret("print 1 - 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("-1\n", writer.written());
+    try t.expectOutput("-1\n");
 }
 
 test "subtract positive result" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 2 - 1;", false);
+    try t.interpret("print 2 - 1;");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n", writer.written());
+    try t.expectOutput("1\n");
 }
 
 test "add numbers" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 2 + 3;", false);
+    try t.interpret("print 2 + 3;");
 
     // Assert
-    try std.testing.expectEqualStrings("5\n", writer.written());
+    try t.expectOutput("5\n");
 }
 
 test "add and subtract" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 2 + 3 - 1;", false);
+    try t.interpret("print 2 + 3 - 1;");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "add and divide" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 3 + 3 / 3;", false);
+    try t.interpret("print 3 + 3 / 3;");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "parentheses add and divide" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (3 + 3) / 3;", false);
+    try t.interpret("print (3 + 3) / 3;");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n", writer.written());
+    try t.expectOutput("2\n");
 }
 
 test "divide numbers" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 4 / 2;", false);
+    try t.interpret("print 4 / 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n", writer.written());
+    try t.expectOutput("2\n");
 }
 
 test "divide by one" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 4 / 1;", false);
+    try t.interpret("print 4 / 1;");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "divide by negative" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 5 / -1;", false);
+    try t.interpret("print 5 / -1;");
 
     // Assert
-    try std.testing.expectEqualStrings("-5\n", writer.written());
+    try t.expectOutput("-5\n");
 }
 
 test "divide by zero" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 5 / 0;", false);
+    try t.interpret("print 5 / 0;");
 
     // Assert
-    try std.testing.expectEqualStrings("NaN\n", writer.written());
+    try t.expectOutput("NaN\n");
 }
 
 test "nested expression one" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (5 - (3-1)) + -1;", false);
+    try t.interpret("print (5 - (3-1)) + -1;");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n", writer.written());
+    try t.expectOutput("2\n");
 }
 
 test "nested expression two" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print (5 - (3-1)) * -1;", false);
+    try t.interpret("print (5 - (3-1)) * -1;");
 
     // Assert
-    try std.testing.expectEqualStrings("-3\n", writer.written());
+    try t.expectOutput("-3\n");
 }
 
 test "nested expression three" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print ((5 - (3-1)) * -2) / 4;", false);
+    try t.interpret("print ((5 - (3-1)) * -2) / 4;");
 
     // Assert
-    try std.testing.expectEqualStrings("-1.5\n", writer.written());
+    try t.expectOutput("-1.5\n");
 }
 
 test "nested expression four" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print ((5 - (3-1) + 3) * -2) / 4;", false);
+    try t.interpret("print ((5 - (3-1) + 3) * -2) / 4;");
 
     // Assert
-    try std.testing.expectEqualStrings("-3\n", writer.written());
+    try t.expectOutput("-3\n");
 }
 
 test "variables assignment and print" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = 1; var y = x + 1; print x; print y;", false);
+    try t.interpret("var x = 1; var y = x + 1; print x; print y;");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n2\n", writer.written());
+    try t.expectOutput("1\n2\n");
 }
 
 test "multiple prints" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 1; print 2;", false);
+    try t.interpret("print 1; print 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n2\n", writer.written());
+    try t.expectOutput("1\n2\n");
 }
 
 test "print with block" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print 1; { print 3; }", false);
+    try t.interpret("print 1; { print 3; }");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n3\n", writer.written());
+    try t.expectOutput("1\n3\n");
 }
 
 test "block scope variable" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var y = 1; { var x = 2; print x; } print y;", false);
+    try t.interpret("var y = 1; { var x = 2; print x; } print y;");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n1\n", writer.written());
+    try t.expectOutput("2\n1\n");
 }
 
 test "block scope shadow" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = 1; { var x = 2; print x; }", false);
+    try t.interpret("var x = 1; { var x = 2; print x; }");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n", writer.written());
+    try t.expectOutput("2\n");
 }
 
 test "nested blocks" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = 1; { var x = 2; print x; { var x = 3; print x; } } print x;", false);
+    try t.interpret("var x = 1; { var x = 2; print x; { var x = 3; print x; } } print x;");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n3\n1\n", writer.written());
+    try t.expectOutput("2\n3\n1\n");
 }
 
 test "if positive" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = 1; if (x > 0) { print x; }", false);
+    try t.interpret("var x = 1; if (x > 0) { print x; }");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n", writer.written());
+    try t.expectOutput("1\n");
 }
 
 test "if negative" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = -1; if (x > 0) { print x; } print 2;", false);
+    try t.interpret("var x = -1; if (x > 0) { print x; } print 2;");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n", writer.written());
+    try t.expectOutput("2\n");
 }
 
 test "if else positive" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = 1; if (x > 0) { print x; } else { print 2; }", false);
+    try t.interpret("var x = 1; if (x > 0) { print x; } else { print 2; }");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n", writer.written());
+    try t.expectOutput("1\n");
 }
 
 test "if else negative" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var x = -1; if (x > 0) { print x; } else { print 2; }", false);
+    try t.interpret("var x = -1; if (x > 0) { print x; } else { print 2; }");
 
     // Assert
-    try std.testing.expectEqualStrings("2\n", writer.written());
+    try t.expectOutput("2\n");
 }
 
 test "while test" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var i = 0; while (i < 10) i = i + 1; print i;", false);
+    try t.interpret("var i = 0; while (i < 10) i = i + 1; print i;");
 
     // Assert
-    try std.testing.expectEqualStrings("10\n", writer.written());
+    try t.expectOutput("10\n");
 }
 
 test "for test" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("for(var i = 0; i < 3; i = i + 1) print i;", false);
+    try t.interpret("for(var i = 0; i < 3; i = i + 1) print i;");
 
     // Assert
-    try std.testing.expectEqualStrings("0\n1\n2\n", writer.written());
+    try t.expectOutput("0\n1\n2\n");
 }
 
 test "for test without initializer" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("var i = 0; for(; i < 3; i = i + 1) print i;", false);
+    try t.interpret("var i = 0; for(; i < 3; i = i + 1) print i;");
 
     // Assert
-    try std.testing.expectEqualStrings("0\n1\n2\n", writer.written());
+    try t.expectOutput("0\n1\n2\n");
 }
 
 test "function call no arguments" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun sayHi() { print \"hi\"; } sayHi();", false);
+    try t.interpret("fun sayHi() { print \"hi\"; } sayHi();");
 
     // Assert
-    try std.testing.expectEqualStrings("hi\n", writer.written());
+    try t.expectOutput("hi\n");
 }
 
 test "function call with arguments" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun add(a, b) { return a + b; } print add(3, 4);", false);
+    try t.interpret("fun add(a, b) { return a + b; } print add(3, 4);");
 
     // Assert
-    try std.testing.expectEqualStrings("7\n", writer.written());
+    try t.expectOutput("7\n");
 }
 
 test "function call with multiple arguments" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun sum(a, b, c) { return a + b + c; } print sum(1, 2, 3);", false);
+    try t.interpret("fun sum(a, b, c) { return a + b + c; } print sum(1, 2, 3);");
 
     // Assert
-    try std.testing.expectEqualStrings("6\n", writer.written());
+    try t.expectOutput("6\n");
 }
 
 test "function return value" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun double(x) { return x * 2; } print double(5);", false);
+    try t.interpret("fun double(x) { return x * 2; } print double(5);");
 
     // Assert
-    try std.testing.expectEqualStrings("10\n", writer.written());
+    try t.expectOutput("10\n");
 }
 
 test "function nested calls" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun inner() { return 5; } fun outer() { return inner() * 2; } print outer();", false);
+    try t.interpret("fun inner() { return 5; } fun outer() { return inner() * 2; } print outer();");
 
     // Assert
-    try std.testing.expectEqualStrings("10\n", writer.written());
+    try t.expectOutput("10\n");
 }
 
 test "function with early return" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun check(x) { if (x > 0) return 1; return -1; } print check(5); print check(-5);", false);
+    try t.interpret("fun check(x) { if (x > 0) return 1; return -1; } print check(5); print check(-5);");
 
     // Assert
-    try std.testing.expectEqualStrings("1\n-1\n", writer.written());
+    try t.expectOutput("1\n-1\n");
 }
 
 test "function without return statement" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun noReturn() { var x = 5; } print noReturn();", false);
+    try t.interpret("fun noReturn() { var x = 5; } print noReturn();");
 
     // Assert
-    try std.testing.expectEqualStrings("nil\n", writer.written());
+    try t.expectOutput("nil\n");
 }
 
 test "function recursion factorial" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun fact(n) { if (n <= 1) return 1; return n * fact(n - 1); } print fact(5);", false);
+    try t.interpret("fun fact(n) { if (n <= 1) return 1; return n * fact(n - 1); } print fact(5);");
 
     // Assert
-    try std.testing.expectEqualStrings("120\n", writer.written());
+    try t.expectOutput("120\n");
 }
 
 test "function recursion fibonacci" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2); } print fib(6);", false);
+    try t.interpret("fun fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2); } print fib(6);");
 
     // Assert
-    try std.testing.expectEqualStrings("8\n", writer.written());
+    try t.expectOutput("8\n");
 }
 
 test "native function clock" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print clock() > 0;", false);
+    try t.interpret("print clock() > 0;");
 
     // Assert
-    try std.testing.expectEqualStrings("true\n", writer.written());
+    try t.expectOutput("true\n");
 }
 
 test "native function sqrt" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print sqrt(16);", false);
+    try t.interpret("print sqrt(16);");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "native function sqrt of two" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print sqrt(2);", false);
+    try t.interpret("print sqrt(2);");
 
     // Assert
-    try std.testing.expectEqualStrings("1.4142135623730951\n", writer.written());
+    try t.expectOutput("1.4142135623730951\n");
 }
 
 test "native function min" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print min(5, 3);", false);
+    try t.interpret("print min(5, 3);");
 
     // Assert
-    try std.testing.expectEqualStrings("3\n", writer.written());
+    try t.expectOutput("3\n");
 }
 
 test "native function min reversed" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print min(3, 5);", false);
+    try t.interpret("print min(3, 5);");
 
     // Assert
-    try std.testing.expectEqualStrings("3\n", writer.written());
+    try t.expectOutput("3\n");
 }
 
 test "native function min equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print min(4, 4);", false);
+    try t.interpret("print min(4, 4);");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "native function max" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print max(5, 3);", false);
+    try t.interpret("print max(5, 3);");
 
     // Assert
-    try std.testing.expectEqualStrings("5\n", writer.written());
+    try t.expectOutput("5\n");
 }
 
 test "native function max reversed" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print max(3, 5);", false);
+    try t.interpret("print max(3, 5);");
 
     // Assert
-    try std.testing.expectEqualStrings("5\n", writer.written());
+    try t.expectOutput("5\n");
 }
 
 test "native function max equal" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print max(4, 4);", false);
+    try t.interpret("print max(4, 4);");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "native functions composition" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print sqrt(max(9, 4));", false);
+    try t.interpret("print sqrt(max(9, 4));");
 
     // Assert
-    try std.testing.expectEqualStrings("3\n", writer.written());
+    try t.expectOutput("3\n");
 }
 
 test "native functions nested min max" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("print min(max(3, 5), 4);", false);
+    try t.interpret("print min(max(3, 5), 4);");
 
     // Assert
-    try std.testing.expectEqualStrings("4\n", writer.written());
+    try t.expectOutput("4\n");
 }
 
 test "function as argument" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret("fun apply(f, x) { return f(x); } fun negate(x) { return -x; } print apply(negate, 42);", false);
+    try t.interpret("fun apply(f, x) { return f(x); } fun negate(x) { return -x; } print apply(negate, 42);");
 
     // Assert
-    try std.testing.expectEqualStrings("-42\n", writer.written());
+    try t.expectOutput("-42\n");
 }
 
 test "closures capture outer variable" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\var x = "global";
@@ -1074,18 +1029,17 @@ test "closures capture outer variable" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("outer\n", writer.written());
+    try t.expectOutput("outer\n");
 }
 
 test "closures multiple instances with different captured values" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\fun makeClosure(value) {
@@ -1103,18 +1057,17 @@ test "closures multiple instances with different captured values" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("doughnut\nbagel\n", writer.written());
+    try t.expectOutput("doughnut\nbagel\n");
 }
 
 test "closures mutate captured variable" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\fun makeCounter() {
@@ -1134,18 +1087,17 @@ test "closures mutate captured variable" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("1\n2\n3\n", writer.written());
+    try t.expectOutput("1\n2\n3\n");
 }
 
 test "closures survive after enclosing function returns" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\fun makeAdder(n) {
@@ -1163,18 +1115,17 @@ test "closures survive after enclosing function returns" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("8\n13\n", writer.written());
+    try t.expectOutput("8\n13\n");
 }
 
 test "nested closures share mutable outer variable" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\fun outer() {
@@ -1194,18 +1145,17 @@ test "nested closures share mutable outer variable" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("2\n3\n", writer.written());
+    try t.expectOutput("2\n3\n");
 }
 
 test "class declaration and print" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {}
@@ -1214,18 +1164,17 @@ test "class declaration and print" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Foo\n", writer.written());
+    try t.expectOutput("Foo\n");
 }
 
 test "class declaration and call" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {}
@@ -1234,18 +1183,17 @@ test "class declaration and call" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Foo instance\n", writer.written());
+    try t.expectOutput("Foo instance\n");
 }
 
 test "class in block scope returns class from method" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\{
@@ -1260,18 +1208,17 @@ test "class in block scope returns class from method" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Foo\n", writer.written());
+    try t.expectOutput("Foo\n");
 }
 
 test "class instance property set and get" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {}
@@ -1282,18 +1229,17 @@ test "class instance property set and get" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("baz\n", writer.written());
+    try t.expectOutput("baz\n");
 }
 
 test "class method call no arguments" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1307,18 +1253,17 @@ test "class method call no arguments" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("hi\n", writer.written());
+    try t.expectOutput("hi\n");
 }
 
 test "class method call with arguments" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Calculator {
@@ -1332,18 +1277,17 @@ test "class method call with arguments" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("7\n", writer.written());
+    try t.expectOutput("7\n");
 }
 
 test "class method uses this to access instance field" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1361,18 +1305,17 @@ test "class method uses this to access instance field" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("42\n", writer.written());
+    try t.expectOutput("42\n");
 }
 
 test "class method uses this as receiver" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1385,18 +1328,17 @@ test "class method uses this as receiver" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Foo instance\n", writer.written());
+    try t.expectOutput("Foo instance\n");
 }
 
 test "class method call multiple methods" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Math {
@@ -1414,25 +1356,24 @@ test "class method call multiple methods" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("10\n15\n", writer.written());
+    try t.expectOutput("10\n15\n");
 }
 
 test "constructor with arguments sets instance fields" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
         \\  init(a, b) {
         \\    print "init";
         \\    this.a = a;
-        \\    this.b = b;
+        \\    this.b = b;этом можно 
         \\  }
         \\}
         \\var foo = Foo(1, 2);
@@ -1442,18 +1383,17 @@ test "constructor with arguments sets instance fields" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("init\n1\n2\n", writer.written());
+    try t.expectOutput("init\n1\n2\n");
 }
 
 test "constructor without init creates instance" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {}
@@ -1463,18 +1403,17 @@ test "constructor without init creates instance" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Foo instance\n", writer.written());
+    try t.expectOutput("Foo instance\n");
 }
 
 test "constructor early return still returns instance" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1490,18 +1429,17 @@ test "constructor early return still returns instance" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("init\nFoo instance\n", writer.written());
+    try t.expectOutput("init\nFoo instance\n");
 }
 
 test "constructor explicit init call does not create new instance" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1519,21 +1457,17 @@ test "constructor explicit init call does not create new instance" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings(
-        "Foo.init(one)\nFoo.init(two)\nFoo instance\ninit\n",
-        writer.written(),
-    );
+    try t.expectOutput("Foo.init(one)\nFoo.init(two)\nFoo instance\ninit\n");
 }
 
 test "constructor nested function named init is not initializer" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1549,37 +1483,35 @@ test "constructor nested function named init is not initializer" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("bar\nFoo instance\n", writer.written());
+    try t.expectOutput("bar\nFoo instance\n");
 }
 
 test "nested return preserves frame count" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret(
+    try t.interpret(
         \\fun a() { return 1; }
         \\fun b() { return a() + 1; }
         \\fun c() { return b() + 1; }
         \\print c();
-    , false);
+    );
 
     // Assert
-    try std.testing.expectEqualStrings("3\n", writer.written());
+    try t.expectOutput("3\n");
 }
 
 test "gc instance field survives collection" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Box {}
@@ -1595,18 +1527,17 @@ test "gc instance field survives collection" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("survive\n", writer.written());
+    try t.expectOutput("survive\n");
 }
 
 test "gc class method closure survives collection" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Greeter {
@@ -1625,18 +1556,17 @@ test "gc class method closure survives collection" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("hello\n", writer.written());
+    try t.expectOutput("hello\n");
 }
 
 test "gc closure in global survives collection" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\fun make() {
@@ -1654,18 +1584,17 @@ test "gc closure in global survives collection" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("42\n", writer.written());
+    try t.expectOutput("42\n");
 }
 
 test "gc global variable survives collection" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\var survive = "ok";
@@ -1679,18 +1608,17 @@ test "gc global variable survives collection" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("ok\n", writer.written());
+    try t.expectOutput("ok\n");
 }
 
 test "gc deep linked instance chain survives collection" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Node {}
@@ -1719,18 +1647,17 @@ test "gc deep linked instance chain survives collection" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("50000\n", writer.written());
+    try t.expectOutput("50000\n");
 }
 
 test "gc bound methods are collected during method calls" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1747,18 +1674,17 @@ test "gc bound methods are collected during method calls" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("1\n", writer.written());
+    try t.expectOutput("1\n");
 }
 
 test "class and bound method identity equality" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1775,18 +1701,17 @@ test "class and bound method identity equality" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("true\nfalse\ntrue\nfalse\n", writer.written());
+    try t.expectOutput("true\nfalse\ntrue\nfalse\n");
 }
 
 test "inheritance inherits methods from superclass" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1802,18 +1727,17 @@ test "inheritance inherits methods from superclass" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("foo\nbar\n", writer.written());
+    try t.expectOutput("foo\nbar\n");
 }
 
 test "inheritance subclass method overrides superclass" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1827,18 +1751,17 @@ test "inheritance subclass method overrides superclass" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("bar\n", writer.written());
+    try t.expectOutput("bar\n");
 }
 
 test "inheritance base initializer sets fields on subclass instance" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Foo {
@@ -1859,18 +1782,17 @@ test "inheritance base initializer sets fields on subclass instance" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("foo 1\nfoo 2\n", writer.written());
+    try t.expectOutput("foo 1\nfoo 2\n");
 }
 
 test "super calls superclass method" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Base {
@@ -1887,18 +1809,17 @@ test "super calls superclass method" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Derived.foo()\nBase.foo()\n", writer.written());
+    try t.expectOutput("Derived.foo()\nBase.foo()\n");
 }
 
 test "super init calls superclass constructor" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Base {
@@ -1917,18 +1838,17 @@ test "super init calls superclass constructor" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("Derived.init()\nBase.init(a, b)\n", writer.written());
+    try t.expectOutput("Derived.init()\nBase.init(a, b)\n");
 }
 
 test "super init sets superclass fields accessed on subclass instance" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Base {
@@ -1949,18 +1869,17 @@ test "super init sets superclass fields accessed on subclass instance" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("a\nb\n", writer.written());
+    try t.expectOutput("a\nb\n");
 }
 
 test "super resolves through multiple inheritance levels" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class A {
@@ -1978,18 +1897,17 @@ test "super resolves through multiple inheritance levels" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("C.foo()\nA.foo()\n", writer.written());
+    try t.expectOutput("C.foo()\nA.foo()\n");
 }
 
 test "super method binds to superclass implementation" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class A {
@@ -2011,18 +1929,17 @@ test "super method binds to superclass implementation" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("A.method(arg)\n", writer.written());
+    try t.expectOutput("A.method(arg)\n");
 }
 
 test "recursive calls report stack overflow" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\fun foo() {
@@ -2033,29 +1950,27 @@ test "recursive calls report stack overflow" {
     ;
 
     // Act + Assert
-    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret(code, false));
+    try t.expectRuntimeError(code);
 }
 
 test "native sqrt wrong arity reports runtime error" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret("sqrt();", false));
+    try t.expectRuntimeError("sqrt();");
 }
 
 test "native min wrong arity reports runtime error" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret("min(1);", false));
+    try t.expectRuntimeError("min(1);");
 }
 
 test "long closure opcode with large constant pool" {
@@ -2068,16 +1983,15 @@ test "long closure opcode with large constant pool" {
     }
     try code.writer.writeAll("f256();\n");
 
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret(code.written(), false);
+    try t.interpret(code.written());
 
     // Assert
-    try std.testing.expectEqualStrings("256\n", writer.written());
+    try t.expectOutput("256\n");
 }
 
 test "long invoke opcode with large constant pool" {
@@ -2091,75 +2005,66 @@ test "long invoke opcode with large constant pool" {
     }
     try code.writer.writeAll("}\nprint C().m256();\n");
 
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act
-    try virtualMachine.interpret(code.written(), false);
+    try t.interpret(code.written());
 
     // Assert
-    try std.testing.expectEqualStrings("256\n", writer.written());
+    try t.expectOutput("256\n");
 }
 
 test "compile error on duplicate local variable" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(
+    try t.expectCompileError(
         \\{
         \\  var x = 1;
         \\  var x = 2;
         \\}
-    ,
-        false,
-    ));
+    );
 }
 
 test "compile error on invalid assignment target" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("1 = 2;", false));
+    try t.expectCompileError("1 = 2;");
 }
 
 test "compile error on top-level return" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("return;", false));
+    try t.expectCompileError("return;");
 }
 
 test "compile error on initializer return value" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(
+    try t.expectCompileError(
         \\class C {
         \\  init() {
         \\    return 1;
         \\  }
         \\}
-    ,
-        false,
-    ));
+    );
 }
 
 test "compile error on too many function parameters" {
@@ -2174,54 +2079,49 @@ test "compile error on too many function parameters" {
     }
     try code.writer.writeAll(") {}\n");
 
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret(code.written(), false));
+    try t.expectCompileError(code.written());
 }
 
 test "runtime error on undefined variable" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.RuntimeError, virtualMachine.interpret("print not_defined;", false));
+    try t.expectRuntimeError("print not_defined;");
 }
 
 test "compile error on this outside class" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("print this;", false));
+    try t.expectCompileError("print this;");
 }
 
 test "compile error on class inheriting from itself" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("class A < A {};", false));
+    try t.expectCompileError("class A < A {};");
 }
 
 test "temporary bound method is collected" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class A {
@@ -2236,7 +2136,7 @@ test "temporary bound method is collected" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
     var expected = std.Io.Writer.Allocating.init(std.testing.allocator);
@@ -2245,15 +2145,14 @@ test "temporary bound method is collected" {
     while (i < 50) : (i += 1) {
         try expected.writer.writeAll("1\n");
     }
-    try std.testing.expectEqualStrings(expected.written(), writer.written());
+    try t.expectOutput(expected.written());
 }
 
 test "instance field keeps nested instance alive" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Box { init(n) { this.n = n; } }
@@ -2268,18 +2167,17 @@ test "instance field keeps nested instance alive" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("7\n", writer.written());
+    try t.expectOutput("7\n");
 }
 
 test "stored bound method keeps receiver alive" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class A {
@@ -2296,18 +2194,17 @@ test "stored bound method keeps receiver alive" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("99\n", writer.written());
+    try t.expectOutput("99\n");
 }
 
 test "field bound method call uses receiver" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class A {
@@ -2323,18 +2220,17 @@ test "field bound method call uses receiver" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("42\n42\n", writer.written());
+    try t.expectOutput("42\n42\n");
 }
 
 test "free list reuse after temporary instances" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class Box { init(n) { this.n = n; } }
@@ -2351,18 +2247,17 @@ test "free list reuse after temporary instances" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("99\n", writer.written());
+    try t.expectOutput("99\n");
 }
 
 test "get super bound method then call" {
     // Arrange
-    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
-    defer writer.deinit();
-    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
-    defer virtualMachine.deinit();
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
 
     const code =
         \\class A {
@@ -2381,8 +2276,8 @@ test "get super bound method then call" {
     ;
 
     // Act
-    try virtualMachine.interpret(code, false);
+    try t.interpret(code);
 
     // Assert
-    try std.testing.expectEqualStrings("3\n", writer.written());
+    try t.expectOutput("3\n");
 }
