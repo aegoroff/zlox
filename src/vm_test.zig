@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm = @import("vm.zig");
 const err = @import("error.zig");
+const scan = @import("scanner.zig");
 
 const TestHarness = struct {
     writer: std.Io.Writer.Allocating,
@@ -2236,4 +2237,779 @@ test "super: get bound method then call" {
 
     // Assert
     try t.expectOutput("3\n");
+}
+
+test "expr: or value and short-circuit" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\print 1 or true;
+        \\print false or 1;
+        \\print false or false or true;
+        \\print false or false;
+        \\print false or false or false;
+        \\var a = "before";
+        \\var b = "before";
+        \\(a = false) or
+        \\    (b = true) or
+        \\    (a = "bad");
+        \\print a;
+        \\print b;
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("1\n1\ntrue\nfalse\nfalse\nfalse\ntrue\n");
+}
+
+test "expr: and truthiness" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\print false and "bad";
+        \\print nil and "bad";
+        \\print true and "ok";
+        \\print 0 and "ok";
+        \\print "" and "ok";
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("false\nnil\nok\nok\nok\n");
+}
+
+test "expr: or truthiness" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\print false or "ok";
+        \\print nil or "ok";
+        \\print true or "ok";
+        \\print 0 or "ok";
+        \\print "s" or "ok";
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("ok\nok\ntrue\n0\ns\n");
+}
+
+test "ctrl: while closure in body" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\var f1;
+        \\var f2;
+        \\var f3;
+        \\
+        \\var i = 1;
+        \\while (i < 4) {
+        \\  var j = i;
+        \\  fun f() { print j; }
+        \\
+        \\  if (j == 1) f1 = f;
+        \\  else if (j == 2) f2 = f;
+        \\  else f3 = f;
+        \\
+        \\  i = i + 1;
+        \\}
+        \\
+        \\f1();
+        \\f2();
+        \\f3();
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("1\n2\n3\n");
+}
+
+test "ctrl: for return inside" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\fun f() {
+        \\  for (;;) {
+        \\    var i = "i";
+        \\    return i;
+        \\  }
+        \\}
+        \\
+        \\print f();
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("i\n");
+}
+
+test "ctrl: for scope" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\{
+        \\  var i = "before";
+        \\
+        \\  for (var i = 0; i < 1; i = i + 1) {
+        \\    print i;
+        \\
+        \\    var i = -1;
+        \\    print i;
+        \\  }
+        \\}
+        \\
+        \\{
+        \\  for (var i = 0; i > 0; i = i + 1) {}
+        \\
+        \\  var i = "after";
+        \\  print i;
+        \\
+        \\  for (i = 0; i < 1; i = i + 1) {
+        \\    print i;
+        \\  }
+        \\}
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("0\n-1\nafter\n0\n");
+}
+
+test "error: set field on class" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Foo {}
+        \\Foo.bar = "value";
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
+test "error: get field on class" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Foo {}
+        \\Foo.bar;
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
+test "class: field shadows method keep old bound" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Foo {
+        \\  method(a) {
+        \\    print "method";
+        \\    print a;
+        \\  }
+        \\  other(a) {
+        \\    print "other";
+        \\    print a;
+        \\  }
+        \\}
+        \\
+        \\var foo = Foo();
+        \\var method = foo.method;
+        \\
+        \\foo.method = foo.other;
+        \\foo.method(1);
+        \\
+        \\method(2);
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("other\n1\nmethod\n2\n");
+}
+
+test "error: method not found" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectRuntimeError(
+        \\class Foo {}
+        \\Foo().unknown();
+    );
+}
+
+test "error: default ctor extra args" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Foo {}
+        \\var foo = Foo(1, 2, 3);
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
+test "error: ctor extra args" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Foo {
+        \\  init(a, b) {
+        \\    this.a = a;
+        \\    this.b = b;
+        \\  }
+        \\}
+        \\
+        \\var foo = Foo(1, 2, 3, 4);
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
+test "error: set field eval order" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\undefined1.bar = undefined2;
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
+test "error: super missing method" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Base {}
+        \\
+        \\class Derived < Base {
+        \\  foo() {
+        \\    super.doesNotExist(1);
+        \\  }
+        \\}
+        \\
+        \\Derived().foo();
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
+test "error: super extra args" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Base {
+        \\  foo(a, b) {
+        \\    print "Base.foo(" + a + ", " + b + ")";
+        \\  }
+        \\}
+        \\class Derived < Base {
+        \\  foo() {
+        \\    print "Derived.foo()";
+        \\    super.foo("a", "b", "c", "d");
+        \\  }
+        \\}
+        \\Derived().foo();
+        \\
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+    try t.expectOutput("Derived.foo()\n");
+}
+
+test "super: reassign superclass unchanged" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Base {
+        \\  method() {
+        \\    print "Base.method()";
+        \\  }
+        \\}
+        \\
+        \\class Derived < Base {
+        \\  method() {
+        \\    super.method();
+        \\  }
+        \\}
+        \\
+        \\class OtherBase {
+        \\  method() {
+        \\    print "OtherBase.method()";
+        \\  }
+        \\}
+        \\
+        \\var derived = Derived();
+        \\derived.method();
+        \\Base = OtherBase;
+        \\derived.method();
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("Base.method()\nBase.method()\n");
+}
+
+test "error: super without superclass" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError(
+        \\class Base {
+        \\  foo() {
+        \\    super.doesNotExist(1);
+        \\  }
+        \\}
+        \\Base().foo();
+    );
+}
+
+test "error: this in top-level function" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError(
+        \\fun foo() {
+        \\  this;
+        \\}
+    );
+}
+
+test "class: nested this outer vs inner" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Outer {
+        \\  method() {
+        \\    print this;
+        \\
+        \\    fun f() {
+        \\      print this;
+        \\
+        \\      class Inner {
+        \\        method() {
+        \\          print this;
+        \\        }
+        \\      }
+        \\
+        \\      Inner().method();
+        \\    }
+        \\    f();
+        \\  }
+        \\}
+        \\
+        \\Outer().method();
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("Outer instance\nOuter instance\nInner instance\n");
+}
+
+test "closure: assign to shadowed later" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\var a = "global";
+        \\
+        \\{
+        \\  fun assign() {
+        \\    a = "assigned";
+        \\  }
+        \\
+        \\  var a = "inner";
+        \\  assign();
+        \\  print a;
+        \\}
+        \\
+        \\print a;
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("inner\nassigned\n");
+}
+
+test "closure: close over method parameter" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\var f;
+        \\
+        \\class Foo {
+        \\  method(param) {
+        \\    fun f_() {
+        \\      print param;
+        \\    }
+        \\    f = f_;
+        \\  }
+        \\}
+        \\
+        \\Foo().method("param");
+        \\f();
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("param\n");
+}
+
+test "closure: reuse closure slot" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\{
+        \\  var f;
+        \\
+        \\  {
+        \\    var a = "a";
+        \\    fun f_() { print a; }
+        \\    f = f_;
+        \\  }
+        \\
+        \\  {
+        \\    var b = "b";
+        \\    f();
+        \\  }
+        \\}
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("a\n");
+}
+
+test "var: unreached undefined ok" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\if (false) {
+        \\  print notDefined;
+        \\}
+        \\
+        \\print "ok";
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("ok\n");
+}
+
+test "error: duplicate parameter" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError(
+        \\fun foo(arg,
+        \\        arg) {
+        \\  "body";
+        \\}
+    );
+}
+
+test "error: assign undefined" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectRuntimeError("unknown = \"what\";");
+}
+
+test "expr: nan equality" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\var nan = 0/0;
+        \\
+        \\print nan == 0;
+        \\print nan != 1;
+        \\print nan == nan;
+        \\print nan != nan;
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("false\ntrue\nfalse\ntrue\n");
+}
+
+test "expr: bool equality" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\print true == true;
+        \\print true == false;
+        \\print false == true;
+        \\print false == false;
+        \\print true == 1;
+        \\print false == 0;
+        \\print true == "true";
+        \\print false == "false";
+        \\print false == "";
+        \\print true != true;
+        \\print true != false;
+        \\print false != true;
+        \\print false != false;
+        \\print true != 1;
+        \\print false != 0;
+        \\print true != "true";
+        \\print false != "false";
+        \\print false != "";
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("true\nfalse\nfalse\ntrue\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\n");
+}
+
+test "class: equality" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class Foo {}
+        \\class Bar {}
+        \\
+        \\print Foo == Foo;
+        \\print Foo == Bar;
+        \\print Bar == Foo;
+        \\print Bar == Bar;
+        \\print Foo == "Foo";
+        \\print Foo == nil;
+        \\print Foo == 123;
+        \\print Foo == true;
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("true\nfalse\nfalse\ntrue\nfalse\nfalse\nfalse\nfalse\n");
+}
+
+test "ctrl: dangling else" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.interpret(
+        \\if (true) if (false) print "bad"; else print "good";
+        \\if (false) if (true) print "bad"; else print "bad";
+    );
+
+    // Assert
+    try t.expectOutput("good\n");
+}
+
+test "error: unexpected character" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(scan.LexerError.UnexpectedCharacter, t.machine.interpret(
+        \\foo(a | b);
+    , false));
+}
+
+test "error: unterminated string" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try std.testing.expectError(scan.LexerError.UnterminatedString, t.machine.interpret(
+        \\"this string has no close quote
+    , false));
+}
+
+test "error: too many locals" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("fun f() {\n");
+    // Slot 0 is the function itself; 255 more locals fill LOCALS_MAX.
+    var i: usize = 0;
+    while (i < 255) : (i += 1) {
+        try code.writer.print("  var v{d};\n", .{i});
+    }
+    try code.writer.writeAll("  var oops;\n}\n");
+
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError(code.written());
+}
+
+test "error: too many upvalues" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("fun f() {\n");
+    var i: usize = 0;
+    while (i < 128) : (i += 1) {
+        try code.writer.print("  var v{d};\n", .{i});
+    }
+    try code.writer.writeAll("  fun g() {\n");
+    while (i < 256) : (i += 1) {
+        try code.writer.print("    var v{d};\n", .{i});
+    }
+    try code.writer.writeAll("    var oops;\n");
+    try code.writer.writeAll("    fun h() {\n");
+    i = 0;
+    while (i < 256) : (i += 1) {
+        try code.writer.print("      v{d};\n", .{i});
+    }
+    try code.writer.writeAll("      oops;\n    }\n  }\n}\n");
+
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError(code.written());
+}
+
+test "opcode: many constants ok" {
+    // Arrange — zlox supports long constant operands, so >255 constants succeed.
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("fun f() {\n");
+    var i: usize = 0;
+    while (i < 256) : (i += 1) {
+        try code.writer.print("  {d};\n", .{i});
+    }
+    try code.writer.writeAll("  print \"ok\";\n}\nf();\n");
+
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.interpret(code.written());
+
+    // Assert
+    try t.expectOutput("ok\n");
 }
