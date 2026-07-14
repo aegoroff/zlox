@@ -5,8 +5,6 @@ const tbl = @import("table.zig");
 const Table = tbl.Table;
 const TableEntry = tbl.Entry;
 
-const ERROR_MARGIN = 0.000001;
-
 const SIGN_BIT: u64 = 0x8000000000000000;
 const QNAN: u64 = 0x7ffc000000000000;
 const TAG_NIL: u64 = 1;
@@ -279,16 +277,17 @@ pub const LoxValue = struct {
     }
 
     pub inline fn equal(self: LoxValue, other: LoxValue) bool {
+        // Match clox (NAN_BOXING): IEEE equality for numbers (NaN != NaN, +0 == -0).
         if (self.isNumber() and other.isNumber()) {
-            const l = self.asNumber();
-            const r = other.asNumber();
-            if (std.math.isNan(l) or std.math.isNan(r)) return false;
-            return @abs(l - r) < ERROR_MARGIN;
+            return self.asNumber() == other.asNumber();
         }
+        // Same bit pattern ⇒ equal (nil/bool/short string/interned heap ptr).
+        if (self.raw == other.raw) return true;
+        // Short ↔ heap string with the same characters.
         if (self.isString() and other.isString()) {
             return stringsEqual(self, other);
         }
-        return self.raw == other.raw;
+        return false;
     }
 
     pub fn less(self: LoxValue, other: LoxValue) err.Error!bool {
