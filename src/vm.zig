@@ -631,7 +631,7 @@ pub fn run(self: *VM) !void {
                     self.popAndReplace(LoxValue.boolean(a.asNumber() < b.asNumber()));
                 } else {
                     const result = a.less(b) catch {
-                        try self.errorAt(cursor.frame.ip, "Operands must be strings.", .{});
+                        try self.errorAt(cursor.frame.ip, "Operands must be two numbers or two strings.", .{});
                         return err.Error.RuntimeError;
                     };
                     self.popAndReplace(LoxValue.boolean(result));
@@ -644,7 +644,7 @@ pub fn run(self: *VM) !void {
                     self.popAndReplace(LoxValue.boolean(a.asNumber() > b.asNumber()));
                 } else {
                     const result = a.greaterThan(b) catch {
-                        try self.errorAt(cursor.frame.ip, "Operands must be strings.", .{});
+                        try self.errorAt(cursor.frame.ip, "Operands must be two numbers or two strings.", .{});
                         return err.Error.RuntimeError;
                     };
                     self.popAndReplace(LoxValue.boolean(result));
