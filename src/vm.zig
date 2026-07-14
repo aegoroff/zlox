@@ -786,8 +786,7 @@ pub fn run(self: *VM) !void {
                 }
 
                 self.stack_top = cursor.frame.slots;
-                self.stack_top[0] = result;
-                self.stack_top += 1;
+                try self.push(result);
                 cursor.reload(self);
             },
             .CloseUpvalue => {
