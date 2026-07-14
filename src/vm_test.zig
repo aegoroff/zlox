@@ -25,8 +25,13 @@ const TestHarness = struct {
         try std.testing.expectEqualStrings(expected, self.writer.written());
     }
 
+    fn expectFrameCount(self: *TestHarness, expected: usize) !void {
+        try std.testing.expectEqual(expected, self.machine.frame_count);
+    }
+
     fn expectCompileError(self: *TestHarness, source: []const u8) !void {
         try std.testing.expectError(err.Error.CompileError, self.machine.interpret(source, false));
+        try self.expectFrameCount(0);
     }
 
     fn expectRuntimeError(self: *TestHarness, source: []const u8) !void {
@@ -1505,6 +1510,7 @@ test "nested return preserves frame count" {
 
     // Assert
     try t.expectOutput("3\n");
+    try t.expectFrameCount(0);
 }
 
 test "gc instance field survives collection" {
@@ -1951,6 +1957,7 @@ test "recursive calls report stack overflow" {
 
     // Act + Assert
     try t.expectRuntimeError(code);
+    try t.expectFrameCount(t.machine.frames.len);
 }
 
 test "native sqrt wrong arity reports runtime error" {
@@ -1961,6 +1968,7 @@ test "native sqrt wrong arity reports runtime error" {
 
     // Act + Assert
     try t.expectRuntimeError("sqrt();");
+    try t.expectFrameCount(1);
 }
 
 test "native min wrong arity reports runtime error" {
@@ -1971,6 +1979,7 @@ test "native min wrong arity reports runtime error" {
 
     // Act + Assert
     try t.expectRuntimeError("min(1);");
+    try t.expectFrameCount(1);
 }
 
 test "long closure opcode with large constant pool" {
@@ -2095,6 +2104,7 @@ test "runtime error on undefined variable" {
 
     // Act + Assert
     try t.expectRuntimeError("print not_defined;");
+    try t.expectFrameCount(1);
 }
 
 test "compile error on this outside class" {
