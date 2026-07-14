@@ -31,10 +31,10 @@
 4. Verify fix doesn't break existing tests
 
 ### Performance
-1. Prefer corectness to speed
-2. Prefer clearness to speed
-3. Benchmark script to compare with clox ./bench.sh
-4. Benchmark all suite to compare with clox ./bench_all.sh
+1. Prefer correctness to speed
+2. Prefer clarity to speed
+3. Benchmark against clox with `./bench.sh`
+4. Run the full benchmark suite against clox with `./bench_all.sh`
 
 ## Build & Test Commands
 ```bash
@@ -54,5 +54,5 @@ just build
 - Follow existing code organization patterns
 - Write code comments only in English
 - Don't write trivial code comments
-- Write tests in AAA pattern - Arange, Act, Assert
+- Write tests in AAA pattern - Arrange, Act, Assert
 - Always apply zig fmt to final result
