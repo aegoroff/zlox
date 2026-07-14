@@ -221,15 +221,19 @@ inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usi
         try self.errorAt(ip, "Stack overflow.", .{});
         return err.Error.RuntimeError;
     }
+    self.pushFrame(closure, arg_count);
+    return true;
+}
+
+/// Hot path for calling a closure when arity/frames are already known to be OK.
+inline fn pushFrame(self: *VM, closure: *val.Closure, arg_count: usize) void {
     const slots_offset = self.stack_top - arg_count - 1;
-    const function_chunk = &closure.function.chunk;
     self.frames[self.frame_count] = CallFrame{
         .closure = closure,
         .slots = @ptrCast(&self.stack[slots_offset]),
-        .ip = function_chunk.code.items.ptr,
+        .ip = closure.function.chunk.code.items.ptr,
     };
     self.frame_count += 1;
-    return true;
 }
 
 inline fn invokeFromClass(self: *VM, ip: [*]const u8, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
@@ -327,10 +331,12 @@ fn captureUpvalue(self: *VM, location: usize) !*val.Upvalue {
 }
 
 fn closeUpvalues(self: *VM, last: usize) void {
-    while (self.open_upvalues) |upvalue| {
-        if (@intFromPtr(upvalue.location) >= last) {
-            self.open_upvalues = upvalue.next;
-            upvalue.close();
+    var current = self.open_upvalues orelse return;
+    while (true) {
+        if (@intFromPtr(current.location) >= last) {
+            self.open_upvalues = current.next;
+            current.close();
+            current = self.open_upvalues orelse return;
         } else {
             break;
         }
@@ -608,22 +614,34 @@ pub fn run(self: *VM) !void {
                 try self.push(LoxValue.boolean(a.equal(b)));
             },
             .Less => {
-                const b = self.pop();
-                const a = self.pop();
-                const result = a.less(b) catch {
-                    try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
-                    return err.Error.RuntimeError;
-                };
-                try self.push(LoxValue.boolean(result));
+                const b = self.peek(0);
+                const a = self.peek(1);
+                if (a.isNumber() and b.isNumber()) {
+                    self.stack_top -= 1;
+                    self.stack[self.stack_top - 1] = LoxValue.boolean(a.asNumber() < b.asNumber());
+                } else {
+                    const result = a.less(b) catch {
+                        try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
+                        return err.Error.RuntimeError;
+                    };
+                    self.stack_top -= 1;
+                    self.stack[self.stack_top - 1] = LoxValue.boolean(result);
+                }
             },
             .Greater => {
-                const b = self.pop();
-                const a = self.pop();
-                const result = a.greaterThan(b) catch {
-                    try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
-                    return err.Error.RuntimeError;
-                };
-                try self.push(LoxValue.boolean(result));
+                const b = self.peek(0);
+                const a = self.peek(1);
+                if (a.isNumber() and b.isNumber()) {
+                    self.stack_top -= 1;
+                    self.stack[self.stack_top - 1] = LoxValue.boolean(a.asNumber() > b.asNumber());
+                } else {
+                    const result = a.greaterThan(b) catch {
+                        try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
+                        return err.Error.RuntimeError;
+                    };
+                    self.stack_top -= 1;
+                    self.stack[self.stack_top - 1] = LoxValue.boolean(result);
+                }
             },
             .Negate => {
                 const value = self.peek(0);
@@ -642,9 +660,8 @@ pub fn run(self: *VM) !void {
                 const a = self.peek(1);
 
                 if (a.isNumber() and b.isNumber()) {
-                    _ = self.pop();
-                    _ = self.pop();
-                    try self.push(LoxValue.number(a.asNumber() + b.asNumber()));
+                    self.stack_top -= 1;
+                    self.stack[self.stack_top - 1] = LoxValue.number(a.asNumber() + b.asNumber());
                 } else if (a.isString() and b.isString()) {
                     var buf_a: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
                     var buf_b: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
@@ -672,36 +689,35 @@ pub fn run(self: *VM) !void {
                 }
             },
             .Subtract => {
-                const b = self.pop();
-                const a = self.pop();
+                const b = self.peek(0);
+                const a = self.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
                     try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                try self.push(LoxValue.number(a.asNumber() - b.asNumber()));
+                self.stack_top -= 1;
+                self.stack[self.stack_top - 1] = LoxValue.number(a.asNumber() - b.asNumber());
             },
             .Multiply => {
-                const b = self.pop();
-                const a = self.pop();
+                const b = self.peek(0);
+                const a = self.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
                     try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                try self.push(LoxValue.number(a.asNumber() * b.asNumber()));
+                self.stack_top -= 1;
+                self.stack[self.stack_top - 1] = LoxValue.number(a.asNumber() * b.asNumber());
             },
             .Divide => {
-                const b = self.pop();
-                const a = self.pop();
+                const b = self.peek(0);
+                const a = self.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
                     try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
                 const bn = b.asNumber();
-                if (bn == 0) {
-                    try self.push(LoxValue.number(std.math.nan(f64)));
-                } else {
-                    try self.push(LoxValue.number(a.asNumber() / bn));
-                }
+                self.stack_top -= 1;
+                self.stack[self.stack_top - 1] = LoxValue.number(if (bn == 0) std.math.nan(f64) else a.asNumber() / bn);
             },
             .Print => {
                 const value = self.pop();
@@ -715,7 +731,16 @@ pub fn run(self: *VM) !void {
                 const arg_count = Chunk.readByteAt(cursor.frame.ip);
                 cursor.frame.ip += 1;
                 const value = self.peek(arg_count);
-                if (!try self.callValue(cursor.frame.ip, value, arg_count)) {
+                // Fast path: monomorphic closure calls (fib, etc.) — no error-union dance.
+                if (value.isClosure()) {
+                    const closure = value.asClosure();
+                    if (closure.function.arity == arg_count and self.frame_count < FRAMES_MAX) {
+                        self.pushFrame(closure, arg_count);
+                    } else if (!try self.call(cursor.frame.ip, closure, arg_count)) {
+                        try self.errorAt(cursor.frame.ip, "Calling failed", .{});
+                        return err.Error.RuntimeError;
+                    }
+                } else if (!try self.callValue(cursor.frame.ip, value, arg_count)) {
                     try self.errorAt(cursor.frame.ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
                 }
@@ -749,7 +774,9 @@ pub fn run(self: *VM) !void {
             .Return => {
                 const result = if (self.stack_top > 0) self.pop() else LoxValue.nil;
 
-                self.closeUpvalues(@intFromPtr(cursor.frame.slots));
+                if (self.open_upvalues != null) {
+                    self.closeUpvalues(@intFromPtr(cursor.frame.slots));
+                }
 
                 self.frame_count -= 1;
                 if (self.frame_count == 0) {
@@ -757,7 +784,9 @@ pub fn run(self: *VM) !void {
                 }
 
                 self.stack_top = self.stackIndex(cursor.frame.slots);
-                try self.push(result);
+                // Frame return always has room: callee frame freed at least one slot.
+                self.stack[self.stack_top] = result;
+                self.stack_top += 1;
                 cursor.reload(self);
             },
             .CloseUpvalue => {
