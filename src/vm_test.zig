@@ -1373,7 +1373,7 @@ test "constructor with arguments sets instance fields" {
         \\  init(a, b) {
         \\    print "init";
         \\    this.a = a;
-        \\    this.b = b;этом можно 
+        \\    this.b = b;
         \\  }
         \\}
         \\var foo = Foo(1, 2);
