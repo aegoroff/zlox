@@ -39,7 +39,7 @@ const TestHarness = struct {
     }
 };
 
-test "Simple add expression" {
+test "expr: add" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -52,7 +52,7 @@ test "Simple add expression" {
     try t.expectOutput("3\n");
 }
 
-test "String concatentation" {
+test "expr: string concat" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -65,7 +65,7 @@ test "String concatentation" {
     try t.expectOutput("abc\n");
 }
 
-test "string equal false" {
+test "expr: string == false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -78,7 +78,7 @@ test "string equal false" {
     try t.expectOutput("false\n");
 }
 
-test "string not equal" {
+test "expr: string !=" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -91,7 +91,7 @@ test "string not equal" {
     try t.expectOutput("true\n");
 }
 
-test "short string equal true" {
+test "expr: short string ==" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -104,7 +104,7 @@ test "short string equal true" {
     try t.expectOutput("true\n");
 }
 
-test "big string equal true" {
+test "expr: long string ==" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -117,7 +117,7 @@ test "big string equal true" {
     try t.expectOutput("true\n");
 }
 
-test "string greater false" {
+test "expr: string > false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -130,7 +130,7 @@ test "string greater false" {
     try t.expectOutput("false\n");
 }
 
-test "string greater true" {
+test "expr: string > true" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -143,7 +143,7 @@ test "string greater true" {
     try t.expectOutput("true\n");
 }
 
-test "string greater or equal true" {
+test "expr: string >=" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -156,7 +156,7 @@ test "string greater or equal true" {
     try t.expectOutput("true\n");
 }
 
-test "short string less or equal false" {
+test "expr: short string <= false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -169,7 +169,7 @@ test "short string less or equal false" {
     try t.expectOutput("false\n");
 }
 
-test "big string less or equal false" {
+test "expr: long string <= false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -182,7 +182,7 @@ test "big string less or equal false" {
     try t.expectOutput("false\n");
 }
 
-test "number equal false" {
+test "expr: number == false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -195,7 +195,7 @@ test "number equal false" {
     try t.expectOutput("false\n");
 }
 
-test "number equal true" {
+test "expr: number ==" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -208,7 +208,7 @@ test "number equal true" {
     try t.expectOutput("true\n");
 }
 
-test "number greater or equal" {
+test "expr: number >= equal" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -221,7 +221,7 @@ test "number greater or equal" {
     try t.expectOutput("true\n");
 }
 
-test "number greater or equal two" {
+test "expr: number >=" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -234,7 +234,7 @@ test "number greater or equal two" {
     try t.expectOutput("true\n");
 }
 
-test "number less or equal false" {
+test "expr: number <= false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -247,7 +247,7 @@ test "number less or equal false" {
     try t.expectOutput("false\n");
 }
 
-test "expression less or equal false" {
+test "expr: nested <= false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -260,7 +260,7 @@ test "expression less or equal false" {
     try t.expectOutput("false\n");
 }
 
-test "comparison with equal" {
+test "expr: > then ==" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -273,7 +273,7 @@ test "comparison with equal" {
     try t.expectOutput("true\n");
 }
 
-test "number less or equal equal" {
+test "expr: number <= equal" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -286,7 +286,7 @@ test "number less or equal equal" {
     try t.expectOutput("true\n");
 }
 
-test "number less or equal" {
+test "expr: number <=" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -299,7 +299,7 @@ test "number less or equal" {
     try t.expectOutput("true\n");
 }
 
-test "not nil" {
+test "expr: !nil" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -312,7 +312,7 @@ test "not nil" {
     try t.expectOutput("true\n");
 }
 
-test "not number" {
+test "expr: !number" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -325,7 +325,7 @@ test "not number" {
     try t.expectOutput("false\n");
 }
 
-test "not string" {
+test "expr: !string" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -338,7 +338,7 @@ test "not string" {
     try t.expectOutput("false\n");
 }
 
-test "two ands + or" {
+test "expr: and or" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -351,7 +351,7 @@ test "two ands + or" {
     try t.expectOutput("true\n");
 }
 
-test "three ands" {
+test "expr: and chain" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -364,7 +364,7 @@ test "three ands" {
     try t.expectOutput("true\n");
 }
 
-test "decrement prefix" {
+test "expr: unary minus" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -377,7 +377,7 @@ test "decrement prefix" {
     try t.expectOutput("1\n");
 }
 
-test "subtract same numbers" {
+test "expr: subtract zero" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -390,7 +390,7 @@ test "subtract same numbers" {
     try t.expectOutput("0\n");
 }
 
-test "subtract negative result" {
+test "expr: subtract negative" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -403,7 +403,7 @@ test "subtract negative result" {
     try t.expectOutput("-1\n");
 }
 
-test "subtract positive result" {
+test "expr: subtract" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -416,7 +416,7 @@ test "subtract positive result" {
     try t.expectOutput("1\n");
 }
 
-test "add numbers" {
+test "expr: add numbers" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -429,7 +429,7 @@ test "add numbers" {
     try t.expectOutput("5\n");
 }
 
-test "add and subtract" {
+test "expr: add subtract" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -442,7 +442,7 @@ test "add and subtract" {
     try t.expectOutput("4\n");
 }
 
-test "add and divide" {
+test "expr: add divide" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -455,7 +455,7 @@ test "add and divide" {
     try t.expectOutput("4\n");
 }
 
-test "parentheses add and divide" {
+test "expr: parens precedence" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -468,7 +468,7 @@ test "parentheses add and divide" {
     try t.expectOutput("2\n");
 }
 
-test "divide numbers" {
+test "expr: divide" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -481,7 +481,7 @@ test "divide numbers" {
     try t.expectOutput("2\n");
 }
 
-test "divide by one" {
+test "expr: divide by one" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -494,7 +494,7 @@ test "divide by one" {
     try t.expectOutput("4\n");
 }
 
-test "divide by negative" {
+test "expr: divide by negative" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -507,7 +507,7 @@ test "divide by negative" {
     try t.expectOutput("-5\n");
 }
 
-test "divide by zero" {
+test "expr: divide by zero" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -520,7 +520,7 @@ test "divide by zero" {
     try t.expectOutput("NaN\n");
 }
 
-test "nested expression one" {
+test "expr: nested 1" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -533,7 +533,7 @@ test "nested expression one" {
     try t.expectOutput("2\n");
 }
 
-test "nested expression two" {
+test "expr: nested 2" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -546,7 +546,7 @@ test "nested expression two" {
     try t.expectOutput("-3\n");
 }
 
-test "nested expression three" {
+test "expr: nested 3" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -559,7 +559,7 @@ test "nested expression three" {
     try t.expectOutput("-1.5\n");
 }
 
-test "nested expression four" {
+test "expr: nested 4" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -572,7 +572,7 @@ test "nested expression four" {
     try t.expectOutput("-3\n");
 }
 
-test "variables assignment and print" {
+test "var: assign and print" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -585,7 +585,7 @@ test "variables assignment and print" {
     try t.expectOutput("1\n2\n");
 }
 
-test "multiple prints" {
+test "var: multiple prints" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -598,7 +598,7 @@ test "multiple prints" {
     try t.expectOutput("1\n2\n");
 }
 
-test "print with block" {
+test "block: print" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -611,7 +611,7 @@ test "print with block" {
     try t.expectOutput("1\n3\n");
 }
 
-test "block scope variable" {
+test "block: scope" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -624,7 +624,7 @@ test "block scope variable" {
     try t.expectOutput("2\n1\n");
 }
 
-test "block scope shadow" {
+test "block: shadow" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -637,7 +637,7 @@ test "block scope shadow" {
     try t.expectOutput("2\n");
 }
 
-test "nested blocks" {
+test "block: nested" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -650,7 +650,7 @@ test "nested blocks" {
     try t.expectOutput("2\n3\n1\n");
 }
 
-test "if positive" {
+test "ctrl: if true" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -663,7 +663,7 @@ test "if positive" {
     try t.expectOutput("1\n");
 }
 
-test "if negative" {
+test "ctrl: if false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -676,7 +676,7 @@ test "if negative" {
     try t.expectOutput("2\n");
 }
 
-test "if else positive" {
+test "ctrl: if-else true" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -689,7 +689,7 @@ test "if else positive" {
     try t.expectOutput("1\n");
 }
 
-test "if else negative" {
+test "ctrl: if-else false" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -702,7 +702,7 @@ test "if else negative" {
     try t.expectOutput("2\n");
 }
 
-test "while test" {
+test "ctrl: while" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -715,7 +715,7 @@ test "while test" {
     try t.expectOutput("10\n");
 }
 
-test "for test" {
+test "ctrl: for" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -728,7 +728,7 @@ test "for test" {
     try t.expectOutput("0\n1\n2\n");
 }
 
-test "for test without initializer" {
+test "ctrl: for without init" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -741,7 +741,7 @@ test "for test without initializer" {
     try t.expectOutput("0\n1\n2\n");
 }
 
-test "function call no arguments" {
+test "fun: call no args" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -754,7 +754,7 @@ test "function call no arguments" {
     try t.expectOutput("hi\n");
 }
 
-test "function call with arguments" {
+test "fun: call with arg" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -767,7 +767,7 @@ test "function call with arguments" {
     try t.expectOutput("7\n");
 }
 
-test "function call with multiple arguments" {
+test "fun: call multi args" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -780,7 +780,7 @@ test "function call with multiple arguments" {
     try t.expectOutput("6\n");
 }
 
-test "function return value" {
+test "fun: return value" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -793,7 +793,7 @@ test "function return value" {
     try t.expectOutput("10\n");
 }
 
-test "function nested calls" {
+test "fun: nested calls" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -806,7 +806,7 @@ test "function nested calls" {
     try t.expectOutput("10\n");
 }
 
-test "function with early return" {
+test "fun: early return" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -819,7 +819,7 @@ test "function with early return" {
     try t.expectOutput("1\n-1\n");
 }
 
-test "function without return statement" {
+test "fun: implicit nil return" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -832,7 +832,7 @@ test "function without return statement" {
     try t.expectOutput("nil\n");
 }
 
-test "function recursion factorial" {
+test "fun: recurse factorial" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -845,7 +845,7 @@ test "function recursion factorial" {
     try t.expectOutput("120\n");
 }
 
-test "function recursion fibonacci" {
+test "fun: recurse fibonacci" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -858,7 +858,7 @@ test "function recursion fibonacci" {
     try t.expectOutput("8\n");
 }
 
-test "native function clock" {
+test "native: clock" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -871,7 +871,7 @@ test "native function clock" {
     try t.expectOutput("true\n");
 }
 
-test "native function sqrt" {
+test "native: sqrt" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -884,7 +884,7 @@ test "native function sqrt" {
     try t.expectOutput("4\n");
 }
 
-test "native function sqrt of two" {
+test "native: sqrt of two" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -897,85 +897,31 @@ test "native function sqrt of two" {
     try t.expectOutput("1.4142135623730951\n");
 }
 
-test "native function min" {
+test "native: min and max" {
     // Arrange
-    var t: TestHarness = undefined;
-    try t.setup();
-    defer t.deinit();
+    const cases = [_]struct { source: []const u8, expected: []const u8 }{
+        .{ .source = "print min(5, 3);", .expected = "3\n" },
+        .{ .source = "print min(3, 5);", .expected = "3\n" },
+        .{ .source = "print min(4, 4);", .expected = "4\n" },
+        .{ .source = "print max(5, 3);", .expected = "5\n" },
+        .{ .source = "print max(3, 5);", .expected = "5\n" },
+        .{ .source = "print max(4, 4);", .expected = "4\n" },
+    };
 
-    // Act
-    try t.interpret("print min(5, 3);");
+    for (cases) |c| {
+        var t: TestHarness = undefined;
+        try t.setup();
+        defer t.deinit();
 
-    // Assert
-    try t.expectOutput("3\n");
+        // Act
+        try t.interpret(c.source);
+
+        // Assert
+        try t.expectOutput(c.expected);
+    }
 }
 
-test "native function min reversed" {
-    // Arrange
-    var t: TestHarness = undefined;
-    try t.setup();
-    defer t.deinit();
-
-    // Act
-    try t.interpret("print min(3, 5);");
-
-    // Assert
-    try t.expectOutput("3\n");
-}
-
-test "native function min equal" {
-    // Arrange
-    var t: TestHarness = undefined;
-    try t.setup();
-    defer t.deinit();
-
-    // Act
-    try t.interpret("print min(4, 4);");
-
-    // Assert
-    try t.expectOutput("4\n");
-}
-
-test "native function max" {
-    // Arrange
-    var t: TestHarness = undefined;
-    try t.setup();
-    defer t.deinit();
-
-    // Act
-    try t.interpret("print max(5, 3);");
-
-    // Assert
-    try t.expectOutput("5\n");
-}
-
-test "native function max reversed" {
-    // Arrange
-    var t: TestHarness = undefined;
-    try t.setup();
-    defer t.deinit();
-
-    // Act
-    try t.interpret("print max(3, 5);");
-
-    // Assert
-    try t.expectOutput("5\n");
-}
-
-test "native function max equal" {
-    // Arrange
-    var t: TestHarness = undefined;
-    try t.setup();
-    defer t.deinit();
-
-    // Act
-    try t.interpret("print max(4, 4);");
-
-    // Assert
-    try t.expectOutput("4\n");
-}
-
-test "native functions composition" {
+test "native: sqrt max composition" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -988,7 +934,7 @@ test "native functions composition" {
     try t.expectOutput("3\n");
 }
 
-test "native functions nested min max" {
+test "native: nested min max" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1001,7 +947,7 @@ test "native functions nested min max" {
     try t.expectOutput("4\n");
 }
 
-test "function as argument" {
+test "fun: as argument" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1014,7 +960,7 @@ test "function as argument" {
     try t.expectOutput("-42\n");
 }
 
-test "closures capture outer variable" {
+test "closure: capture outer" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1040,7 +986,7 @@ test "closures capture outer variable" {
     try t.expectOutput("outer\n");
 }
 
-test "closures multiple instances with different captured values" {
+test "closure: multiple instances" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1068,7 +1014,7 @@ test "closures multiple instances with different captured values" {
     try t.expectOutput("doughnut\nbagel\n");
 }
 
-test "closures mutate captured variable" {
+test "closure: mutate capture" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1098,7 +1044,7 @@ test "closures mutate captured variable" {
     try t.expectOutput("1\n2\n3\n");
 }
 
-test "closures survive after enclosing function returns" {
+test "closure: survive enclosing return" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1126,7 +1072,7 @@ test "closures survive after enclosing function returns" {
     try t.expectOutput("8\n13\n");
 }
 
-test "nested closures share mutable outer variable" {
+test "closure: nested share mutable" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1156,7 +1102,7 @@ test "nested closures share mutable outer variable" {
     try t.expectOutput("2\n3\n");
 }
 
-test "class declaration and print" {
+test "class: declare and print" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1175,7 +1121,7 @@ test "class declaration and print" {
     try t.expectOutput("Foo\n");
 }
 
-test "class declaration and call" {
+test "class: declare and call" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1194,7 +1140,7 @@ test "class declaration and call" {
     try t.expectOutput("Foo instance\n");
 }
 
-test "class in block scope returns class from method" {
+test "class: block scope return" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1219,7 +1165,7 @@ test "class in block scope returns class from method" {
     try t.expectOutput("Foo\n");
 }
 
-test "class instance property set and get" {
+test "class: field set get" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1240,7 +1186,7 @@ test "class instance property set and get" {
     try t.expectOutput("baz\n");
 }
 
-test "class method call no arguments" {
+test "class: method no args" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1264,7 +1210,7 @@ test "class method call no arguments" {
     try t.expectOutput("hi\n");
 }
 
-test "class method call with arguments" {
+test "class: method with args" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1288,7 +1234,7 @@ test "class method call with arguments" {
     try t.expectOutput("7\n");
 }
 
-test "class method uses this to access instance field" {
+test "class: this field" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1316,7 +1262,7 @@ test "class method uses this to access instance field" {
     try t.expectOutput("42\n");
 }
 
-test "class method uses this as receiver" {
+test "class: this receiver" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1339,7 +1285,7 @@ test "class method uses this as receiver" {
     try t.expectOutput("Foo instance\n");
 }
 
-test "class method call multiple methods" {
+test "class: multiple methods" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1367,7 +1313,7 @@ test "class method call multiple methods" {
     try t.expectOutput("10\n15\n");
 }
 
-test "constructor with arguments sets instance fields" {
+test "ctor: init sets fields" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1394,7 +1340,7 @@ test "constructor with arguments sets instance fields" {
     try t.expectOutput("init\n1\n2\n");
 }
 
-test "constructor without init creates instance" {
+test "ctor: default creates instance" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1414,7 +1360,7 @@ test "constructor without init creates instance" {
     try t.expectOutput("Foo instance\n");
 }
 
-test "constructor early return still returns instance" {
+test "ctor: early return instance" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1440,7 +1386,7 @@ test "constructor early return still returns instance" {
     try t.expectOutput("init\nFoo instance\n");
 }
 
-test "constructor explicit init call does not create new instance" {
+test "ctor: explicit init same instance" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1468,7 +1414,7 @@ test "constructor explicit init call does not create new instance" {
     try t.expectOutput("Foo.init(one)\nFoo.init(two)\nFoo instance\ninit\n");
 }
 
-test "constructor nested function named init is not initializer" {
+test "ctor: nested init not initializer" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1494,7 +1440,7 @@ test "constructor nested function named init is not initializer" {
     try t.expectOutput("bar\nFoo instance\n");
 }
 
-test "nested return preserves frame count" {
+test "fun: nested return clears frames" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1513,7 +1459,7 @@ test "nested return preserves frame count" {
     try t.expectFrameCount(0);
 }
 
-test "gc instance field survives collection" {
+test "gc: instance field survives" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1539,7 +1485,7 @@ test "gc instance field survives collection" {
     try t.expectOutput("survive\n");
 }
 
-test "gc class method closure survives collection" {
+test "gc: method closure survives" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1568,7 +1514,7 @@ test "gc class method closure survives collection" {
     try t.expectOutput("hello\n");
 }
 
-test "gc closure in global survives collection" {
+test "gc: global closure survives" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1596,7 +1542,7 @@ test "gc closure in global survives collection" {
     try t.expectOutput("42\n");
 }
 
-test "gc global variable survives collection" {
+test "gc: global var survives" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1620,7 +1566,7 @@ test "gc global variable survives collection" {
     try t.expectOutput("ok\n");
 }
 
-test "gc deep linked instance chain survives collection" {
+test "gc: deep instance chain survives" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1659,7 +1605,7 @@ test "gc deep linked instance chain survives collection" {
     try t.expectOutput("50000\n");
 }
 
-test "gc bound methods are collected during method calls" {
+test "gc: bound methods collected" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1686,7 +1632,7 @@ test "gc bound methods are collected during method calls" {
     try t.expectOutput("1\n");
 }
 
-test "class and bound method identity equality" {
+test "class: bound method identity" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1713,7 +1659,7 @@ test "class and bound method identity equality" {
     try t.expectOutput("true\nfalse\ntrue\nfalse\n");
 }
 
-test "inheritance inherits methods from superclass" {
+test "inherit: methods" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1739,7 +1685,7 @@ test "inheritance inherits methods from superclass" {
     try t.expectOutput("foo\nbar\n");
 }
 
-test "inheritance subclass method overrides superclass" {
+test "inherit: override" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1763,7 +1709,7 @@ test "inheritance subclass method overrides superclass" {
     try t.expectOutput("bar\n");
 }
 
-test "inheritance base initializer sets fields on subclass instance" {
+test "inherit: base init fields" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1794,7 +1740,7 @@ test "inheritance base initializer sets fields on subclass instance" {
     try t.expectOutput("foo 1\nfoo 2\n");
 }
 
-test "super calls superclass method" {
+test "super: call method" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1821,7 +1767,7 @@ test "super calls superclass method" {
     try t.expectOutput("Derived.foo()\nBase.foo()\n");
 }
 
-test "super init calls superclass constructor" {
+test "super: init constructor" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1850,7 +1796,7 @@ test "super init calls superclass constructor" {
     try t.expectOutput("Derived.init()\nBase.init(a, b)\n");
 }
 
-test "super init sets superclass fields accessed on subclass instance" {
+test "super: init fields on subclass" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1881,7 +1827,7 @@ test "super init sets superclass fields accessed on subclass instance" {
     try t.expectOutput("a\nb\n");
 }
 
-test "super resolves through multiple inheritance levels" {
+test "super: multi level" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1909,7 +1855,7 @@ test "super resolves through multiple inheritance levels" {
     try t.expectOutput("C.foo()\nA.foo()\n");
 }
 
-test "super method binds to superclass implementation" {
+test "super: bind superclass method" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1941,7 +1887,7 @@ test "super method binds to superclass implementation" {
     try t.expectOutput("A.method(arg)\n");
 }
 
-test "recursive calls report stack overflow" {
+test "error: stack overflow" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1960,7 +1906,7 @@ test "recursive calls report stack overflow" {
     try t.expectFrameCount(t.machine.frames.len);
 }
 
-test "native sqrt wrong arity reports runtime error" {
+test "error: native sqrt arity" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1971,7 +1917,7 @@ test "native sqrt wrong arity reports runtime error" {
     try t.expectFrameCount(1);
 }
 
-test "native min wrong arity reports runtime error" {
+test "error: native min arity" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -1982,7 +1928,7 @@ test "native min wrong arity reports runtime error" {
     try t.expectFrameCount(1);
 }
 
-test "long closure opcode with large constant pool" {
+test "opcode: long closure" {
     // Arrange
     var code = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer code.deinit();
@@ -2003,7 +1949,7 @@ test "long closure opcode with large constant pool" {
     try t.expectOutput("256\n");
 }
 
-test "long invoke opcode with large constant pool" {
+test "opcode: long invoke" {
     // Arrange
     var code = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer code.deinit();
@@ -2025,7 +1971,7 @@ test "long invoke opcode with large constant pool" {
     try t.expectOutput("256\n");
 }
 
-test "compile error on duplicate local variable" {
+test "error: duplicate local" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2040,7 +1986,7 @@ test "compile error on duplicate local variable" {
     );
 }
 
-test "compile error on invalid assignment target" {
+test "error: invalid assignment" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2050,7 +1996,7 @@ test "compile error on invalid assignment target" {
     try t.expectCompileError("1 = 2;");
 }
 
-test "compile error on top-level return" {
+test "error: top-level return" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2060,7 +2006,7 @@ test "compile error on top-level return" {
     try t.expectCompileError("return;");
 }
 
-test "compile error on initializer return value" {
+test "error: init return value" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2076,7 +2022,7 @@ test "compile error on initializer return value" {
     );
 }
 
-test "compile error on too many function parameters" {
+test "error: too many params" {
     // Arrange
     var code = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer code.deinit();
@@ -2096,7 +2042,7 @@ test "compile error on too many function parameters" {
     try t.expectCompileError(code.written());
 }
 
-test "runtime error on undefined variable" {
+test "error: undefined variable" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2107,7 +2053,7 @@ test "runtime error on undefined variable" {
     try t.expectFrameCount(1);
 }
 
-test "compile error on this outside class" {
+test "error: this outside class" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2117,7 +2063,7 @@ test "compile error on this outside class" {
     try t.expectCompileError("print this;");
 }
 
-test "compile error on class inheriting from itself" {
+test "error: inherit self" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2127,7 +2073,7 @@ test "compile error on class inheriting from itself" {
     try t.expectCompileError("class A < A {};");
 }
 
-test "temporary bound method is collected" {
+test "gc: temporary bound method" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2158,7 +2104,7 @@ test "temporary bound method is collected" {
     try t.expectOutput(expected.written());
 }
 
-test "instance field keeps nested instance alive" {
+test "gc: field keeps nested instance" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2183,7 +2129,7 @@ test "instance field keeps nested instance alive" {
     try t.expectOutput("7\n");
 }
 
-test "stored bound method keeps receiver alive" {
+test "gc: stored bound method receiver" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2210,7 +2156,7 @@ test "stored bound method keeps receiver alive" {
     try t.expectOutput("99\n");
 }
 
-test "field bound method call uses receiver" {
+test "class: field bound method call" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2236,7 +2182,7 @@ test "field bound method call uses receiver" {
     try t.expectOutput("42\n42\n");
 }
 
-test "free list reuse after temporary instances" {
+test "gc: free list reuse" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -2263,7 +2209,7 @@ test "free list reuse after temporary instances" {
     try t.expectOutput("99\n");
 }
 
-test "get super bound method then call" {
+test "super: get bound method then call" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
