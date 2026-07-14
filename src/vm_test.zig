@@ -2215,3 +2215,174 @@ test "compile error on class inheriting from itself" {
     // Act + Assert
     try std.testing.expectError(err.Error.CompileError, virtualMachine.interpret("class A < A {};", false));
 }
+
+test "temporary bound method is collected" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class A {
+        \\  init() { this.x = 1; }
+        \\  m() { return this.x; }
+        \\}
+        \\for (var i = 0; i < 50; i = i + 1) {
+        \\  A().m;
+        \\  print A().m();
+        \\}
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    var expected = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer expected.deinit();
+    var i: usize = 0;
+    while (i < 50) : (i += 1) {
+        try expected.writer.writeAll("1\n");
+    }
+    try std.testing.expectEqualStrings(expected.written(), writer.written());
+}
+
+test "instance field keeps nested instance alive" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Box { init(n) { this.n = n; } }
+        \\class Holder {}
+        \\var h = Holder();
+        \\{
+        \\  var b = Box(7);
+        \\  h.f = b;
+        \\}
+        \\print h.f.n;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("7\n", writer.written());
+}
+
+test "stored bound method keeps receiver alive" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class A {
+        \\  init(n) { this.n = n; }
+        \\  m() { print this.n; }
+        \\}
+        \\var method;
+        \\{
+        \\  var a = A(99);
+        \\  method = a.m;
+        \\}
+        \\method();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("99\n", writer.written());
+}
+
+test "field bound method call uses receiver" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class A {
+        \\  init(n) { this.n = n; }
+        \\  m() { print this.n; }
+        \\}
+        \\var a = A(42);
+        \\a.f = a.m;
+        \\a.f();
+        \\var b = a.f;
+        \\b();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("42\n42\n", writer.written());
+}
+
+test "free list reuse after temporary instances" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class Box { init(n) { this.n = n; } }
+        \\class Holder {}
+        \\var h = Holder();
+        \\for (var i = 0; i < 100; i = i + 1) {
+        \\  {
+        \\    var b = Box(i);
+        \\    h.f = b;
+        \\  }
+        \\}
+        \\print h.f.n;
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("99\n", writer.written());
+}
+
+test "get super bound method then call" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtualMachine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtualMachine.deinit();
+
+    const code =
+        \\class A {
+        \\  method() { print this.value; }
+        \\}
+        \\class B < A {
+        \\  method() {
+        \\    var m = super.method;
+        \\    m();
+        \\  }
+        \\}
+        \\var b = B();
+        \\b.value = 3;
+        \\b.method();
+        \\
+    ;
+
+    // Act
+    try virtualMachine.interpret(code, false);
+
+    // Assert
+    try std.testing.expectEqualStrings("3\n", writer.written());
+}
