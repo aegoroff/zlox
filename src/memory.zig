@@ -2,14 +2,14 @@ const std = @import("std");
 const val = @import("value.zig");
 const tbl = @import("table.zig");
 
-pub const Upvalue = val.Upvalue;
-pub const Closure = val.Closure;
-pub const Function = val.Function;
-pub const HeapString = val.HeapString;
-pub const Class = val.Class;
-pub const Instance = val.Instance;
-pub const BoundMethod = val.BoundMethod;
-pub const Obj = val.Obj;
+const Upvalue = val.Upvalue;
+const Closure = val.Closure;
+const Function = val.Function;
+const HeapString = val.HeapString;
+const Class = val.Class;
+const Instance = val.Instance;
+const BoundMethod = val.BoundMethod;
+const Obj = val.Obj;
 
 const Table = tbl.Table;
 const LoxValue = val.LoxValue;
