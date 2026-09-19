@@ -15,6 +15,11 @@ const Table = tbl.Table;
 const LoxValue = val.LoxValue;
 
 const GC_HEAP_GROW_FACTOR: usize = 2;
+const BLOCK_SIZE: usize = 64 * 1024;
+const SIZE_GRANULARITY: usize = 8;
+const MAX_POOLED_SIZE: usize = 64;
+const SIZE_CLASS_COUNT: usize = MAX_POOLED_SIZE / SIZE_GRANULARITY;
+const BLOCK_ALIGNMENT: std.mem.Alignment = .fromByteUnits(SIZE_GRANULARITY);
 const INITIAL_GC_THRESHOLD: usize = 1024 * 1024;
 const GRAY_STACK_INITIAL: usize = 1024;
 
@@ -60,22 +65,25 @@ pub const HeapObj = union(enum) {
         };
     }
 
-    pub fn free(self: HeapObj, allocator: std.mem.Allocator) void {
+    /// Releases whatever the object owns on the general allocator, then returns
+    /// its own storage to the pool. `Function` is not pooled: it is an order of
+    /// magnitude larger than the rest and is created once per compiled body.
+    pub fn free(self: HeapObj, allocator: std.mem.Allocator, pool: *Pool) void {
         switch (self) {
             .string => |s| {
                 allocator.free(@constCast(s.data));
-                allocator.destroy(s);
+                pool.destroy(HeapString, s);
             },
             .class => |cl| {
                 cl.deinit(allocator);
-                allocator.destroy(cl);
+                pool.destroy(Class, cl);
             },
             .upvalue => |u| {
-                allocator.destroy(u);
+                pool.destroy(Upvalue, u);
             },
             .closure => |c| {
                 c.deinit(allocator);
-                allocator.destroy(c);
+                pool.destroy(Closure, c);
             },
             .function => |f| {
                 f.deinit();
@@ -83,10 +91,10 @@ pub const HeapObj = union(enum) {
             },
             .instance => |i| {
                 i.deinit(allocator);
-                allocator.destroy(i);
+                pool.destroy(Instance, i);
             },
             .bound_method => |b| {
-                allocator.destroy(b);
+                pool.destroy(BoundMethod, b);
             },
         }
     }
@@ -104,6 +112,92 @@ inline fn heapObjFromObj(obj: *Obj) HeapObj {
     };
 }
 
+/// Storage for the fixed-size heap objects, carved from large blocks instead of
+/// taken from the general allocator one object at a time. A benchmark that
+/// builds fifteen million instances otherwise pays for fifteen million
+/// malloc/free pairs, and scatters the objects while doing it — which the
+/// collector pays for a second time whenever it walks them.
+///
+/// Free lists are keyed by size rather than by type. `Instance`, `Class`,
+/// `Upvalue` and `HeapString` all occupy 40 bytes, so storage released by one
+/// can serve another, the way a general allocator's size bins already do; a
+/// list per type would hold every type's peak at once. `Function` is far larger
+/// and rare, so it stays on the general allocator.
+const Pool = struct {
+    /// A recycled slot, threaded through the object's own storage.
+    const Slot = struct { next: ?*Slot };
+    /// Block header, living in the first bytes of the block it describes. The
+    /// length is implied by `BLOCK_SIZE`, so only the link is stored.
+    const Block = struct { next: ?*Block };
+
+    blocks: ?*Block = null,
+    free_lists: [SIZE_CLASS_COUNT]?*Slot = @splat(null),
+    /// Bump cursor into the newest block, and what is left of it.
+    cursor: [*]u8 = undefined,
+    left: usize = 0,
+
+    inline fn sizeClass(comptime T: type) usize {
+        comptime {
+            std.debug.assert(@alignOf(T) <= SIZE_GRANULARITY);
+            std.debug.assert(@sizeOf(T) >= @sizeOf(Slot));
+            std.debug.assert(@sizeOf(T) <= MAX_POOLED_SIZE);
+        }
+        return (@sizeOf(T) + SIZE_GRANULARITY - 1) / SIZE_GRANULARITY - 1;
+    }
+
+    fn create(self: *Pool, gpa: std.mem.Allocator, comptime T: type) !*T {
+        return @ptrCast(@alignCast(try self.carve(gpa, comptime sizeClass(T))));
+    }
+
+    /// One shared body, deliberately not inlined. Every object kind reaches
+    /// this from inside the dispatch loop, and six inlined copies of it push
+    /// the loop out of the instruction and uop caches — which costs more than
+    /// the call, even at fifteen million allocations.
+    noinline fn carve(self: *Pool, gpa: std.mem.Allocator, class: usize) ![*]u8 {
+        if (self.free_lists[class]) |slot| {
+            self.free_lists[class] = slot.next;
+            return @ptrCast(slot);
+        }
+
+        const size = (class + 1) * SIZE_GRANULARITY;
+        if (self.left < size) try self.addBlock(gpa);
+        const storage = self.cursor;
+        self.cursor += size;
+        self.left -= size;
+        return storage;
+    }
+
+    fn destroy(self: *Pool, comptime T: type, ptr: *T) void {
+        const class = comptime sizeClass(T);
+        const slot: *Slot = @ptrCast(@alignCast(ptr));
+        slot.next = self.free_lists[class];
+        self.free_lists[class] = slot;
+    }
+
+    fn addBlock(self: *Pool, gpa: std.mem.Allocator) !void {
+        const bytes = try gpa.alignedAlloc(u8, BLOCK_ALIGNMENT, BLOCK_SIZE);
+        const block: *Block = @ptrCast(@alignCast(bytes.ptr));
+        block.* = .{ .next = self.blocks };
+        self.blocks = block;
+        // The tail of the previous block is abandoned. At one block in 64 KiB
+        // and at most 64 bytes lost, that is under a tenth of a percent.
+        self.cursor = bytes.ptr + @sizeOf(Block);
+        self.left = BLOCK_SIZE - @sizeOf(Block);
+    }
+
+    fn deinit(self: *Pool, gpa: std.mem.Allocator) void {
+        var current = self.blocks;
+        while (current) |block| {
+            const next = block.next;
+            const raw: [*]align(SIZE_GRANULARITY) u8 = @ptrCast(block);
+            const bytes: []align(SIZE_GRANULARITY) u8 = raw[0..BLOCK_SIZE];
+            gpa.free(bytes);
+            current = next;
+        }
+        self.* = .{};
+    }
+};
+
 /// Heap manager with intrusive linked-list object tracking
 pub const Heap = struct {
     allocator: std.mem.Allocator,
@@ -112,6 +206,7 @@ pub const Heap = struct {
     next_gc: usize = INITIAL_GC_THRESHOLD,
     gray_stack: []HeapObj = &.{},
     gray_count: usize = 0,
+    pool: Pool = .{},
 
     pub fn init(allocator: std.mem.Allocator) !Heap {
         return .{
@@ -121,39 +216,42 @@ pub const Heap = struct {
     }
 
     pub fn deinit(self: *Heap) void {
+        // Only the memory each object owns is released here; the objects
+        // themselves live in the pool's blocks, which go last and wholesale.
         var current = self.objects;
         while (current) |obj| {
             const next = obj.next;
-            heapObjFromObj(obj).free(self.allocator);
+            heapObjFromObj(obj).free(self.allocator, &self.pool);
             current = next;
         }
+        self.pool.deinit(self.allocator);
         if (self.gray_stack.len > 0) {
             self.allocator.free(self.gray_stack);
         }
     }
 
     pub fn allocInstance(self: *Heap) !*Instance {
-        return self.allocator.create(Instance);
+        return self.pool.create(self.allocator, Instance);
     }
 
     pub fn allocClosure(self: *Heap) !*Closure {
-        return self.allocator.create(Closure);
+        return self.pool.create(self.allocator, Closure);
     }
 
     pub fn allocUpvalue(self: *Heap) !*Upvalue {
-        return self.allocator.create(Upvalue);
+        return self.pool.create(self.allocator, Upvalue);
     }
 
     pub fn allocBoundMethod(self: *Heap) !*BoundMethod {
-        return self.allocator.create(BoundMethod);
+        return self.pool.create(self.allocator, BoundMethod);
     }
 
     pub fn allocClass(self: *Heap) !*Class {
-        return self.allocator.create(Class);
+        return self.pool.create(self.allocator, Class);
     }
 
     pub fn allocStringHeader(self: *Heap) !*HeapString {
-        return self.allocator.create(HeapString);
+        return self.pool.create(self.allocator, HeapString);
     }
 
     pub fn trackObject(self: *Heap, obj: HeapObj, size: usize) !void {
@@ -280,7 +378,7 @@ pub const Heap = struct {
                 } else {
                     self.objects = next;
                 }
-                heap_obj.free(self.allocator);
+                heap_obj.free(self.allocator, &self.pool);
                 current = next;
             }
         }
