@@ -73,11 +73,24 @@ const Compile = struct {
 
     fn deinit(self: *Compile) void {
         if (self.function) |func| {
-            func.deinit();
-            self.allocator.destroy(func);
+            freeOwnedFunction(self.allocator, func);
         }
     }
 };
+
+/// Frees a function together with the nested functions stored in its constant
+/// pool. Only reached while the compiler still owns the tree: a successful
+/// `endCompiler` nulls out `Compile.function`, after which the VM owns every
+/// function through the heap.
+fn freeOwnedFunction(gpa: std.mem.Allocator, func: *val.Function) void {
+    for (func.chunk.constants.items) |constant| {
+        if (constant.isFunction()) {
+            freeOwnedFunction(gpa, constant.asFunction());
+        }
+    }
+    func.deinit();
+    gpa.destroy(func);
+}
 
 const ClassCompiler = struct {
     enclosing: ?*ClassCompiler,
@@ -725,7 +738,10 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !voi
         .Super => try self.super_(),
         .True, .False, .Nil => try self.literal(),
 
-        else => {},
+        else => {
+            try self.errorAtPrev("Expect expression.");
+            return e.Error.CompileError;
+        },
     }
 }
 

@@ -2908,6 +2908,59 @@ test "error: duplicate parameter" {
     );
 }
 
+test "error: expect expression in argument list" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError(
+        \\fun show(v) { print v; }
+        \\show(;);
+    );
+}
+
+test "error: expect expression in if condition" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError("if (;) print 1;");
+}
+
+test "error: expect expression in while condition" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError("while (;) print 1;");
+}
+
+test "error: expect expression after binary operator" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError("print 1 + ;");
+}
+
+test "error: expect expression as statement" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectCompileError("print ;");
+}
+
 test "error: fun extra args" {
     // Arrange
     var t: TestHarness = undefined;
