@@ -1572,6 +1572,38 @@ test "closure: reuse closure slot" {
     try t.expectOutput("a\n");
 }
 
+test "closure: collection during creation" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Enough closures to cross the collection threshold repeatedly, so that one
+    // of them is created while the collector runs over the new upvalue array.
+    const code =
+        \\fun make(a, b, c) {
+        \\  fun get() { return a + b + c; }
+        \\  return get;
+        \\}
+        \\
+        \\var total = 0;
+        \\var i = 0;
+        \\while (i < 10000) {
+        \\  var f = make(i, i, i);
+        \\  total = total + f();
+        \\  i = i + 1;
+        \\}
+        \\print total;
+        \\
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("149985000\n");
+}
+
 test "closure: survive enclosing return" {
     // Arrange
     var t: TestHarness = undefined;

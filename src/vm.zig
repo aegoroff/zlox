@@ -457,14 +457,21 @@ const FrameCursor = struct {
     }
 };
 
+/// The upvalue array is filled before the closure is pushed or registered: it
+/// comes back from the allocator uninitialized, and a collection that reached a
+/// closure holding it would walk those bytes as pointers. Capturing can collect —
+/// `captureUpvalue` registers what it creates — but nothing the loop needs can be
+/// swept while it runs. The closure is not in the heap's object list yet, so
+/// the sweep cannot see it; its function is a constant of the running one; every
+/// upvalue captured here is already on the open list, which `markRoots` walks;
+/// and every upvalue inherited from the enclosing closure is held by a frame.
 fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: usize) ![*]const u8 {
     const function = cursor.constantAt(ip, constant_size).asFunction();
     var next = ip + constant_size;
 
     const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = try val.Closure.init(self.allocator, function);
-    try self.push(LoxValue.closure(closure_ptr));
-    try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
+    errdefer closure_ptr.deinit(self.allocator);
 
     for (0..function.upvalue_count) |i| {
         const is_local = Chunk.readByteAt(next);
@@ -475,6 +482,9 @@ fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: us
         else
             cursor.frame.closure.upvalues[index];
     }
+
+    try self.push(LoxValue.closure(closure_ptr));
+    try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
     return next;
 }
 
