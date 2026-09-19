@@ -29,7 +29,11 @@ stack_top: [*]LoxValue,
 
 heap: mem.Heap,
 strings: Table,
-init_string: *val.HeapString,
+/// Null only during `init`, before the "init" string is interned. A GC
+/// triggered by that first intern must not mark a still-undefined pointer,
+/// so this stays optional rather than `undefined` even though every other
+/// caller sees it always set.
+init_string: ?*val.HeapString,
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 io: std.Io,
@@ -64,7 +68,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .strings = .{},
         .open_upvalues = null,
         .compiler = null,
-        .init_string = undefined,
+        .init_string = null,
     };
     errdefer {
         gpa.free(stack);
@@ -316,7 +320,7 @@ inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usiz
         instance_ptr.* = val.Instance.init(k);
         self.peekSlot(arg_count).* = LoxValue.instance(instance_ptr);
         try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
-        if (instance_ptr.klass.methods.get(self.init_string)) |in| {
+        if (instance_ptr.klass.methods.get(self.init_string.?)) |in| {
             return try self.call(ip, in.asClosure(), arg_count);
         } else if (arg_count != 0) {
             try self.errorAt(ip, "Expected 0 arguments but got {d}.", .{arg_count});
@@ -1090,7 +1094,9 @@ fn markRoots(self: *VM) !void {
         upvalue = up.next;
     }
 
-    try self.heap.markObject(.{ .string = self.init_string });
+    if (self.init_string) |s| {
+        try self.heap.markObject(.{ .string = s });
+    }
 
     if (self.compiler) |*compiler| {
         try compiler.markRoots(&self.heap);
@@ -1140,7 +1146,21 @@ test "unreferenced interned strings are collected from string pool" {
     try virtual_machine.collectGarbage();
 
     try std.testing.expect(virtual_machine.strings.findString(ephemeral, hash) == null);
-    try std.testing.expect(virtual_machine.strings.findString("init", virtual_machine.init_string.hash) != null);
+    try std.testing.expect(virtual_machine.strings.findString("init", virtual_machine.init_string.?.hash) != null);
+}
+
+test "collecting garbage before init_string is set does not mark a garbage pointer" {
+    // Arrange: reproduces the state `init` is in while interning "init" itself,
+    // before `vm.init_string` has been assigned.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtual_machine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+    virtual_machine.init_string = null;
+
+    // Act & Assert: markRoots must skip the unset field instead of marking
+    // whatever it would otherwise point at.
+    try virtual_machine.collectGarbage();
 }
 
 test "value stack overflow is reported" {
