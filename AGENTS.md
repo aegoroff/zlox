@@ -5,7 +5,8 @@
 
 ## Code Style Guidelines
 - Follow Zig standard library conventions
-- Use snake_case for functions and variables
+- Use camelCase for functions, as the standard library does
+- Use snake_case for variables, parameters and struct fields
 - Use PascalCase for types and structs
 - Use SCREAMING_SNAKE_CASE for constants
 - Prefer explicit error handling with `!` return types

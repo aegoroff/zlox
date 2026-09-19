@@ -145,9 +145,9 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
     };
 }
 
-fn makeToken(self: *Lexer, tokenType: TokenType) Token {
+fn makeToken(self: *Lexer, token_type: TokenType) Token {
     return Token{
-        .type = tokenType,
+        .type = token_type,
         .start = self.start,
         .length = self.current - self.start,
         .line = self.line,
@@ -224,14 +224,14 @@ fn identifierType(self: *Lexer) TokenType {
     };
 }
 
-fn checkKeyword(self: *Lexer, start: usize, length: usize, rest: []const u8, tokenType: TokenType) TokenType {
+fn checkKeyword(self: *Lexer, start: usize, length: usize, rest: []const u8, token_type: TokenType) TokenType {
     const current_len = self.current - self.start;
 
     if (current_len == start + length) {
         const lexeme = self.source[self.start + start .. self.start + start + length];
 
         if (std.mem.eql(u8, lexeme, rest)) {
-            return tokenType;
+            return token_type;
         }
     }
 

@@ -53,10 +53,10 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
         _ = try stdin_reader.interface.streamRemaining(&memory.writer);
     }
 
-    var virtualMachine = try zlox.VM.init(gpa, writer, io);
-    defer virtualMachine.deinit();
+    var virtual_machine = try zlox.VM.init(gpa, writer, io);
+    defer virtual_machine.deinit();
     const from = if (filename.len == 0) "<stdin>" else filename;
-    try virtualMachine.interpretFrom(memory.written(), config.printCode(), from);
+    try virtual_machine.interpretFrom(memory.written(), config.printCode(), from);
 }
 
 test {

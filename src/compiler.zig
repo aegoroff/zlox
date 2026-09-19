@@ -15,8 +15,8 @@ const SourceRange = @import("fehler").SourceRange;
 pub const Parser = struct {
     current: scan.Token,
     previous: scan.Token,
-    hadError: bool,
-    panicMode: bool,
+    had_error: bool,
+    panic_mode: bool,
 };
 
 pub const Local = struct {
@@ -48,8 +48,8 @@ const Compile = struct {
     allocator: std.mem.Allocator,
     enclosing: ?*Compile,
     locals: [LOCALS_MAX]Local,
-    localCount: usize,
-    scopeDepth: i16,
+    local_count: usize,
+    scope_depth: i16,
     function: ?*val.Function,
     function_type: FunctionType,
     upvalues: [LOCALS_MAX]Upvalue,
@@ -59,8 +59,8 @@ const Compile = struct {
         func.* = val.Function.init(gpa, null);
         var compiler = Compile{
             .allocator = gpa,
-            .localCount = 1,
-            .scopeDepth = 0,
+            .local_count = 1,
+            .scope_depth = 0,
             .locals = undefined,
             .function = func,
             .function_type = function_type,
@@ -144,8 +144,8 @@ pub fn init(
         .parser = .{
             .current = undefined,
             .previous = undefined,
-            .hadError = false,
-            .panicMode = false,
+            .had_error = false,
+            .panic_mode = false,
         },
     };
 }
@@ -202,7 +202,7 @@ pub fn compile(self: *Compiler, source: []const u8) !*val.Function {
     while (!self.check(.Eof)) {
         try self.declaration();
     }
-    if (self.parser.hadError) {
+    if (self.parser.had_error) {
         return e.Error.CompileError;
     }
     return try self.endCompiler();
@@ -252,10 +252,10 @@ fn errorAtPrev(self: *Compiler, message: []const u8) !void {
 }
 
 fn errorAtLexerScan(self: *Compiler, message: []const u8) !void {
-    if (self.parser.panicMode) {
+    if (self.parser.panic_mode) {
         return;
     }
-    self.parser.panicMode = true;
+    self.parser.panic_mode = true;
     const col_end = if (self.lexer.col > self.lexer.start_col) self.lexer.col - 1 else self.lexer.start_col;
     try self.reportErrorAt(
         self.lexer.line,
@@ -264,14 +264,14 @@ fn errorAtLexerScan(self: *Compiler, message: []const u8) !void {
         col_end,
         message,
     );
-    self.parser.hadError = true;
+    self.parser.had_error = true;
 }
 
 fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
-    if (self.parser.panicMode) {
+    if (self.parser.panic_mode) {
         return;
     }
-    self.parser.panicMode = true;
+    self.parser.panic_mode = true;
 
     try self.reportErrorAt(
         token.line,
@@ -280,7 +280,7 @@ fn errorAt(self: *Compiler, token: *scan.Token, message: []const u8) !void {
         token.col_end,
         message,
     );
-    self.parser.hadError = true;
+    self.parser.had_error = true;
 }
 
 fn consume(self: *Compiler, token: scan.TokenType, message: []const u8) !void {
@@ -330,9 +330,9 @@ fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, ix: usize) !void 
     try self.currentChunk().writeIndexedOpcode(short_op, ix, self.previousPosition());
 }
 
-fn emitLoop(self: *Compiler, loopStart: usize) !void {
+fn emitLoop(self: *Compiler, loop_start: usize) !void {
     try self.emitOpcode(.Loop);
-    const offset = self.currentChunk().codeSize() - loopStart + 2;
+    const offset = self.currentChunk().codeSize() - loop_start + 2;
     if (offset > std.math.maxInt(u16)) {
         try self.errorAtPrev("Loop body too large.");
     }
@@ -382,7 +382,7 @@ fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
 fn endCompiler(self: *Compiler) !*val.Function {
     try self.emitReturn();
     const fun_ptr = self.current.function.?;
-    if (!self.parser.hadError and self.print_code) {
+    if (!self.parser.had_error and self.print_code) {
         try self.currentChunk().disassembly(self.writer, fun_ptr.name);
     }
     // Ownership transfers to caller (VM), nullify the function in compiler
@@ -392,18 +392,18 @@ fn endCompiler(self: *Compiler) !*val.Function {
 }
 
 fn beginScope(self: *Compiler) void {
-    self.current.scopeDepth += 1;
+    self.current.scope_depth += 1;
 }
 
 fn endScope(self: *Compiler) !void {
-    self.current.scopeDepth -= 1;
-    while (self.current.localCount > 0 and self.current.locals[self.current.localCount - 1].depth > self.current.scopeDepth) {
-        if (self.current.locals[self.current.localCount - 1].is_captured) {
+    self.current.scope_depth -= 1;
+    while (self.current.local_count > 0 and self.current.locals[self.current.local_count - 1].depth > self.current.scope_depth) {
+        if (self.current.locals[self.current.local_count - 1].is_captured) {
             try self.emitOpcode(.CloseUpvalue);
         } else {
             try self.emitOpcode(.Pop);
         }
-        self.current.localCount -= 1;
+        self.current.local_count -= 1;
     }
 }
 
@@ -482,28 +482,28 @@ fn this_(self: *Compiler) !void {
 }
 
 fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !void {
-    var getOp: Chunk.OpCode = undefined;
-    var setOp: Chunk.OpCode = undefined;
+    var get_op: Chunk.OpCode = undefined;
+    var set_op: Chunk.OpCode = undefined;
     var arg: ?usize = null;
     if (try self.resolveLocal(self.current, token)) |local| {
-        getOp = .GetLocal;
-        setOp = .SetLocal;
+        get_op = .GetLocal;
+        set_op = .SetLocal;
         arg = local;
     } else if (try self.resolveUpvalue(self.current, token)) |upvalue| {
-        getOp = .GetUpvalue;
-        setOp = .SetUpvalue;
+        get_op = .GetUpvalue;
+        set_op = .SetUpvalue;
         arg = upvalue;
     } else {
         arg = try self.identifierConstant(token);
-        getOp = .GetGlobal;
-        setOp = .SetGlobal;
+        get_op = .GetGlobal;
+        set_op = .SetGlobal;
     }
 
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        try self.currentChunk().writeIndexedOpcode(setOp, arg.?, self.previousPosition());
+        try self.currentChunk().writeIndexedOpcode(set_op, arg.?, self.previousPosition());
     } else {
-        try self.currentChunk().writeIndexedOpcode(getOp, arg.?, self.previousPosition());
+        try self.currentChunk().writeIndexedOpcode(get_op, arg.?, self.previousPosition());
     }
 }
 
@@ -525,26 +525,26 @@ fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *const scan.Token)
 }
 
 fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool) !usize {
-    const upvalueCount = compiler.function.?.upvalue_count;
-    for (0..upvalueCount) |ix| {
+    const upvalue_count = compiler.function.?.upvalue_count;
+    for (0..upvalue_count) |ix| {
         if (compiler.upvalues[ix].index == index and compiler.upvalues[ix].is_local == is_local) {
             return ix;
         }
     }
 
-    if (upvalueCount == LOCALS_MAX) {
+    if (upvalue_count == LOCALS_MAX) {
         try self.errorAtPrev("Too many closure variables in function.");
         return 0;
     }
 
-    compiler.upvalues[upvalueCount].is_local = is_local;
-    compiler.upvalues[upvalueCount].index = index;
+    compiler.upvalues[upvalue_count].is_local = is_local;
+    compiler.upvalues[upvalue_count].index = index;
     compiler.function.?.upvalue_count += 1;
-    return upvalueCount;
+    return upvalue_count;
 }
 
 fn resolveLocal(self: *Compiler, compiler: *Compile, token: *const scan.Token) !?usize {
-    var i: usize = compiler.localCount;
+    var i: usize = compiler.local_count;
     while (i > 0) : (i -= 1) {
         const local = compiler.locals[i - 1];
 
@@ -570,9 +570,9 @@ fn literal(self: *Compiler) !void {
 }
 
 fn unary(self: *Compiler) !void {
-    const operatorType = self.parser.previous.type;
+    const operator_type = self.parser.previous.type;
     try self.parsePrecedence(.Unary);
-    switch (operatorType) {
+    switch (operator_type) {
         .Minus => try self.emitOpcode(.Negate),
         .Bang => try self.emitOpcode(.Not),
         else => {
@@ -582,10 +582,10 @@ fn unary(self: *Compiler) !void {
 }
 
 fn binary(self: *Compiler) !void {
-    const operatorType = self.parser.previous.type;
-    const precedence = getPrecedence(operatorType);
+    const operator_type = self.parser.previous.type;
+    const precedence = getPrecedence(operator_type);
     try self.parsePrecedence(@enumFromInt(@intFromEnum(precedence) + 1));
-    switch (operatorType) {
+    switch (operator_type) {
         .Plus => try self.emitOpcode(.Add),
         .Minus => try self.emitOpcode(.Subtract),
         .Star => try self.emitOpcode(.Multiply),
@@ -632,8 +632,8 @@ fn dot(self: *Compiler, can_assign: bool) !void {
     }
 }
 
-fn getPrecedence(tokenType: scan.TokenType) Precedence {
-    return switch (tokenType) {
+fn getPrecedence(token_type: scan.TokenType) Precedence {
+    return switch (token_type) {
         .Minus, .Plus => .Term,
         .Slash, .Star => .Factor,
         .BangEqual, .EqualEqual => .Equality,
@@ -662,23 +662,23 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
 }
 
 fn markInitialized(self: *Compiler) void {
-    if (self.current.scopeDepth == 0) {
+    if (self.current.scope_depth == 0) {
         return;
     }
-    self.current.locals[self.current.localCount - 1].depth = self.current.scopeDepth;
+    self.current.locals[self.current.local_count - 1].depth = self.current.scope_depth;
 }
 
 fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
     try self.consume(.Identifier, message);
     try self.declareVariable();
-    if (self.current.scopeDepth > 0) {
+    if (self.current.scope_depth > 0) {
         return 0;
     }
     return try self.identifierConstant(&self.parser.previous);
 }
 
 fn defineVariable(self: *Compiler, global: usize) anyerror!void {
-    if (self.current.scopeDepth > 0) {
+    if (self.current.scope_depth > 0) {
         self.markInitialized();
         return;
     }
@@ -704,19 +704,19 @@ fn argumentList(self: *Compiler) anyerror!usize {
 }
 
 fn and_(self: *Compiler) !void {
-    const endJump = try self.emitJump(.JumpIfFalse);
+    const end_jump = try self.emitJump(.JumpIfFalse);
     try self.emitOpcode(.Pop);
     try self.parsePrecedence(.And);
-    try self.patchJump(endJump);
+    try self.patchJump(end_jump);
 }
 
 fn or_(self: *Compiler) !void {
-    const elseJump = try self.emitJump(.JumpIfFalse);
-    const endJump = try self.emitJump(.Jump);
-    try self.patchJump(elseJump);
+    const else_jump = try self.emitJump(.JumpIfFalse);
+    const end_jump = try self.emitJump(.Jump);
+    try self.patchJump(else_jump);
     try self.emitOpcode(.Pop);
     try self.parsePrecedence(.Or);
-    try self.patchJump(endJump);
+    try self.patchJump(end_jump);
 }
 
 fn identifierConstant(self: *Compiler, token: *const scan.Token) anyerror!usize {
@@ -725,27 +725,27 @@ fn identifierConstant(self: *Compiler, token: *const scan.Token) anyerror!usize 
 }
 
 fn addLocal(self: *Compiler, token: *const scan.Token) !void {
-    if (self.current.localCount == LOCALS_MAX) {
+    if (self.current.local_count == LOCALS_MAX) {
         try self.errorAtPrev("Too many local variables in function.");
         return;
     }
-    var local = &self.current.locals[self.current.localCount];
-    self.current.localCount += 1;
+    var local = &self.current.locals[self.current.local_count];
+    self.current.local_count += 1;
     local.name = self.lexeme(token);
     local.depth = -1; // Uninitialized
     local.is_captured = false;
 }
 
 fn declareVariable(self: *Compiler) !void {
-    if (self.current.scopeDepth == 0) {
+    if (self.current.scope_depth == 0) {
         return;
     }
-    var i: usize = self.current.localCount;
+    var i: usize = self.current.local_count;
     while (i > 0) {
         i -= 1;
         const local = &self.current.locals[i];
 
-        if (local.depth != -1 and local.depth < self.current.scopeDepth) {
+        if (local.depth != -1 and local.depth < self.current.scope_depth) {
             break;
         }
 
@@ -760,8 +760,8 @@ fn declareVariable(self: *Compiler) !void {
 
 /// Returns false when the token has no prefix rule, so the caller can stop
 /// instead of building an expression around a value that was never pushed.
-fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !bool {
-    switch (tokenType) {
+fn callPrefix(self: *Compiler, token_type: scan.TokenType, can_assign: bool) !bool {
+    switch (token_type) {
         .Minus, .Bang => try self.unary(),
         .LeftParen => try self.grouping(),
         .Number => try self.number(),
@@ -779,8 +779,8 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !boo
     return true;
 }
 
-fn callInfix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void {
-    switch (tokenType) {
+fn callInfix(self: *Compiler, token_type: scan.TokenType, can_assign: bool) !void {
+    switch (token_type) {
         .Minus, .Plus, .Slash, .Star, .BangEqual, .EqualEqual, .Greater, .GreaterEqual, .Less, .LessEqual => try self.binary(),
         .And => try self.and_(),
         .Or => try self.or_(),
@@ -802,16 +802,16 @@ fn ifStatement(self: *Compiler) anyerror!void {
     try self.consume(.LeftParen, "Expect '(' after 'if'.");
     try self.expression();
     try self.consume(.RightParen, "Expect ')' after condition.");
-    const thenJump = try self.emitJump(.JumpIfFalse);
+    const then_jump = try self.emitJump(.JumpIfFalse);
     try self.emitOpcode(.Pop);
     try self.statement();
-    const elseJump = try self.emitJump(.Jump);
-    try self.patchJump(thenJump);
+    const else_jump = try self.emitJump(.Jump);
+    try self.patchJump(then_jump);
     try self.emitOpcode(.Pop);
     if (try self.match(.Else)) {
         try self.statement();
     }
-    try self.patchJump(elseJump);
+    try self.patchJump(else_jump);
 }
 
 fn returnStatement(self: *Compiler) anyerror!void {
@@ -831,17 +831,17 @@ fn returnStatement(self: *Compiler) anyerror!void {
 }
 
 fn whileStatement(self: *Compiler) anyerror!void {
-    const loopStart = self.currentChunk().codeSize();
+    const loop_start = self.currentChunk().codeSize();
     try self.consume(.LeftParen, "Expect '(' after 'while'.");
     try self.expression();
     try self.consume(.RightParen, "Expect ')' after condition.");
 
-    const exitJump = try self.emitJump(.JumpIfFalse);
+    const exit_jump = try self.emitJump(.JumpIfFalse);
     try self.emitOpcode(.Pop);
     try self.statement();
-    try self.emitLoop(loopStart);
+    try self.emitLoop(loop_start);
 
-    try self.patchJump(exitJump);
+    try self.patchJump(exit_jump);
     try self.emitOpcode(.Pop);
 }
 
@@ -857,32 +857,32 @@ fn forStatement(self: *Compiler) anyerror!void {
         try self.expressionStatement();
     }
 
-    var loopStart = self.currentChunk().codeSize();
-    var exitJump: ?usize = null;
+    var loop_start = self.currentChunk().codeSize();
+    var exit_jump: ?usize = null;
     if (!try self.match(.Semicolon)) {
         try self.expression();
         try self.consume(.Semicolon, "Expect ';' after loop condition.");
 
         // Jump out of the loop if the condition is false.
-        exitJump = try self.emitJump(.JumpIfFalse);
+        exit_jump = try self.emitJump(.JumpIfFalse);
         try self.emitOpcode(.Pop); // Condition.
     }
 
     if (!try self.match(.RightParen)) {
-        const bodyJump = try self.emitJump(.Jump);
-        const incrementStart = self.currentChunk().codeSize();
+        const body_jump = try self.emitJump(.Jump);
+        const increment_start = self.currentChunk().codeSize();
         try self.expression();
         try self.emitOpcode(.Pop);
         try self.consume(.RightParen, "Expect ')' after for clauses.");
-        try self.emitLoop(loopStart);
-        loopStart = incrementStart;
-        try self.patchJump(bodyJump);
+        try self.emitLoop(loop_start);
+        loop_start = increment_start;
+        try self.patchJump(body_jump);
     }
 
     try self.statement();
-    try self.emitLoop(loopStart);
-    if (exitJump != null) {
-        try self.patchJump(exitJump.?);
+    try self.emitLoop(loop_start);
+    if (exit_jump != null) {
+        try self.patchJump(exit_jump.?);
         try self.emitOpcode(.Pop); // Condition.
     }
 
@@ -951,14 +951,14 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
 
 fn method(self: *Compiler) !void {
     try self.consume(.Identifier, "Expect method name.");
-    const methodConstant = try self.identifierConstant(&self.parser.previous);
+    const method_constant = try self.identifierConstant(&self.parser.previous);
     const function_type: FunctionType = if (self.lexeme(&self.parser.previous).len == 4 and
         std.mem.eql(u8, self.lexeme(&self.parser.previous), "init"))
         .TypeInitializer
     else
         .Method;
     try self.function(function_type);
-    try self.emitConstantOpcode(.Method, methodConstant);
+    try self.emitConstantOpcode(.Method, method_constant);
 }
 
 fn classDeclaration(self: *Compiler) !void {
@@ -1033,7 +1033,7 @@ fn declaration(self: *Compiler) !void {
     } else {
         try self.statement();
     }
-    if (self.parser.panicMode) {
+    if (self.parser.panic_mode) {
         try self.synchronize();
     }
 }
@@ -1071,7 +1071,7 @@ fn expressionStatement(self: *Compiler) !void {
 }
 
 fn synchronize(self: *Compiler) !void {
-    self.parser.panicMode = false;
+    self.parser.panic_mode = false;
     while (self.parser.current.type != .Eof) {
         if (self.parser.previous.type == .Semicolon) {
             return;

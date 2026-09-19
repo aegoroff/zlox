@@ -102,7 +102,7 @@ pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []co
         return compile_err;
     };
 
-    if (self.compiler.?.parser.hadError) {
+    if (self.compiler.?.parser.had_error) {
         return err.Error.CompileError;
     }
 
