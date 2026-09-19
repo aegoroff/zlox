@@ -320,7 +320,7 @@ fn emitLoop(self: *Compiler, loopStart: usize) !void {
     try self.emitOpcode(.Loop);
     const offset = self.currentChunk().codeSize() - loopStart + 2;
     if (offset > std.math.maxInt(u16)) {
-        try self.errorAtCurrent("Loop body too large.");
+        try self.errorAtPrev("Loop body too large.");
         return e.Error.CompileError;
     }
 
@@ -340,7 +340,7 @@ fn patchJump(self: *Compiler, offset: usize) !void {
     const jump = self.currentChunk().codeSize() - offset - 2;
 
     if (jump > std.math.maxInt(u16)) {
-        try self.errorAtCurrent("Too much code to jump over.");
+        try self.errorAtPrev("Too much code to jump over.");
         return e.Error.CompileError;
     }
 
@@ -540,7 +540,7 @@ fn resolveLocal(self: *Compiler, compiler: *Compile, token: *const scan.Token) !
 
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             if (local.depth == -1) {
-                try self.errorAtCurrent("Can't read local variable in its own initializer.");
+                try self.errorAtPrev("Can't read local variable in its own initializer.");
                 return e.Error.CompileError;
             }
             return i - 1;
@@ -646,7 +646,7 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
         try self.callInfix(self.parser.previous.type, can_assign);
     }
     if (can_assign and try self.match(.Equal)) {
-        try self.errorAtCurrent("Invalid assignment target.");
+        try self.errorAtPrev("Invalid assignment target.");
         return e.Error.CompileError;
     }
 }
