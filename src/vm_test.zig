@@ -1686,6 +1686,43 @@ test "class: bound method identity" {
     try t.expectOutput("true\nfalse\ntrue\nfalse\n");
 }
 
+test "class: collection during field set" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // The receiver is a temporary that no root holds, so a collection started by
+    // growing its field table can take both it and the value just stored in it.
+    // The instance allocated right after the store reuses what was freed, which
+    // is what turns the dangling value into an observable failure.
+    const code =
+        \\class Box {}
+        \\class Item {
+        \\  init(n) { this.n = n; }
+        \\}
+        \\
+        \\fun make() { return Box(); }
+        \\
+        \\var total = 0;
+        \\var i = 0;
+        \\while (i < 10000) {
+        \\  var v = make().field = Item(1);
+        \\  var junk = Item(1000);
+        \\  total = total + v.n;
+        \\  i = i + 1;
+        \\}
+        \\print total;
+        \\
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("10000\n");
+}
+
 test "class: declare and call" {
     // Arrange
     var t: TestHarness = undefined;

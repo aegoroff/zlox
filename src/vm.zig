@@ -548,10 +548,14 @@ inline fn opSuperInvoke(self: *VM, cursor: *FrameCursor, ip: [*]const u8, consta
     cursor.reload(self);
 }
 
+/// Receiver and value are left on the stack until the store is accounted for:
+/// growing the field table is a collection point, and neither operand is held
+/// anywhere else while it runs. The receiver can be a temporary that no root
+/// owns (`makeBox().field = x`), and the value then lives only in that dying
+/// instance, so popping first would hand the collector both of them.
 inline fn opSetProperty(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
     const prop_name = try cursor.stringConstantAt(ip, constant_size);
-    const prop_value = self.pop();
-    const receiver = self.pop();
+    const receiver = self.peek(1);
     if (!receiver.isInstance()) {
         try self.errorAt(ip, "Only instances have fields.", .{});
         return err.Error.RuntimeError;
@@ -559,9 +563,11 @@ inline fn opSetProperty(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, 
     const instance = receiver.asInstance();
 
     const old_capacity = instance.fields.capacity();
-    _ = try instance.fields.set(self.allocator, prop_name, prop_value);
+    _ = try instance.fields.set(self.allocator, prop_name, self.peek(0));
     try self.adjustMapAllocation(old_capacity, instance.fields.capacity());
-    try self.push(prop_value);
+
+    const prop_value = self.pop();
+    self.replaceTos(prop_value);
 }
 
 inline fn opMethod(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
