@@ -393,7 +393,11 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
         val.asClosure().function.*
     else
         null;
-    const func_name = func.?.name orelse "script";
+    // A disassembler is a debugging tool: it should describe whatever bytecode
+    // it is given rather than crash on it, so a `Closure` operand that turns
+    // out not to be a function or closure gets a placeholder instead of an
+    // unconditional unwrap.
+    const func_name = if (func) |f| (f.name orelse "script") else "<not a function>";
     const upvalue_count = if (func) |f| f.upvalue_count else 0;
 
     try writer.print("{s:<16} {d:4} {s}\n", .{ name, function_ix, func_name });
@@ -477,4 +481,22 @@ test "addConstant scales past what a linear scan would take too long for" {
 
     // Assert
     try std.testing.expectEqual(count, chunk.constants.items.len);
+}
+
+test "disassembly does not panic on a Closure operand that is not a function" {
+    // Arrange
+    var chunk = Chunk.init(std.testing.allocator);
+    defer chunk.deinit();
+    const position = Position{ .line = 1, .col = 1, .len = 1 };
+    const ix = try chunk.addConstant(LoxValue.number(42));
+    try chunk.writeIndexedOpcode(.Closure, ix, position);
+
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+
+    // Act
+    _ = try chunk.disassemblyInstruction(&out.writer, 0);
+
+    // Assert
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "<not a function>") != null);
 }
