@@ -14,21 +14,26 @@ const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = 256 * FRAMES_MAX;
 
-allocator: std.mem.Allocator,
-writer: *std.Io.Writer,
-compiler: ?Compiler,
-io: std.Io,
+// Declaration order is layout order here. What the dispatch loop touches on
+// every call, return and global access comes first so it shares a cache line,
+// and the compiler — large, and cold once execution starts — goes last. Without
+// this the struct's tail shifts whenever an embedded field changes size, which
+// moves the hot fields across line boundaries and shows up as several percent.
+frames: []CallFrame,
+frame_count: usize,
+globals: Table,
+open_upvalues: ?*val.Upvalue,
 stack: []LoxValue,
 /// Points one past the last pushed value (clox `stackTop`).
 stack_top: [*]LoxValue,
-globals: Table,
-frames: []CallFrame,
-frame_count: usize,
-init_string: *val.HeapString,
 
 heap: mem.Heap,
 strings: Table,
-open_upvalues: ?*val.Upvalue,
+init_string: *val.HeapString,
+allocator: std.mem.Allocator,
+writer: *std.Io.Writer,
+io: std.Io,
+compiler: ?Compiler,
 
 pub const CallFrame = struct {
     closure: *val.Closure,

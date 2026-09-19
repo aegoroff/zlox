@@ -211,7 +211,7 @@ pub const Heap = struct {
     pub fn markTable(self: *Heap, table: *const Table) !void {
         if (table.count == 0) return;
         var found: usize = 0;
-        for (table.entries) |entry| {
+        for (table.slice()) |entry| {
             if (entry.key) |key| {
                 try self.markObject(.{ .string = key });
                 try self.markValue(entry.value);

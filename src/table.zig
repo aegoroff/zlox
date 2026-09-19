@@ -4,7 +4,11 @@ const val = @import("value.zig");
 const LoxValue = val.LoxValue;
 const HeapString = val.HeapString;
 
-const INITIAL_CAPACITY: usize = 8;
+const INITIAL_CAPACITY: u32 = 8;
+
+/// Non-null stand-in for a table that has not allocated yet. Never read: every
+/// probe and every walk is guarded by the capacity.
+const no_entries: [*]Entry = @constCast(@as([]const Entry, &.{}).ptr);
 
 pub const Entry = struct {
     key: ?*HeapString = null,
@@ -23,41 +27,50 @@ const ProbeMatch = union(enum) {
 /// does), the load limit is derived, and the capacity is the entry slice's own
 /// length rather than a second copy of it.
 pub const Table = struct {
-    count: usize = 0,
-    entries: []Entry = &.{},
+    count: u32 = 0,
+    /// Stored narrow to keep the struct at two words plus a pointer; read
+    /// through `capacity()`, which widens it. A Lox program cannot reach four
+    /// billion entries in one map before it runs out of address space.
+    cap: u32 = 0,
+    entries: [*]Entry = no_entries,
 
     pub inline fn capacity(self: *const Table) usize {
-        return self.entries.len;
+        return self.cap;
     }
 
-    inline fn maxLoad(self: *const Table) usize {
-        return self.entries.len * 3 / 4;
+    /// The live entries. Empty while the table has not allocated.
+    pub inline fn slice(self: *const Table) []Entry {
+        return self.entries[0..self.cap];
+    }
+
+    inline fn maxLoad(self: *const Table) u32 {
+        return self.cap / 4 * 3;
     }
 
     pub fn deinit(self: *Table, gpa: std.mem.Allocator) void {
-        if (self.entries.len > 0) {
-            gpa.free(self.entries);
+        if (self.cap > 0) {
+            gpa.free(self.slice());
         }
         self.* = .{};
     }
 
     pub inline fn get(self: *const Table, key: *HeapString) ?LoxValue {
         if (self.count == 0) return null;
-        const entry = findSlot(self.entries, self.entries.len, .{ .pointer = key }, false) orelse return null;
+        const entry = findSlot(self.entries, self.cap, .{ .pointer = key }, false) orelse return null;
         return entry.value;
     }
 
     pub inline fn contains(self: *const Table, key: *HeapString) bool {
         if (self.count == 0) return false;
-        return findSlot(self.entries, self.entries.len, .{ .pointer = key }, false) != null;
+        return findSlot(self.entries, self.cap, .{ .pointer = key }, false) != null;
     }
 
     pub inline fn set(self: *Table, gpa: std.mem.Allocator, key: *HeapString, value: LoxValue) !bool {
         if (self.count + 1 > self.maxLoad()) {
-            try self.adjustCapacity(gpa, growCapacity(self.entries.len));
+            try self.adjustCapacity(gpa, growCapacity(self.cap));
         }
 
-        const entry = findSlot(self.entries, self.entries.len, .{ .pointer = key }, true).?;
+        const entry = findSlot(self.entries, self.cap, .{ .pointer = key }, true).?;
         const is_new_key = entry.key == null;
         if (is_new_key and entry.value.isNil()) {
             self.count += 1;
@@ -69,7 +82,7 @@ pub const Table = struct {
     }
 
     pub inline fn setExisting(self: *Table, key: *HeapString, value: LoxValue) bool {
-        const entry = findSlot(self.entries, self.entries.len, .{ .pointer = key }, false) orelse return false;
+        const entry = findSlot(self.entries, self.cap, .{ .pointer = key }, false) orelse return false;
         entry.value = value;
         return true;
     }
@@ -78,7 +91,7 @@ pub const Table = struct {
         if (self.count == 0) return null;
         const entry = findSlot(
             self.entries,
-            self.entries.len,
+            self.cap,
             .{ .bytes = .{ .chars = chars, .hash = hash } },
             false,
         ) orelse return null;
@@ -87,7 +100,7 @@ pub const Table = struct {
 
     pub inline fn delete(self: *Table, key: *HeapString) bool {
         if (self.count == 0) return false;
-        const entry = findSlot(self.entries, self.entries.len, .{ .pointer = key }, false) orelse return false;
+        const entry = findSlot(self.entries, self.cap, .{ .pointer = key }, false) orelse return false;
         self.count -= 1;
         entry.key = null;
         entry.value = LoxValue.boolean(true);
@@ -95,8 +108,7 @@ pub const Table = struct {
     }
 
     pub fn removeWhite(self: *Table) void {
-        if (self.entries.len == 0) return;
-        for (self.entries) |*entry| {
+        for (self.slice()) |*entry| {
             if (entry.key) |key| {
                 if (!key.gc.marked) {
                     _ = self.delete(key);
@@ -110,51 +122,51 @@ pub const Table = struct {
 
         const needed = self.count + from.count;
         while (needed > self.maxLoad()) {
-            try self.adjustCapacity(gpa, growCapacity(self.entries.len));
+            try self.adjustCapacity(gpa, growCapacity(self.cap));
         }
 
-        for (from.entries) |entry| {
+        for (from.slice()) |entry| {
             if (entry.key) |key| {
                 _ = try self.set(gpa, key, entry.value);
             }
         }
     }
 
-    inline fn adjustCapacity(self: *Table, gpa: std.mem.Allocator, new_capacity: usize) !void {
+    inline fn adjustCapacity(self: *Table, gpa: std.mem.Allocator, new_capacity: u32) !void {
         const entries = try gpa.alloc(Entry, new_capacity);
-        for (entries) |*entry| {
-            entry.* = .{};
-        }
+        @memset(entries, .{});
 
-        const old_entries = self.entries;
+        const old_entries = self.slice();
         self.count = 0;
-        if (old_entries.len > 0) {
-            for (old_entries) |entry| {
-                if (entry.key) |key| {
-                    const dest = findSlot(entries, new_capacity, .{ .pointer = key }, true).?;
-                    dest.key = key;
-                    dest.value = entry.value;
-                    self.count += 1;
-                }
+        for (old_entries) |entry| {
+            if (entry.key) |key| {
+                const dest = findSlot(entries.ptr, new_capacity, .{ .pointer = key }, true).?;
+                dest.key = key;
+                dest.value = entry.value;
+                self.count += 1;
             }
-            gpa.free(old_entries);
         }
+        if (old_entries.len > 0) gpa.free(old_entries);
 
-        self.entries = entries;
+        self.entries = entries.ptr;
+        self.cap = new_capacity;
     }
 
-    inline fn growCapacity(current: usize) usize {
+    inline fn growCapacity(current: u32) u32 {
         if (current < INITIAL_CAPACITY) return INITIAL_CAPACITY;
         return current * 2;
     }
 };
 
-inline fn hashIndex(hash: u32, capacity: usize) usize {
-    return @intCast(hash & @as(u32, @intCast(capacity - 1)));
+// The probe index is word-sized even though the capacity is not: a 32-bit
+// index would have to be zero-extended before every `entries[index]`, while a
+// usize folds straight into the addressing mode.
+inline fn hashIndex(hash: u32, mask: usize) usize {
+    return hash & mask;
 }
 
-inline fn nextIndex(index: usize, capacity: usize) usize {
-    return (index + 1) & (capacity - 1);
+inline fn nextIndex(index: usize, mask: usize) usize {
+    return (index + 1) & mask;
 }
 
 inline fn keysEqual(entry_key: *HeapString, match: ProbeMatch) bool {
@@ -167,8 +179,8 @@ inline fn keysEqual(entry_key: *HeapString, match: ProbeMatch) bool {
 }
 
 inline fn findSlot(
-    entries: []Entry,
-    capacity: usize,
+    entries: [*]Entry,
+    capacity: u32,
     match: ProbeMatch,
     comptime for_insert: bool,
 ) ?*Entry {
@@ -179,7 +191,8 @@ inline fn findSlot(
         .bytes => |b| b.hash,
     };
 
-    var index = hashIndex(hash, capacity);
+    const mask: usize = @as(usize, capacity) - 1;
+    var index = hashIndex(hash, mask);
     var tombstone: ?*Entry = null;
 
     while (true) {
@@ -194,7 +207,7 @@ inline fn findSlot(
             if (for_insert and tombstone == null) tombstone = entry;
         }
 
-        index = nextIndex(index, capacity);
+        index = nextIndex(index, mask);
     }
 }
 
