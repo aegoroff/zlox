@@ -245,14 +245,20 @@ fn match(self: *Lexer, expected: u8) bool {
     if (self.source[self.current] != expected) {
         return false;
     }
-    self.current += 1;
+    _ = self.advance();
     return true;
 }
 
 fn advance(self: *Lexer) u8 {
+    const c = self.source[self.current];
     self.current += 1;
-    self.col += 1;
-    return self.source[self.current - 1];
+    if (c == '\n') {
+        self.line += 1;
+        self.col = 1;
+    } else {
+        self.col += 1;
+    }
+    return c;
 }
 
 fn peek(self: *Lexer) u8 {
@@ -273,12 +279,7 @@ fn skipWhitespace(self: *Lexer) void {
     while (!self.isAtEnd()) {
         const c = self.peek();
         switch (c) {
-            ' ', '\r', '\t' => _ = self.advance(),
-            '\n' => {
-                self.line += 1;
-                self.col = 1;
-                _ = self.advance();
-            },
+            ' ', '\r', '\t', '\n' => _ = self.advance(),
             '/' => {
                 if (self.peekNext() == '/') {
                     while (!self.isAtEnd() and self.peek() != '\n') {
@@ -295,10 +296,6 @@ fn skipWhitespace(self: *Lexer) void {
 
 fn string(self: *Lexer) !Token {
     while (self.peek() != '"' and !self.isAtEnd()) {
-        if (self.peek() == '\n') {
-            self.line += 1;
-            self.col = 1;
-        }
         _ = self.advance();
     }
 
@@ -332,6 +329,58 @@ test "Bang tests" {
     // Assert
     try std.testing.expectEqual(.Bang, token1.type);
     try std.testing.expectEqual(.BangEqual, token2.type);
+}
+
+test "Token columns restart on the next line" {
+    // Arrange
+    var lexer = Lexer.init("var a;\nvar bb;");
+
+    // Act
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    const keyword = try lexer.scanToken();
+    const name = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(@as(usize, 2), keyword.line);
+    try std.testing.expectEqual(@as(usize, 1), keyword.col_start);
+    try std.testing.expectEqual(@as(usize, 3), keyword.col_end);
+    try std.testing.expectEqual(@as(usize, 5), name.col_start);
+    try std.testing.expectEqual(@as(usize, 6), name.col_end);
+}
+
+test "Two character operator spans both columns" {
+    // Arrange
+    var lexer = Lexer.init("a != b");
+
+    // Act
+    _ = try lexer.scanToken();
+    const operator = try lexer.scanToken();
+    const operand = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.BangEqual, operator.type);
+    try std.testing.expectEqual(@as(usize, 3), operator.col_start);
+    try std.testing.expectEqual(@as(usize, 4), operator.col_end);
+    try std.testing.expectEqual(@as(usize, 6), operand.col_start);
+    try std.testing.expectEqual(@as(usize, 6), operand.col_end);
+}
+
+test "Line counted after multiline string" {
+    // Arrange
+    var lexer = Lexer.init("\"one\ntwo\";\nvar a;");
+
+    // Act
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    const keyword = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Var, keyword.type);
+    try std.testing.expectEqual(@as(usize, 3), keyword.line);
+    try std.testing.expectEqual(@as(usize, 1), keyword.col_start);
+    try std.testing.expectEqual(@as(usize, 3), keyword.col_end);
 }
 
 test "Only comment test" {
