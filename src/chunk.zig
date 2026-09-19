@@ -80,6 +80,11 @@ const OperandWidth = enum {
 allocator: std.mem.Allocator,
 code: std.ArrayList(u8),
 constants: std.ArrayList(LoxValue),
+/// Maps a constant's raw representation to its index in `constants`, so
+/// `addConstant` can dedupe without rescanning everything already added.
+/// Only `addConstant` ever writes to `constants`, so this never drifts out
+/// of sync with it.
+constant_lookup: std.AutoHashMapUnmanaged(u64, usize),
 positions: std.ArrayList(Position),
 
 pub fn init(gpa: std.mem.Allocator) Chunk {
@@ -87,6 +92,7 @@ pub fn init(gpa: std.mem.Allocator) Chunk {
         .allocator = gpa,
         .code = .empty,
         .constants = .empty,
+        .constant_lookup = .empty,
         .positions = .empty,
     };
 }
@@ -95,6 +101,7 @@ pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
     // Function constants are now in heap and managed by GC, don't free them here
     self.constants.deinit(self.allocator);
+    self.constant_lookup.deinit(self.allocator);
     self.positions.deinit(self.allocator);
 }
 
@@ -146,13 +153,16 @@ pub fn writeConstant(self: *Chunk, ix: usize, position: Position) !void {
 pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
     // Deduplicate by representation, not semantic equality: short and heap
     // strings with the same text serve different roles in bytecode.
-    for (self.constants.items, 0..) |existing, ix| {
-        if (existing.raw == val.raw) {
-            return ix;
-        }
+    // `constant_lookup` is keyed on that same raw representation, so a
+    // rescan of `constants` is never needed.
+    const result = try self.constant_lookup.getOrPut(self.allocator, val.raw);
+    if (result.found_existing) {
+        return result.value_ptr.*;
     }
     try self.constants.append(self.allocator, val);
-    return self.constants.items.len - 1;
+    const ix = self.constants.items.len - 1;
+    result.value_ptr.* = ix;
+    return ix;
 }
 
 pub fn writeOperand(self: *Chunk, val: usize, position: Position) !void {
@@ -432,4 +442,39 @@ test "every byte of an instruction carries the same position" {
     for (chunk.positions.items) |item| {
         try std.testing.expectEqual(position, item);
     }
+}
+
+test "addConstant reuses the index of an already-added constant" {
+    // Arrange
+    var chunk = Chunk.init(std.testing.allocator);
+    defer chunk.deinit();
+
+    // Act
+    const first = try chunk.addConstant(LoxValue.number(1));
+    const second = try chunk.addConstant(LoxValue.number(2));
+    const third = try chunk.addConstant(LoxValue.number(1));
+
+    // Assert
+    try std.testing.expectEqual(first, third);
+    try std.testing.expect(first != second);
+    try std.testing.expectEqual(@as(usize, 2), chunk.constants.items.len);
+}
+
+test "addConstant scales past what a linear scan would take too long for" {
+    // Arrange
+    var chunk = Chunk.init(std.testing.allocator);
+    defer chunk.deinit();
+    const count = 200_000;
+
+    // Act
+    // A rescan of everything already added on every call turns this loop
+    // quadratic; the O(1) lookup keeps it linear. This is a slow test on the
+    // old code (multiple seconds for 200k constants), not merely a wrong one.
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        _ = try chunk.addConstant(LoxValue.number(@floatFromInt(i)));
+    }
+
+    // Assert
+    try std.testing.expectEqual(count, chunk.constants.items.len);
 }
