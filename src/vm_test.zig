@@ -3639,3 +3639,52 @@ test "vm: reusing the VM across interpret calls does not leak the compiler" {
     // Assert
     try t.expectOutput("1\n2\n");
 }
+
+test "vm: a runtime error does not corrupt the next interpret call" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    // A runtime error stops without unwinding frame_count or stack_top, so
+    // the next call has to clean that up itself before running - otherwise
+    // this print resolves against the failed call's leftover chunk offset
+    // instead of its own.
+    try t.expectRuntimeError("print nope;");
+    try t.interpret("print 2;");
+
+    // Assert
+    try t.expectOutput("2\n");
+}
+
+test "vm: a closure's open upvalue survives a runtime error during capture" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // `outer`'s frame is still active when `nope` fails to resolve, so
+    // `inner`'s upvalue for `x` is still open into a stack slot the reset is
+    // about to discard - it has to be closed first, copying the value out,
+    // or `globalRef()` would read whatever ends up in that slot next.
+    const code =
+        \\var globalRef;
+        \\
+        \\fun outer() {
+        \\  var x = 42;
+        \\  fun inner() { return x; }
+        \\  globalRef = inner;
+        \\  return nope;
+        \\}
+        \\
+        \\outer();
+    ;
+
+    // Act
+    try t.expectRuntimeError(code);
+    try t.interpret("print globalRef();");
+
+    // Assert
+    try t.expectOutput("42\n");
+}

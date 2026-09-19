@@ -97,6 +97,15 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 }
 
 pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []const u8) !void {
+    // A runtime error stops without unwinding, so a failed call can leave
+    // frame_count and stack_top past where it broke off - callers rely on
+    // that to still be there right after the failing call (see the
+    // frame-count assertions in vm_test.zig), so the cleanup happens here,
+    // before the next script starts, rather than where the error occurred.
+    // A no-op after a successful run, which already leaves both at their
+    // initial values.
+    self.resetStack();
+
     // A prior call's compiler stays alive through `run()` so `errorAt` can
     // still reach it, but nothing keeps it around after that: overwriting
     // `self.compiler` below without freeing it first leaks its reporter and
@@ -385,6 +394,16 @@ fn closeUpvalues(self: *VM, last: *LoxValue) void {
             break;
         }
     }
+}
+
+/// Restores the stack and call frames to the state a fresh VM starts in.
+/// Any upvalue still open into the stack is closed first, copying its value
+/// out, so a closure that outlived the discarded run keeps that value
+/// instead of a pointer into stack slots the next run is about to reuse.
+fn resetStack(self: *VM) void {
+    self.closeUpvalues(@ptrCast(self.stack.ptr));
+    self.stack_top = self.stack.ptr;
+    self.frame_count = 0;
 }
 
 fn defineMethod(self: *VM, name: *val.HeapString) !void {
