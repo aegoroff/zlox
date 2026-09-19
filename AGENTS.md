@@ -36,6 +36,13 @@
 3. Benchmark against clox with `./bench.sh`
 4. Run the full benchmark suite against clox with `./bench_all.sh`
 
+### Version Control
+1. Never create a commit without explicit confirmation from the user
+2. The same applies to anything that publishes work: push, tag, release
+3. A request to write, fix, refactor or optimize something is not a request to
+   commit it. Finish the change, report what was modified, and wait to be asked
+4. Being asked to commit one change does not authorize committing anything else
+
 ## Build & Test Commands
 ```bash
 # Build
