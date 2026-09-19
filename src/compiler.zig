@@ -234,12 +234,16 @@ pub fn reportErrorAt(
 
 fn advance(self: *Compiler) !void {
     self.parser.previous = self.parser.current;
-    self.parser.current = self.lexer.scanToken() catch |err| {
-        switch (err) {
+    self.parser.current = self.lexer.scanToken() catch |lex_err| {
+        switch (lex_err) {
             error.UnexpectedCharacter => try self.errorAtCurrent("Unexpected character found in source code."),
             error.UnterminatedString => try self.errorAtLexerScan("Unterminated string literal."),
         }
-        return err;
+        // A lexical error is a compile error. Letting the scanner's own error
+        // set escape sends `exitCode` down its `else` branch, which exits 1
+        // instead of the 65 the language contract promises for a failed
+        // compilation.
+        return e.Error.CompileError;
     };
 }
 

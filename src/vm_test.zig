@@ -1,7 +1,6 @@
 const std = @import("std");
 const vm = @import("vm.zig");
 const err = @import("error.zig");
-const scan = @import("scanner.zig");
 
 const TestHarness = struct {
     writer: std.Io.Writer.Allocating,
@@ -3602,9 +3601,9 @@ test "error: unexpected character" {
     defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(scan.LexerError.UnexpectedCharacter, t.machine.interpret(
+    try t.expectCompileError(
         \\foo(a | b);
-    , false));
+    );
 }
 
 test "error: unterminated string" {
@@ -3614,7 +3613,7 @@ test "error: unterminated string" {
     defer t.deinit();
 
     // Act + Assert
-    try std.testing.expectError(scan.LexerError.UnterminatedString, t.machine.interpret(
+    try t.expectCompileError(
         \\"this string has no close quote
-    , false));
+    );
 }
