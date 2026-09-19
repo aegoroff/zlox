@@ -3188,6 +3188,44 @@ test "error: negate non-number" {
     try t.expectRuntimeError("-\"s\";");
 }
 
+test "error: recovery keeps parsing past the first error" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class A < A {}
+        \\var x = ;
+        \\this;
+        \\super.y;
+        \\return 1;
+        \\1 = 2;
+        \\{ var d = d; }
+        \\{ var e; var e; }
+        \\print 3;
+    ;
+
+    // Act + Assert
+    try t.expectCompileError(code);
+}
+
+test "error: recovery terminates on truncated input" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class A {
+        \\fun f(
+        \\{{{{
+    ;
+
+    // Act + Assert
+    try t.expectCompileError(code);
+}
+
 test "error: set field eval order" {
     // Arrange
     var t: TestHarness = undefined;

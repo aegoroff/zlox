@@ -117,6 +117,7 @@ print_code: bool,
 filename: []const u8,
 intern_ctx: *anyopaque,
 intern_string_fn: *const fn (ctx: *anyopaque, bytes: []const u8) anyerror!*val.HeapString,
+reporter: ErrorReporter,
 
 pub fn init(
     gpa: std.mem.Allocator,
@@ -136,6 +137,7 @@ pub fn init(
         .filename = filename,
         .intern_ctx = intern_ctx,
         .intern_string_fn = intern_string_fn,
+        .reporter = ErrorReporter.init(gpa),
         .lexer = undefined,
         .current = script,
         .current_class = null,
@@ -153,6 +155,7 @@ fn internCompileString(self: *Compiler, bytes: []const u8) !*val.HeapString {
 }
 
 pub fn deinit(self: *Compiler) void {
+    self.reporter.deinit();
     var current = self.current;
     while (current.enclosing) |enclosing| {
         current.deinit();
@@ -194,6 +197,7 @@ fn markOwnedConstants(heap: *mem.Heap, func: *val.Function) !void {
 
 pub fn compile(self: *Compiler, source: []const u8) !*val.Function {
     self.lexer = scan.Lexer.init(source);
+    try self.reporter.addSource(self.filename, source);
     try self.advance();
     while (!self.check(.Eof)) {
         try self.declaration();
@@ -212,11 +216,6 @@ pub fn reportErrorAt(
     end_col: usize,
     message: []const u8,
 ) !void {
-    var reporter = ErrorReporter.init(self.allocator);
-    defer reporter.deinit();
-
-    try reporter.addSource(self.filename, self.lexer.source);
-
     // For single-character tokens, use the same start and end columns
     const col_end = if (end_col > start_col) end_col else start_col;
 
@@ -230,7 +229,7 @@ pub fn reportErrorAt(
     const diagnostic = Diagnostic.init(.err, message)
         .withRange(range);
 
-    reporter.report(diagnostic);
+    self.reporter.report(diagnostic);
 }
 
 fn advance(self: *Compiler) !void {
@@ -321,7 +320,6 @@ fn emitLoop(self: *Compiler, loopStart: usize) !void {
     const offset = self.currentChunk().codeSize() - loopStart + 2;
     if (offset > std.math.maxInt(u16)) {
         try self.errorAtPrev("Loop body too large.");
-        return e.Error.CompileError;
     }
 
     try self.emitOperand(offset & 0xff);
@@ -341,7 +339,6 @@ fn patchJump(self: *Compiler, offset: usize) !void {
 
     if (jump > std.math.maxInt(u16)) {
         try self.errorAtPrev("Too much code to jump over.");
-        return e.Error.CompileError;
     }
 
     self.currentChunk().code.items[offset] = @truncate(jump & 0xff);
@@ -442,10 +439,8 @@ fn syntheticToken(comptime name: []const u8) scan.Token {
 fn super_(self: *Compiler) !void {
     if (self.current_class == null) {
         try self.errorAtPrev("Can't use 'super' outside of a class.");
-        return e.Error.CompileError;
     } else if (!self.current_class.?.has_superclass) {
         try self.errorAtPrev("Can't use 'super' in a class with no superclass.");
-        return e.Error.CompileError;
     }
     try self.consume(.Dot, "Expect '.' after 'super'.");
     try self.consume(.Identifier, "Expect superclass method name.");
@@ -466,7 +461,7 @@ fn super_(self: *Compiler) !void {
 fn this_(self: *Compiler) !void {
     if (self.current_class == null) {
         try self.errorAtPrev("Can't use 'this' outside of a class.");
-        return e.Error.CompileError;
+        return;
     }
     try self.variable(false);
 }
@@ -524,7 +519,7 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
 
     if (upvalueCount == LOCALS_MAX) {
         try self.errorAtPrev("Too many closure variables in function.");
-        return e.Error.CompileError;
+        return 0;
     }
 
     compiler.upvalues[upvalueCount].is_local = is_local;
@@ -541,7 +536,6 @@ fn resolveLocal(self: *Compiler, compiler: *Compile, token: *const scan.Token) !
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             if (local.depth == -1) {
                 try self.errorAtPrev("Can't read local variable in its own initializer.");
-                return e.Error.CompileError;
             }
             return i - 1;
         }
@@ -640,14 +634,15 @@ fn getPrecedence(tokenType: scan.TokenType) Precedence {
 fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     try self.advance();
     const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
-    try self.callPrefix(self.parser.previous.type, can_assign);
+    if (!try self.callPrefix(self.parser.previous.type, can_assign)) {
+        return;
+    }
     while (@intFromEnum(getPrecedence(self.parser.current.type)) >= @intFromEnum(precedence)) {
         try self.advance();
         try self.callInfix(self.parser.previous.type, can_assign);
     }
     if (can_assign and try self.match(.Equal)) {
         try self.errorAtPrev("Invalid assignment target.");
-        return e.Error.CompileError;
     }
 }
 
@@ -682,7 +677,6 @@ fn argumentList(self: *Compiler) anyerror!usize {
             try self.expression();
             if (arg_count == 255) {
                 try self.errorAtPrev("Can't have more than 255 arguments.");
-                return e.Error.CompileError;
             }
             arg_count += 1;
             if (!try self.match(.Comma)) {
@@ -718,7 +712,7 @@ fn identifierConstant(self: *Compiler, token: *const scan.Token) anyerror!usize 
 fn addLocal(self: *Compiler, token: *const scan.Token) !void {
     if (self.current.localCount == LOCALS_MAX) {
         try self.errorAtPrev("Too many local variables in function.");
-        return e.Error.CompileError;
+        return;
     }
     var local = &self.current.locals[self.current.localCount];
     self.current.localCount += 1;
@@ -743,14 +737,15 @@ fn declareVariable(self: *Compiler) !void {
         const name = self.lexeme(&self.parser.previous);
         if (std.mem.eql(u8, name, local.name)) {
             try self.errorAtPrev("Already a variable with this name in this scope.");
-            return e.Error.CompileError;
         }
     }
 
     try self.addLocal(&self.parser.previous);
 }
 
-fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void {
+/// Returns false when the token has no prefix rule, so the caller can stop
+/// instead of building an expression around a value that was never pushed.
+fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !bool {
     switch (tokenType) {
         .Minus, .Bang => try self.unary(),
         .LeftParen => try self.grouping(),
@@ -763,9 +758,10 @@ fn callPrefix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !voi
 
         else => {
             try self.errorAtPrev("Expect expression.");
-            return e.Error.CompileError;
+            return false;
         },
     }
+    return true;
 }
 
 fn callInfix(self: *Compiler, tokenType: scan.TokenType, can_assign: bool) !void {
@@ -806,14 +802,12 @@ fn ifStatement(self: *Compiler) anyerror!void {
 fn returnStatement(self: *Compiler) anyerror!void {
     if (self.current.function_type == .Script) {
         try self.errorAtPrev("Can't return from top-level code.");
-        return e.Error.CompileError;
     }
     if (try self.match(.Semicolon)) {
         try self.emitReturn();
     } else {
         if (self.current.function_type == .TypeInitializer) {
             try self.errorAtCurrent("Can't return a value from an initializer.");
-            return e.Error.CompileError;
         }
         try self.expression();
         try self.consume(.Semicolon, "Expect ';' after return value.");
@@ -904,7 +898,6 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
             self.current.function.?.arity += 1;
             if (self.current.function.?.arity > 255) {
                 try self.errorAtCurrent("Can't have more than 255 parameters.");
-                return e.Error.CompileError;
             }
             const constant = try self.parseVariable("Expect parameter name.");
             try self.defineVariable(constant);
@@ -966,6 +959,7 @@ fn classDeclaration(self: *Compiler) !void {
         .has_superclass = false,
     };
     self.current_class = &class_compiler;
+    defer self.current_class = class_compiler.enclosing;
 
     if (try self.match(.Less)) {
         try self.consume(.Identifier, "Expect superclass name.");
@@ -973,7 +967,6 @@ fn classDeclaration(self: *Compiler) !void {
 
         if (std.mem.eql(u8, self.lexeme(&class_name), self.lexeme(&self.parser.previous))) {
             try self.errorAtPrev("A class can't inherit from itself.");
-            return e.Error.CompileError;
         }
         self.beginScope();
         try self.addLocal(&syntheticToken("super"));
@@ -994,7 +987,6 @@ fn classDeclaration(self: *Compiler) !void {
     if (class_compiler.has_superclass) {
         try self.endScope();
     }
-    self.current_class = self.current_class.?.enclosing;
 }
 
 fn funDeclaration(self: *Compiler) !void {
