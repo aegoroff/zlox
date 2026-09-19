@@ -3273,6 +3273,35 @@ test "error: native sqrt arity" {
     try t.expectFrameCount(1);
 }
 
+test "error: native argument type" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act + Assert
+    try t.expectRuntimeError("sqrt(\"4\");");
+    try t.expectFrameCount(1);
+}
+
+test "error: native failure inside a function" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // The diagnostic is resolved against the chunk of the frame that made the
+    // call, so a native failing below the script needs its own coverage.
+    const code =
+        \\fun root(x) { return sqrt(x); }
+        \\root(nil);
+        \\
+    ;
+
+    // Act + Assert
+    try t.expectRuntimeError(code);
+}
+
 test "error: negate non-number" {
     // Arrange
     var t: TestHarness = undefined;

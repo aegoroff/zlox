@@ -27,7 +27,15 @@ const ObjTag = enum(u4) {
     short_string = 7,
 };
 
-pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) err.Error!LoxValue;
+/// What a native call produces: either a value or a message explaining why the
+/// arguments were refused. A plain error would reach the VM with nothing to
+/// report, so every failure carries the text of its own diagnostic.
+pub const NativeResult = union(enum) {
+    value: LoxValue,
+    failure: []const u8,
+};
+
+pub const NativeFn = *const fn (io: std.Io, args: []const LoxValue) NativeResult;
 
 pub const LoxValue = struct {
     raw: u64,

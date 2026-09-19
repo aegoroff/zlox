@@ -317,10 +317,17 @@ inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usiz
         const native_fn = value.asNative();
         const args_ptr = self.stack_top - arg_count;
         const args = args_ptr[0..arg_count];
-        const result = try native_fn(self.io, args);
-        self.stack_top -= arg_count + 1;
-        try self.push(result);
-        return true;
+        switch (native_fn(self.io, args)) {
+            .value => |result| {
+                self.stack_top -= arg_count + 1;
+                try self.push(result);
+                return true;
+            },
+            .failure => |message| {
+                try self.errorAt(ip, "{s}", .{message});
+                return err.Error.RuntimeError;
+            },
+        }
     }
     try self.errorAt(ip, "Can only call functions and classes.", .{});
     return err.Error.RuntimeError;
