@@ -97,6 +97,13 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 }
 
 pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []const u8) !void {
+    // A prior call's compiler stays alive through `run()` so `errorAt` can
+    // still reach it, but nothing keeps it around after that: overwriting
+    // `self.compiler` below without freeing it first leaks its reporter and
+    // script `Compile` struct on every call after the first.
+    if (self.compiler) |*previous| {
+        previous.deinit();
+    }
     self.compiler = try Compiler.init(
         self.allocator,
         self.writer,

@@ -3617,3 +3617,25 @@ test "error: unterminated string" {
         \\"this string has no close quote
     );
 }
+
+// --- vm ---
+
+test "vm: reusing the VM across interpret calls does not leak the compiler" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    // std.testing.allocator fails the test on any leak, so no explicit
+    // assertion is needed: each call below replaces `self.compiler` and would
+    // leak its reporter and script `Compile` struct if the previous one were
+    // not freed first. A compile error is included because it takes a
+    // different early-return path than a successful compile.
+    try t.interpret("print 1;");
+    try t.expectCompileError("1 +;");
+    try t.interpret("print 2;");
+
+    // Assert
+    try t.expectOutput("1\n2\n");
+}
