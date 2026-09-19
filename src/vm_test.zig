@@ -744,6 +744,32 @@ test "var: assign and print" {
     try t.expectOutput("1\n2\n");
 }
 
+test "var: leading underscore names" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\class _Box {
+        \\  _init(v) { this._value = v; return this; }
+        \\}
+        \\
+        \\fun _double(_n) { return _n * 2; }
+        \\
+        \\var _ = 3;
+        \\print _double(_);
+        \\print _Box()._init(7)._value;
+        \\
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("6\n7\n");
+}
+
 test "var: multiple prints" {
     // Arrange
     var t: TestHarness = undefined;

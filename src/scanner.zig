@@ -108,7 +108,7 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
         '*' => self.makeToken(.Star),
         '/' => self.makeToken(.Slash),
         '0'...'9' => self.number(),
-        'A'...'Z', 'a'...'z' => self.identifier(),
+        'A'...'Z', 'a'...'z', '_' => self.identifier(),
         '!' => {
             if (self.match('=')) {
                 return self.makeToken(.BangEqual);
@@ -644,6 +644,42 @@ test "Single letter f identifier" {
 
     // Assert
     try std.testing.expectEqual(.Identifier, token.type);
+}
+
+test "Leading underscore identifier" {
+    // Arrange
+    var lexer = Lexer.init("_name");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Identifier, token.type);
+    try std.testing.expectEqual(5, token.length);
+}
+
+test "Lone underscore identifier" {
+    // Arrange
+    var lexer = Lexer.init("_");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Identifier, token.type);
+    try std.testing.expectEqual(1, token.length);
+}
+
+test "Underscore before a keyword is an identifier" {
+    // Arrange
+    var lexer = Lexer.init("_class");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Identifier, token.type);
+    try std.testing.expectEqual(6, token.length);
 }
 
 test "Tree benchmark lexer test" {
