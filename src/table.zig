@@ -27,6 +27,11 @@ const ProbeMatch = union(enum) {
 /// does), the load limit is derived, and the capacity is the entry slice's own
 /// length rather than a second copy of it.
 pub const Table = struct {
+    /// Occupied slots: live entries and tombstones alike. Deletion leaves the
+    /// slot occupied so that the load limit accounts for tombstones too — a
+    /// table that only counted live entries would stop growing while its
+    /// tombstones ate the last empty slot, and every probe would then run
+    /// forever, since an empty slot is what ends one.
     count: u32 = 0,
     /// Stored narrow to keep the struct at two words plus a pointer; read
     /// through `capacity()`, which widens it. A Lox program cannot reach four
@@ -101,7 +106,6 @@ pub const Table = struct {
     pub inline fn delete(self: *Table, key: *HeapString) bool {
         if (self.count == 0) return false;
         const entry = findSlot(self.entries, self.cap, .{ .pointer = key }, false) orelse return false;
-        self.count -= 1;
         entry.key = null;
         entry.value = LoxValue.boolean(true);
         return true;
@@ -275,7 +279,8 @@ test "table delete leaves tombstone" {
     _ = try table.set(std.testing.allocator, &str, LoxValue.nil);
     try std.testing.expect(table.delete(&str));
     try std.testing.expect(table.get(&str) == null);
-    try std.testing.expectEqual(@as(usize, 0), table.count);
+    // The tombstone still occupies its slot, so it still counts against the load.
+    try std.testing.expectEqual(@as(usize, 1), table.count);
 }
 
 test "table removeWhite deletes unmarked strings" {
@@ -294,7 +299,45 @@ test "table removeWhite deletes unmarked strings" {
 
     try std.testing.expect(table.findString(live_bytes, live.hash) == &live);
     try std.testing.expect(table.findString(dead_bytes, dead.hash) == null);
-    try std.testing.expectEqual(@as(usize, 1), table.count);
+    try std.testing.expectEqual(@as(usize, 2), table.count);
+}
+
+fn countEmptySlots(table: *const Table) usize {
+    var empty: usize = 0;
+    for (table.slice()) |entry| {
+        if (entry.key == null and entry.value.isNil()) empty += 1;
+    }
+    return empty;
+}
+
+test "table keeps an empty slot through delete and reinsert cycles" {
+    // Arrange
+    const allocator = std.testing.allocator;
+    var names: [32][8]u8 = undefined;
+    var keys: [32]val.HeapString = undefined;
+    for (&names, &keys, 0..) |*name, *key, i| {
+        const bytes = try std.fmt.bufPrint(name, "k{d}", .{i});
+        key.* = .{ .gc = .{ .kind = .string }, .hash = hashString(bytes), .data = bytes };
+    }
+
+    var table: Table = .{};
+    defer table.deinit(allocator);
+    for (keys[0..6]) |*key| {
+        _ = try table.set(allocator, key, LoxValue.number(1));
+    }
+    // A collection sweeping every interned string leaves nothing but tombstones.
+    for (keys[0..6]) |*key| {
+        try std.testing.expect(table.delete(key));
+    }
+
+    // Act + Assert: refilling the table must never consume the last empty slot,
+    // which is what ends a probe sequence that finds no match.
+    for (keys[6..]) |*key| {
+        try std.testing.expect(countEmptySlots(&table) > 0);
+        _ = try table.set(allocator, key, LoxValue.number(1));
+    }
+    try std.testing.expect(countEmptySlots(&table) > 0);
+    try std.testing.expect(table.findString("absent", hashString("absent")) == null);
 }
 
 test "table addAll copies entries" {
