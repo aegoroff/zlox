@@ -6,6 +6,7 @@ const Chunk = @import("chunk.zig");
 const val = @import("value.zig");
 const LoxValue = val.LoxValue;
 const e = @import("error.zig");
+const mem = @import("memory.zig");
 const ErrorReporter = @import("fehler").ErrorReporter;
 const Diagnostic = @import("fehler").Diagnostic;
 const Severity = @import("fehler").Severity;
@@ -124,7 +125,10 @@ pub fn init(
     filename: []const u8,
     intern_ctx: *anyopaque,
     intern_string_fn: *const fn (ctx: *anyopaque, bytes: []const u8) anyerror!*val.HeapString,
-) Compiler {
+) !Compiler {
+    const script = try gpa.create(Compile);
+    errdefer gpa.destroy(script);
+    script.* = try Compile.init(gpa, .Script);
     return .{
         .allocator = gpa,
         .writer = writer,
@@ -133,7 +137,7 @@ pub fn init(
         .intern_ctx = intern_ctx,
         .intern_string_fn = intern_string_fn,
         .lexer = undefined,
-        .current = undefined,
+        .current = script,
         .current_class = null,
         .parser = .{
             .current = undefined,
@@ -146,13 +150,6 @@ pub fn init(
 
 fn internCompileString(self: *Compiler, bytes: []const u8) !*val.HeapString {
     return self.intern_string_fn(self.intern_ctx, bytes);
-}
-
-fn initCurrent(self: *Compiler, function_type: FunctionType) !void {
-    const compile_inst = try Compile.init(self.allocator, function_type);
-    const compile_ptr = try self.allocator.create(Compile);
-    compile_ptr.* = compile_inst;
-    self.current = compile_ptr;
 }
 
 pub fn deinit(self: *Compiler) void {
@@ -168,8 +165,34 @@ pub fn deinit(self: *Compiler) void {
     self.allocator.destroy(current);
 }
 
+/// Marks everything reachable from the functions still being compiled. Those
+/// functions are owned by the compiler and absent from the heap object list, so
+/// the collector cannot reach the constants they already hold - without this the
+/// interned strings baked into a half-built chunk look unreachable and are swept.
+pub fn markRoots(self: *Compiler, heap: *mem.Heap) !void {
+    var scope: ?*Compile = self.current;
+    while (scope) |current| {
+        if (current.function) |func| {
+            try markOwnedConstants(heap, func);
+        }
+        scope = current.enclosing;
+    }
+}
+
+/// Marks a function's constants but not the function itself: a compiler owned
+/// function is never swept, so setting its mark bit would leave it permanently
+/// black and make later collections skip blackening its constants.
+fn markOwnedConstants(heap: *mem.Heap, func: *val.Function) !void {
+    for (func.chunk.constants.items) |constant| {
+        if (constant.isFunction()) {
+            try markOwnedConstants(heap, constant.asFunction());
+        } else {
+            try heap.markValue(constant);
+        }
+    }
+}
+
 pub fn compile(self: *Compiler, source: []const u8) !*val.Function {
-    try self.initCurrent(.Script);
     self.lexer = scan.Lexer.init(source);
     try self.advance();
     while (!self.check(.Eof)) {

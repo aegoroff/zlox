@@ -89,7 +89,7 @@ pub fn interpret(self: *VM, source: []const u8, print_code: bool) !void {
 }
 
 pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []const u8) !void {
-    self.compiler = Compiler.init(
+    self.compiler = try Compiler.init(
         self.allocator,
         self.writer,
         print_code,
@@ -141,8 +141,13 @@ fn setTrackedTable(self: *VM, table: *Table, key: *val.HeapString, value: LoxVal
     return is_new;
 }
 
+/// Hands the compiled function tree over to the heap. Registration goes
+/// straight to the heap instead of `trackObject`: the tree is not reachable
+/// from any root until the script closure sits on the stack, so a collection
+/// started here would sweep the functions it has just tracked. The closure
+/// registration right after this walk is the next collection point.
 fn trackConstantsRecursively(self: *VM, func: *val.Function) !void {
-    try self.trackObject(.{ .function = func }, func.size());
+    try self.heap.trackObject(.{ .function = func }, func.size());
     for (func.chunk.constants.items) |c| {
         if (c.isFunction()) {
             try self.trackConstantsRecursively(c.asFunction());
@@ -848,6 +853,10 @@ fn markRoots(self: *VM) !void {
     }
 
     try self.heap.markObject(.{ .string = self.init_string });
+
+    if (self.compiler) |*compiler| {
+        try compiler.markRoots(&self.heap);
+    }
 }
 
 pub fn collectGarbage(self: *VM) !void {

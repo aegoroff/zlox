@@ -2450,6 +2450,31 @@ test "gc: bound methods collected" {
     try t.expectOutput("1\n");
 }
 
+test "gc: collection during compilation keeps constants" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    // Collect on every tracked allocation, including the ones the compiler
+    // makes while interning identifiers and string literals.
+    t.machine.heap.next_gc = 0;
+
+    const code =
+        \\fun greeting(receiver) { return "hello " + receiver; }
+        \\class Greeter {
+        \\  init(prefix) { this.prefix = prefix; }
+        \\  speak(receiver) { return this.prefix + greeting(receiver); }
+        \\}
+        \\print Greeter("[greeter] ").speak("world!");
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("[greeter] hello world!\n");
+}
+
 test "gc: deep instance chain survives" {
     // Arrange
     var t: TestHarness = undefined;
