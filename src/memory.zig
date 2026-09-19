@@ -67,7 +67,7 @@ pub const HeapObj = union(enum) {
                 allocator.destroy(s);
             },
             .class => |cl| {
-                cl.deinit();
+                cl.deinit(allocator);
                 allocator.destroy(cl);
             },
             .upvalue => |u| {
@@ -82,7 +82,7 @@ pub const HeapObj = union(enum) {
                 allocator.destroy(f);
             },
             .instance => |i| {
-                i.deinit();
+                i.deinit(allocator);
                 allocator.destroy(i);
             },
             .bound_method => |b| {

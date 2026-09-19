@@ -53,10 +53,10 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .stack = stack,
         .frames = frames,
         .frame_count = 0,
-        .globals = Table.init(gpa),
+        .globals = .{},
         .stack_top = stack.ptr,
         .heap = try mem.Heap.init(gpa),
-        .strings = Table.init(gpa),
+        .strings = .{},
         .open_upvalues = null,
         .compiler = null,
         .init_string = undefined,
@@ -64,8 +64,8 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     errdefer {
         gpa.free(stack);
         gpa.free(frames);
-        vm.strings.deinit();
-        vm.globals.deinit();
+        vm.strings.deinit(gpa);
+        vm.globals.deinit(gpa);
         vm.heap.deinit();
     }
     vm.init_string = try vm.internString("init");
@@ -80,8 +80,8 @@ pub fn deinit(self: *VM) void {
     if (self.compiler) |_| {
         self.compiler.?.deinit();
     }
-    self.globals.deinit();
-    self.strings.deinit();
+    self.globals.deinit(self.allocator);
+    self.strings.deinit(self.allocator);
     self.heap.deinit();
     self.allocator.free(self.stack);
     self.allocator.free(self.frames);
@@ -138,9 +138,9 @@ fn adjustMapAllocation(self: *VM, old_capacity: usize, new_capacity: usize) !voi
 }
 
 fn setTrackedTable(self: *VM, table: *Table, key: *val.HeapString, value: LoxValue) !bool {
-    const old_capacity = table.capacity;
-    const is_new = try table.set(key, value);
-    try self.adjustMapAllocation(old_capacity, table.capacity);
+    const old_capacity = table.capacity();
+    const is_new = try table.set(self.allocator, key, value);
+    try self.adjustMapAllocation(old_capacity, table.capacity());
     return is_new;
 }
 
@@ -292,7 +292,7 @@ inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usiz
     if (value.isClass()) {
         const k = value.asClass();
         const instance_ptr = try self.heap.allocInstance();
-        instance_ptr.* = val.Instance.init(self.allocator, k);
+        instance_ptr.* = val.Instance.init(k);
         self.peekSlot(arg_count).* = LoxValue.instance(instance_ptr);
         try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
         if (instance_ptr.klass.methods.get(self.init_string)) |in| {
@@ -371,9 +371,9 @@ fn closeUpvalues(self: *VM, last: *LoxValue) void {
 fn defineMethod(self: *VM, name: *val.HeapString) !void {
     const method = self.pop();
     const klass = try (self.peek(0)).tryClass();
-    const old_capacity = klass.methods.capacity;
-    _ = try klass.methods.set(name, method);
-    try self.adjustMapAllocation(old_capacity, klass.methods.capacity);
+    const old_capacity = klass.methods.capacity();
+    _ = try klass.methods.set(self.allocator, name, method);
+    try self.adjustMapAllocation(old_capacity, klass.methods.capacity());
 }
 
 inline fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool {
@@ -477,7 +477,7 @@ fn opClass(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size
     const name = try cursor.stringConstantAt(ip, constant_size);
 
     const class_ptr = try self.heap.allocClass();
-    class_ptr.* = val.Class.init(self.allocator, name);
+    class_ptr.* = val.Class.init(name);
     try self.push(LoxValue.class(class_ptr));
     try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
 }
@@ -543,9 +543,9 @@ inline fn opSetProperty(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, 
     }
     const instance = receiver.asInstance();
 
-    const old_capacity = instance.fields.capacity;
-    _ = try instance.fields.set(prop_name, prop_value);
-    try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
+    const old_capacity = instance.fields.capacity();
+    _ = try instance.fields.set(self.allocator, prop_name, prop_value);
+    try self.adjustMapAllocation(old_capacity, instance.fields.capacity());
     try self.push(prop_value);
 }
 
@@ -862,9 +862,9 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(ip, "Superclass must be a class.", .{});
                     return err.Error.RuntimeError;
                 };
-                const old_capacity = sub_class.methods.capacity;
-                try sub_class.methods.addAll(&super_class.methods);
-                try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
+                const old_capacity = sub_class.methods.capacity();
+                try sub_class.methods.addAll(self.allocator, &super_class.methods);
+                try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity());
                 stack.reload(self);
                 _ = stack.pop();
             },
@@ -1065,7 +1065,7 @@ test "tracked table growth updates gc heap bytes" {
         _ = try virtual_machine.setTrackedTable(&virtual_machine.globals, key, LoxValue.number(1));
     }
 
-    try std.testing.expect(virtual_machine.globals.capacity > 0);
+    try std.testing.expect(virtual_machine.globals.capacity() > 0);
     try std.testing.expect(virtual_machine.heap.bytes_allocated > before);
 }
 

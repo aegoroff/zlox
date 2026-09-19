@@ -444,20 +444,20 @@ pub const Class = struct {
     name: *HeapString,
     methods: Table,
 
-    pub fn init(gpa: std.mem.Allocator, name: *HeapString) Class {
+    pub fn init(name: *HeapString) Class {
         return .{
             .gc = .{ .kind = .class },
             .name = name,
-            .methods = Table.init(gpa),
+            .methods = .{},
         };
     }
 
-    pub fn deinit(self: *Class) void {
-        self.methods.deinit();
+    pub fn deinit(self: *Class, gpa: std.mem.Allocator) void {
+        self.methods.deinit(gpa);
     }
 
     pub fn size(self: *const Class) usize {
-        return @sizeOf(Class) + self.methods.capacity * @sizeOf(TableEntry);
+        return @sizeOf(Class) + self.methods.capacity() * @sizeOf(TableEntry);
     }
 };
 
@@ -466,20 +466,20 @@ pub const Instance = struct {
     klass: *Class,
     fields: Table,
 
-    pub fn init(gpa: std.mem.Allocator, klass: *Class) Instance {
+    pub fn init(klass: *Class) Instance {
         return .{
             .gc = .{ .kind = .instance },
             .klass = klass,
-            .fields = Table.init(gpa),
+            .fields = .{},
         };
     }
 
-    pub fn deinit(self: *Instance) void {
-        self.fields.deinit();
+    pub fn deinit(self: *Instance, gpa: std.mem.Allocator) void {
+        self.fields.deinit(gpa);
     }
 
     pub fn size(self: *const Instance) usize {
-        return @sizeOf(Instance) + self.fields.capacity * @sizeOf(TableEntry);
+        return @sizeOf(Instance) + self.fields.capacity() * @sizeOf(TableEntry);
     }
 };
 
