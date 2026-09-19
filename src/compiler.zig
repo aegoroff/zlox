@@ -303,16 +303,31 @@ fn check(self: *Compiler, token: scan.TokenType) bool {
     return self.parser.current.type == token;
 }
 
+/// Span of the token the current instruction is attributed to, used by both the
+/// disassembler and the runtime error reporter.
+fn previousPosition(self: *Compiler) Chunk.Position {
+    return tokenPosition(&self.parser.previous);
+}
+
+fn tokenPosition(token: *const scan.Token) Chunk.Position {
+    const span = if (token.col_end >= token.col_start) token.col_end - token.col_start + 1 else 1;
+    return .{
+        .line = std.math.cast(u32, token.line) orelse std.math.maxInt(u32),
+        .col = std.math.cast(u16, token.col_start) orelse std.math.maxInt(u16),
+        .len = std.math.cast(u16, span) orelse std.math.maxInt(u16),
+    };
+}
+
 fn emitOpcode(self: *Compiler, opcode: Chunk.OpCode) !void {
-    try self.currentChunk().writeCode(opcode, self.parser.previous.line);
+    try self.currentChunk().writeCode(opcode, self.previousPosition());
 }
 
 fn emitOperand(self: *Compiler, value: usize) !void {
-    try self.currentChunk().writeOperand(value, self.parser.previous.line);
+    try self.currentChunk().writeOperand(value, self.previousPosition());
 }
 
 fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, ix: usize) !void {
-    try self.currentChunk().writeIndexedOpcode(short_op, ix, self.parser.previous.line);
+    try self.currentChunk().writeIndexedOpcode(short_op, ix, self.previousPosition());
 }
 
 fn emitLoop(self: *Compiler, loopStart: usize) !void {
@@ -357,7 +372,7 @@ fn emitReturn(self: *Compiler) !void {
 
 fn emitConstant(self: *Compiler, value: val.LoxValue) !void {
     const ix = try self.currentChunk().addConstant(value);
-    try self.currentChunk().writeConstant(ix, self.parser.previous.line);
+    try self.currentChunk().writeConstant(ix, self.previousPosition());
 }
 
 fn makeConstant(self: *Compiler, value: val.LoxValue) !usize {
@@ -486,9 +501,9 @@ fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !v
 
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        try self.currentChunk().writeIndexedOpcode(setOp, arg.?, self.parser.previous.line);
+        try self.currentChunk().writeIndexedOpcode(setOp, arg.?, self.previousPosition());
     } else {
-        try self.currentChunk().writeIndexedOpcode(getOp, arg.?, self.parser.previous.line);
+        try self.currentChunk().writeIndexedOpcode(getOp, arg.?, self.previousPosition());
     }
 }
 
@@ -667,7 +682,7 @@ fn defineVariable(self: *Compiler, global: usize) anyerror!void {
         self.markInitialized();
         return;
     }
-    try self.currentChunk().writeIndexedOpcode(.DefineGlobal, global, self.parser.previous.line);
+    try self.currentChunk().writeIndexedOpcode(.DefineGlobal, global, self.previousPosition());
 }
 
 fn argumentList(self: *Compiler) anyerror!usize {

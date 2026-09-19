@@ -407,7 +407,7 @@ pub const Function = struct {
         return @sizeOf(Function) +
             self.chunk.code.items.len +
             self.chunk.constants.items.len * @sizeOf(LoxValue) +
-            self.chunk.lines.items.len * @sizeOf(usize);
+            self.chunk.positions.items.len * @sizeOf(Chunk.Position);
     }
 };
 

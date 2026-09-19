@@ -59,6 +59,15 @@ pub const OpCode = enum(u8) {
     SuperInvokeLong = 50,
 };
 
+/// Source span of the token an instruction byte came from. Sized to match the
+/// bare line number it replaced, so the per byte cost of debug info is
+/// unchanged.
+pub const Position = struct {
+    line: u32,
+    col: u16,
+    len: u16,
+};
+
 pub const MAX_SHORT_VALUE: usize = 255;
 pub const OPERAND_SHORT: usize = 1;
 pub const OPERAND_LONG: usize = 3;
@@ -71,14 +80,14 @@ const OperandWidth = enum {
 allocator: std.mem.Allocator,
 code: std.ArrayList(u8),
 constants: std.ArrayList(LoxValue),
-lines: std.ArrayList(usize),
+positions: std.ArrayList(Position),
 
 pub fn init(gpa: std.mem.Allocator) Chunk {
     return .{
         .allocator = gpa,
         .code = .empty,
         .constants = .empty,
-        .lines = .empty,
+        .positions = .empty,
     };
 }
 
@@ -86,7 +95,7 @@ pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
     // Function constants are now in heap and managed by GC, don't free them here
     self.constants.deinit(self.allocator);
-    self.lines.deinit(self.allocator);
+    self.positions.deinit(self.allocator);
 }
 
 inline fn operandSize(width: OperandWidth) usize {
@@ -100,14 +109,14 @@ pub fn codeSize(self: *Chunk) usize {
     return self.code.items.len;
 }
 
-pub fn writeCode(self: *Chunk, code: OpCode, line: usize) !void {
-    try self.writeOperand(@intFromEnum(code), line);
+pub fn writeCode(self: *Chunk, code: OpCode, position: Position) !void {
+    try self.writeOperand(@intFromEnum(code), position);
 }
 
-pub fn writeIndexedOpcode(self: *Chunk, short: OpCode, ix: usize, line: usize) !void {
+pub fn writeIndexedOpcode(self: *Chunk, short: OpCode, ix: usize, position: Position) !void {
     const real_code = if (ix > MAX_SHORT_VALUE) longOpcode(short) else short;
-    try self.writeCode(real_code, line);
-    try self.writeOperand(ix, line);
+    try self.writeCode(real_code, position);
+    try self.writeOperand(ix, position);
 }
 
 inline fn longOpcode(short: OpCode) OpCode {
@@ -130,8 +139,8 @@ inline fn longOpcode(short: OpCode) OpCode {
     };
 }
 
-pub fn writeConstant(self: *Chunk, ix: usize, line: usize) !void {
-    try self.writeIndexedOpcode(.Constant, ix, line);
+pub fn writeConstant(self: *Chunk, ix: usize, position: Position) !void {
+    try self.writeIndexedOpcode(.Constant, ix, position);
 }
 
 pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
@@ -146,15 +155,15 @@ pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
     return self.constants.items.len - 1;
 }
 
-pub fn writeOperand(self: *Chunk, val: usize, line: usize) !void {
+pub fn writeOperand(self: *Chunk, val: usize, position: Position) !void {
     if (val > MAX_SHORT_VALUE) {
         for (intoThreeBytes(val)) |b| {
             try self.write(b);
-            try self.lines.append(self.allocator, line);
+            try self.positions.append(self.allocator, position);
         }
     } else {
         try self.write(@truncate(val));
-        try self.lines.append(self.allocator, line);
+        try self.positions.append(self.allocator, position);
     }
 }
 
@@ -230,10 +239,10 @@ inline fn getConstantIx(self: *const Chunk, offset: usize, constant_size: usize)
 pub fn disassemblyInstruction(self: *Chunk, writer: *std.Io.Writer, offset: usize) !usize {
     try writer.print("{d:0>4} ", .{offset});
 
-    if (offset > 0 and self.lines.items[offset] == self.lines.items[offset - 1]) {
+    if (offset > 0 and self.positions.items[offset].line == self.positions.items[offset - 1].line) {
         try writer.print("   | ", .{});
     } else {
-        try writer.print("{d:4} ", .{self.lines.items[offset]});
+        try writer.print("{d:4} ", .{self.positions.items[offset].line});
     }
 
     const opcode = self.readOpcode(offset);
@@ -395,4 +404,32 @@ fn intoThreeBytes(val: usize) [3]u8 {
     const op2: u8 = @truncate((val & 0xFF00) >> 8);
     const op3: u8 = @truncate((val & 0x00FF_0000) >> 16);
     return [3]u8{ op1, op2, op3 };
+}
+
+test "position takes the space of the line number it replaced" {
+    // Arrange
+    const line_number_size = @sizeOf(usize);
+
+    // Act
+    const position_size = @sizeOf(Position);
+
+    // Assert
+    try std.testing.expectEqual(line_number_size, position_size);
+}
+
+test "every byte of an instruction carries the same position" {
+    // Arrange
+    var chunk = Chunk.init(std.testing.allocator);
+    defer chunk.deinit();
+    const position = Position{ .line = 7, .col = 3, .len = 5 };
+
+    // Act
+    try chunk.writeIndexedOpcode(.GetGlobal, 300, position);
+
+    // Assert
+    try std.testing.expectEqual(@as(usize, 4), chunk.codeSize());
+    try std.testing.expectEqual(@as(usize, 4), chunk.positions.items.len);
+    for (chunk.positions.items) |item| {
+        try std.testing.expectEqual(position, item);
+    }
 }

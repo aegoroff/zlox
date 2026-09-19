@@ -400,11 +400,17 @@ inline fn chunk(self: *VM) *Chunk {
 
 fn errorAt(self: *VM, ip: [*]const u8, comptime fmt: []const u8, args: anytype) !void {
     const chunk_ptr = self.chunk();
-    const offset = chunk_ptr.offsetOf(ip);
-    const line = chunk_ptr.lines.items[offset];
+    const reached = chunk_ptr.offsetOf(ip);
+    // The dispatch loop steps past the opcode before the handler runs, so `ip`
+    // can already sit on the next instruction. Every byte of an instruction
+    // carries the same position, so stepping back one byte lands inside the
+    // instruction that actually failed.
+    const offset = if (reached > 0) reached - 1 else 0;
+    const position = chunk_ptr.positions.items[offset];
     const message = try std.fmt.allocPrint(self.allocator, fmt, args);
     defer self.allocator.free(message);
-    try self.compiler.?.reportErrorAt(line, 1, line, 1, message);
+    const col_end = position.col + @max(position.len, 1) - 1;
+    try self.compiler.?.reportErrorAt(position.line, position.col, position.line, col_end, message);
 }
 
 fn println(self: *VM) !void {
