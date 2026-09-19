@@ -34,6 +34,9 @@ pub const CallFrame = struct {
     closure: *val.Closure,
     slots: [*]LoxValue,
     ip: [*]const u8,
+    /// Constant pool of `closure.function`, resolved once per call so operand
+    /// decoding does not walk `closure -> function -> chunk` every time.
+    constants: [*]const LoxValue,
 };
 
 pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
@@ -41,7 +44,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
     @memset(stack, LoxValue.nil);
 
     const frames = try gpa.alloc(CallFrame, FRAMES_MAX);
-    @memset(frames, CallFrame{ .closure = undefined, .slots = undefined, .ip = undefined });
+    @memset(frames, CallFrame{ .closure = undefined, .slots = undefined, .ip = undefined, .constants = undefined });
 
     var vm = VM{
         .allocator = gpa,
@@ -229,13 +232,6 @@ inline fn replaceTos(self: *VM, value: LoxValue) void {
     (self.stack_top - 1)[0] = value;
 }
 
-/// Binary-op result: discard the top operand, write `value` into the new TOS.
-/// Same effect as `pop(); pop(); push(value)`, but skips the overflow check on push.
-inline fn popAndReplace(self: *VM, value: LoxValue) void {
-    self.stack_top -= 1;
-    (self.stack_top - 1)[0] = value;
-}
-
 inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usize) anyerror!bool {
     if (closure.function.arity != arg_count) {
         try self.errorAt(ip, "Expected {d} arguments but got {d}.", .{
@@ -248,18 +244,22 @@ inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usi
         try self.errorAt(ip, "Stack overflow.", .{});
         return err.Error.RuntimeError;
     }
-    self.pushFrame(closure, arg_count);
+    _ = self.pushFrame(closure, arg_count);
     return true;
 }
 
 /// Hot path for calling a closure when arity/frames are already known to be OK.
-inline fn pushFrame(self: *VM, closure: *val.Closure, arg_count: usize) void {
-    self.frames[self.frame_count] = CallFrame{
+inline fn pushFrame(self: *VM, closure: *val.Closure, arg_count: usize) *CallFrame {
+    const chunk_ptr = &closure.function.chunk;
+    const pushed = &self.frames[self.frame_count];
+    pushed.* = CallFrame{
         .closure = closure,
         .slots = self.stack_top - arg_count - 1,
-        .ip = closure.function.chunk.code.items.ptr,
+        .ip = chunk_ptr.code.items.ptr,
+        .constants = chunk_ptr.constants.items.ptr,
     };
     self.frame_count += 1;
+    return pushed;
 }
 
 inline fn invokeFromClass(self: *VM, ip: [*]const u8, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
@@ -419,23 +419,42 @@ fn println(self: *VM) !void {
 
 const FrameCursor = struct {
     frame: *CallFrame,
+    /// Constant pool of the running function, hoisted out of the
+    /// `closure -> function -> chunk` chain so operand decoding costs one load.
+    constants: [*]const LoxValue,
 
     inline fn fromVm(vm: *VM) FrameCursor {
-        return .{ .frame = &vm.frames[vm.frame_count - 1] };
+        return enter(&vm.frames[vm.frame_count - 1]);
+    }
+
+    inline fn enter(current: *CallFrame) FrameCursor {
+        return .{ .frame = current, .constants = current.constants };
     }
 
     inline fn reload(self: *FrameCursor, vm: *VM) void {
-        self.frame = &vm.frames[vm.frame_count - 1];
+        self.* = fromVm(vm);
     }
 
-    inline fn chunk(self: *const FrameCursor) *Chunk {
-        return &self.frame.closure.function.chunk;
+    /// Frames live in one flat array, so the caller is the slot below.
+    inline fn returnToCaller(self: *FrameCursor) void {
+        const frames: [*]CallFrame = @ptrCast(self.frame);
+        self.* = enter(@ptrCast(frames - 1));
+    }
+
+    inline fn constantAt(self: *const FrameCursor, ip: [*]const u8, constant_size: usize) LoxValue {
+        return self.constants[Chunk.getConstantIxAt(ip, constant_size)];
+    }
+
+    inline fn stringConstantAt(self: *const FrameCursor, ip: [*]const u8, constant_size: usize) err.Error!*val.HeapString {
+        const value = self.constantAt(ip, constant_size);
+        if (!value.isHeapString()) return err.Error.RuntimeError;
+        return value.asString();
     }
 };
 
-fn opClosure(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
-    const function = cursor.chunk().readConstantAt(cursor.frame.ip, constant_size).asFunction();
-    cursor.frame.ip += constant_size;
+fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: usize) ![*]const u8 {
+    const function = cursor.constantAt(ip, constant_size).asFunction();
+    var next = ip + constant_size;
 
     const closure_ptr = try self.heap.allocClosure();
     closure_ptr.* = try val.Closure.init(self.allocator, function);
@@ -443,85 +462,83 @@ fn opClosure(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
 
     for (0..function.upvalue_count) |i| {
-        const is_local = Chunk.readByteAt(cursor.frame.ip);
-        const index = Chunk.readByteAt(cursor.frame.ip + 1);
-        cursor.frame.ip += 2;
+        const is_local = Chunk.readByteAt(next);
+        const index = Chunk.readByteAt(next + 1);
+        next += 2;
         closure_ptr.upvalues[i] = if (is_local == 1)
             try self.captureUpvalue(@ptrCast(cursor.frame.slots + index))
         else
             cursor.frame.closure.upvalues[index];
     }
+    return next;
 }
 
-fn opClass(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
-    const name = try self.readStringConstant(current_frame.ip, constant_size);
+fn opClass(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
 
     const class_ptr = try self.heap.allocClass();
     class_ptr.* = val.Class.init(self.allocator, name);
     try self.push(LoxValue.class(class_ptr));
     try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
-
-    current_frame.ip += constant_size;
 }
 
-inline fn opGetSuper(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
-    const name = try self.readStringConstant(current_frame.ip, constant_size);
+inline fn opGetSuper(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
     const super_class = try (self.pop()).tryClass();
     if (!try self.bindMethod(super_class, name)) {
-        try self.errorAt(current_frame.ip, "Undefined method or property '{s}'", .{name.data});
+        try self.errorAt(ip, "Undefined method or property '{s}'", .{name.data});
         return err.Error.RuntimeError;
     }
-
-    current_frame.ip += constant_size;
 }
 
-inline fn opGetProperty(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
-    const name = try self.readStringConstant(current_frame.ip, constant_size);
+inline fn opGetProperty(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
     const receiver = self.peek(0);
     if (!receiver.isInstance()) {
-        try self.errorAt(current_frame.ip, "Only instances have properties.", .{});
+        try self.errorAt(ip, "Only instances have properties.", .{});
         return err.Error.RuntimeError;
     }
     const instance = receiver.asInstance();
     if (instance.fields.get(name)) |field| {
         self.replaceTos(field);
     } else if (!try self.bindMethod(instance.klass, name)) {
-        try self.errorAt(current_frame.ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
+        try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
         return err.Error.RuntimeError;
     }
-    current_frame.ip += constant_size;
 }
 
-inline fn opInvoke(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
-    const name = try self.readStringConstant(cursor.frame.ip, constant_size);
-    const arg_count = Chunk.readByteAt(cursor.frame.ip + constant_size);
-    cursor.frame.ip += constant_size + 1;
-    if (!try self.invoke(cursor.frame.ip, name, arg_count)) {
-        try self.errorAt(cursor.frame.ip, "Invoke '{s}'' failed", .{name.data});
+inline fn opInvoke(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
+    const arg_count = Chunk.readByteAt(ip + constant_size);
+    const next = ip + constant_size + 1;
+    cursor.frame.ip = next;
+    if (!try self.invoke(next, name, arg_count)) {
+        try self.errorAt(next, "Invoke '{s}'' failed", .{name.data});
         return err.Error.RuntimeError;
     }
     cursor.reload(self);
 }
 
-inline fn opSuperInvoke(self: *VM, cursor: *FrameCursor, constant_size: usize) !void {
-    const name = try self.readStringConstant(cursor.frame.ip, constant_size);
-    const arg_count = Chunk.readByteAt(cursor.frame.ip + constant_size);
-    cursor.frame.ip += constant_size + 1;
+inline fn opSuperInvoke(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
+    const arg_count = Chunk.readByteAt(ip + constant_size);
+    const next = ip + constant_size + 1;
+    cursor.frame.ip = next;
     const super_class = try (self.pop()).tryClass();
 
-    if (!try self.invokeFromClass(cursor.frame.ip, super_class, name, arg_count)) {
-        try self.errorAt(cursor.frame.ip, "Super invoke '{s}' failed", .{name.data});
+    if (!try self.invokeFromClass(next, super_class, name, arg_count)) {
+        try self.errorAt(next, "Super invoke '{s}' failed", .{name.data});
         return err.Error.RuntimeError;
     }
     cursor.reload(self);
 }
 
-inline fn opSetProperty(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
-    const prop_name = try self.readStringConstant(current_frame.ip, constant_size);
+inline fn opSetProperty(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const prop_name = try cursor.stringConstantAt(ip, constant_size);
     const prop_value = self.pop();
     const receiver = self.pop();
     if (!receiver.isInstance()) {
-        try self.errorAt(current_frame.ip, "Only instances have fields.", .{});
+        try self.errorAt(ip, "Only instances have fields.", .{});
         return err.Error.RuntimeError;
     }
     const instance = receiver.asInstance();
@@ -530,262 +547,401 @@ inline fn opSetProperty(self: *VM, current_frame: *CallFrame, constant_size: usi
     _ = try instance.fields.set(prop_name, prop_value);
     try self.adjustMapAllocation(old_capacity, instance.fields.capacity);
     try self.push(prop_value);
-    current_frame.ip += constant_size;
 }
 
-inline fn opMethod(self: *VM, current_frame: *CallFrame, constant_size: usize) !void {
-    const name = try self.readStringConstant(current_frame.ip, constant_size);
+inline fn opMethod(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
     try self.defineMethod(name);
-    current_frame.ip += constant_size;
 }
+
+/// Value-stack top cached in a local so the dispatch loop keeps it in a
+/// register instead of reloading `VM.stack_top` around every stack store. It is
+/// handed back to the VM with `sync` before anything that touches the stack
+/// itself or can trigger a collection, and picked up again with `reload`.
+const StackCursor = struct {
+    top: [*]LoxValue,
+    limit: [*]LoxValue,
+
+    inline fn fromVm(vm: *const VM) StackCursor {
+        return .{ .top = vm.stack_top, .limit = vm.stack.ptr + STACK_MAX };
+    }
+
+    inline fn sync(self: StackCursor, vm: *VM) void {
+        vm.stack_top = self.top;
+    }
+
+    inline fn reload(self: *StackCursor, vm: *const VM) void {
+        self.top = vm.stack_top;
+    }
+
+    inline fn base(self: StackCursor) [*]LoxValue {
+        return self.limit - STACK_MAX;
+    }
+
+    inline fn push(self: *StackCursor, vm: *VM, value: LoxValue) !void {
+        if (@intFromPtr(self.top) >= @intFromPtr(self.limit)) {
+            @branchHint(.unlikely);
+            self.sync(vm);
+            return vm.stackOverflowError();
+        }
+        self.pushUnchecked(value);
+    }
+
+    /// For pushes that cannot grow the stack past a height it already had.
+    inline fn pushUnchecked(self: *StackCursor, value: LoxValue) void {
+        self.top[0] = value;
+        self.top += 1;
+    }
+
+    inline fn pop(self: *StackCursor) LoxValue {
+        self.top -= 1;
+        return self.top[0];
+    }
+
+    inline fn peek(self: StackCursor, distance: usize) LoxValue {
+        return (self.top - 1 - distance)[0];
+    }
+
+    /// Overwrite TOS without changing stack height (unary ops like `Negate`).
+    inline fn replaceTos(self: StackCursor, value: LoxValue) void {
+        (self.top - 1)[0] = value;
+    }
+
+    /// Binary-op result: discard the top operand, write `value` into the new TOS.
+    inline fn popAndReplace(self: *StackCursor, value: LoxValue) void {
+        self.top -= 1;
+        (self.top - 1)[0] = value;
+    }
+};
 
 pub fn run(self: *VM) !void {
     @setEvalBranchQuota(10_000);
     var cursor = FrameCursor.fromVm(self);
+    // The instruction pointer and the stack top live in locals so the dispatch
+    // loop keeps them in registers; they are written back to the VM only when
+    // control leaves the loop (calls, invokes, allocations, errors).
+    var ip = cursor.frame.ip;
+    var stack = StackCursor.fromVm(self);
 
     while (true) {
-        const opcode = Chunk.readOpcodeAt(cursor.frame.ip);
-        cursor.frame.ip += 1;
+        const opcode = Chunk.readOpcodeAt(ip);
+        ip += 1;
         switch (opcode) {
             .JumpIfFalse => {
-                const offset = Chunk.readShortAt(cursor.frame.ip);
-                cursor.frame.ip += 2;
-                if (self.peek(0).isFalsee()) {
-                    cursor.frame.ip += offset;
+                const offset = Chunk.readShortAt(ip);
+                ip += 2;
+                if (stack.peek(0).isFalsee()) {
+                    ip += offset;
                 }
             },
             .Jump => {
-                const offset = Chunk.readShortAt(cursor.frame.ip);
-                cursor.frame.ip += 2;
-                cursor.frame.ip += offset;
+                const offset = Chunk.readShortAt(ip);
+                ip += 2 + offset;
             },
             .Loop => {
-                const offset = Chunk.readShortAt(cursor.frame.ip);
-                cursor.frame.ip += 2;
-                cursor.frame.ip -= offset;
+                const offset = Chunk.readShortAt(ip);
+                ip += 2;
+                ip -= offset;
             },
             .Constant => {
-                try self.push(cursor.chunk().readConstantAt(cursor.frame.ip, Chunk.OPERAND_SHORT));
-                cursor.frame.ip += Chunk.OPERAND_SHORT;
+                try stack.push(self, cursor.constantAt(ip, Chunk.OPERAND_SHORT));
+                ip += Chunk.OPERAND_SHORT;
             },
             .ConstantLong => {
-                try self.push(cursor.chunk().readConstantAt(cursor.frame.ip, Chunk.OPERAND_LONG));
-                cursor.frame.ip += Chunk.OPERAND_LONG;
+                try stack.push(self, cursor.constantAt(ip, Chunk.OPERAND_LONG));
+                ip += Chunk.OPERAND_LONG;
             },
             .DefineGlobal => {
-                try self.defineGlobal(cursor.frame.ip, Chunk.OPERAND_SHORT);
-                cursor.frame.ip += Chunk.OPERAND_SHORT;
+                stack.sync(self);
+                try self.defineGlobal(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip += Chunk.OPERAND_SHORT;
             },
             .DefineGlobalLong => {
-                try self.defineGlobal(cursor.frame.ip, Chunk.OPERAND_LONG);
-                cursor.frame.ip += Chunk.OPERAND_LONG;
+                stack.sync(self);
+                try self.defineGlobal(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip += Chunk.OPERAND_LONG;
             },
             .GetGlobal => {
-                try self.getGlobal(cursor.frame.ip, Chunk.OPERAND_SHORT);
-                cursor.frame.ip += Chunk.OPERAND_SHORT;
+                try self.getGlobal(&stack, &cursor, ip, Chunk.OPERAND_SHORT);
+                ip += Chunk.OPERAND_SHORT;
             },
             .GetGlobalLong => {
-                try self.getGlobal(cursor.frame.ip, Chunk.OPERAND_LONG);
-                cursor.frame.ip += Chunk.OPERAND_LONG;
+                try self.getGlobal(&stack, &cursor, ip, Chunk.OPERAND_LONG);
+                ip += Chunk.OPERAND_LONG;
             },
             .SetGlobal => {
-                try self.setGlobal(cursor.frame.ip, Chunk.OPERAND_SHORT);
-                cursor.frame.ip += Chunk.OPERAND_SHORT;
+                try self.setGlobal(&stack, &cursor, ip, Chunk.OPERAND_SHORT);
+                ip += Chunk.OPERAND_SHORT;
             },
             .SetGlobalLong => {
-                try self.setGlobal(cursor.frame.ip, Chunk.OPERAND_LONG);
-                cursor.frame.ip += Chunk.OPERAND_LONG;
+                try self.setGlobal(&stack, &cursor, ip, Chunk.OPERAND_LONG);
+                ip += Chunk.OPERAND_LONG;
             },
             .GetLocal => {
-                const slot = Chunk.readByteAt(cursor.frame.ip);
-                cursor.frame.ip += Chunk.OPERAND_SHORT;
-                try self.push(cursor.frame.slots[slot]);
+                const slot = Chunk.readByteAt(ip);
+                ip += Chunk.OPERAND_SHORT;
+                try stack.push(self, cursor.frame.slots[slot]);
             },
             .GetLocalLong => {
-                const slot = Chunk.readThreeBytesAt(cursor.frame.ip);
-                cursor.frame.ip += Chunk.OPERAND_LONG;
-                try self.push(cursor.frame.slots[slot]);
+                const slot = Chunk.readThreeBytesAt(ip);
+                ip += Chunk.OPERAND_LONG;
+                try stack.push(self, cursor.frame.slots[slot]);
             },
             .SetLocal => {
-                const slot = Chunk.readByteAt(cursor.frame.ip);
-                cursor.frame.ip += Chunk.OPERAND_SHORT;
-                cursor.frame.slots[slot] = self.peek(0);
+                const slot = Chunk.readByteAt(ip);
+                ip += Chunk.OPERAND_SHORT;
+                cursor.frame.slots[slot] = stack.peek(0);
             },
             .SetLocalLong => {
-                const slot = Chunk.readThreeBytesAt(cursor.frame.ip);
-                cursor.frame.ip += Chunk.OPERAND_LONG;
-                cursor.frame.slots[slot] = self.peek(0);
+                const slot = Chunk.readThreeBytesAt(ip);
+                ip += Chunk.OPERAND_LONG;
+                cursor.frame.slots[slot] = stack.peek(0);
             },
             .GetUpvalue => {
-                const slot = Chunk.readByteAt(cursor.frame.ip);
-                cursor.frame.ip += 1;
-                try self.push(cursor.frame.closure.upvalues[slot].get());
+                const slot = Chunk.readByteAt(ip);
+                ip += 1;
+                try stack.push(self, cursor.frame.closure.upvalues[slot].get());
             },
             .SetUpvalue => {
-                const slot = Chunk.readByteAt(cursor.frame.ip);
-                cursor.frame.ip += 1;
-                cursor.frame.closure.upvalues[slot].set(self.peek(0));
+                const slot = Chunk.readByteAt(ip);
+                ip += 1;
+                cursor.frame.closure.upvalues[slot].set(stack.peek(0));
             },
-            .Nil => try self.push(LoxValue.nil),
-            .True => try self.push(LoxValue.boolean(true)),
-            .False => try self.push(LoxValue.boolean(false)),
+            .Nil => try stack.push(self, LoxValue.nil),
+            .True => try stack.push(self, LoxValue.boolean(true)),
+            .False => try stack.push(self, LoxValue.boolean(false)),
             .Equal => {
-                const b = self.pop();
-                const a = self.pop();
-                try self.push(LoxValue.boolean(a.equal(b)));
+                const b = stack.peek(0);
+                const a = stack.peek(1);
+                stack.popAndReplace(LoxValue.boolean(a.equal(b)));
             },
             .Less => {
-                const b = self.peek(0);
-                const a = self.peek(1);
+                const b = stack.peek(0);
+                const a = stack.peek(1);
                 if (a.isNumber() and b.isNumber()) {
-                    self.popAndReplace(LoxValue.boolean(a.asNumber() < b.asNumber()));
+                    stack.popAndReplace(LoxValue.boolean(a.asNumber() < b.asNumber()));
                 } else {
                     const result = a.less(b) catch {
-                        try self.errorAt(cursor.frame.ip, "Operands must be two numbers or two strings.", .{});
+                        stack.sync(self);
+                        try self.errorAt(ip, "Operands must be two numbers or two strings.", .{});
                         return err.Error.RuntimeError;
                     };
-                    self.popAndReplace(LoxValue.boolean(result));
+                    stack.popAndReplace(LoxValue.boolean(result));
                 }
             },
             .Greater => {
-                const b = self.peek(0);
-                const a = self.peek(1);
+                const b = stack.peek(0);
+                const a = stack.peek(1);
                 if (a.isNumber() and b.isNumber()) {
-                    self.popAndReplace(LoxValue.boolean(a.asNumber() > b.asNumber()));
+                    stack.popAndReplace(LoxValue.boolean(a.asNumber() > b.asNumber()));
                 } else {
                     const result = a.greaterThan(b) catch {
-                        try self.errorAt(cursor.frame.ip, "Operands must be two numbers or two strings.", .{});
+                        stack.sync(self);
+                        try self.errorAt(ip, "Operands must be two numbers or two strings.", .{});
                         return err.Error.RuntimeError;
                     };
-                    self.popAndReplace(LoxValue.boolean(result));
+                    stack.popAndReplace(LoxValue.boolean(result));
                 }
             },
             .Negate => {
-                const value = self.peek(0);
+                const value = stack.peek(0);
                 if (!value.isNumber()) {
-                    try self.errorAt(cursor.frame.ip, "Operand must be a number.", .{});
+                    stack.sync(self);
+                    try self.errorAt(ip, "Operand must be a number.", .{});
                     return err.Error.RuntimeError;
                 }
-                self.replaceTos(LoxValue.number(-value.asNumber()));
+                stack.replaceTos(LoxValue.number(-value.asNumber()));
             },
             .Not => {
-                const value = self.pop();
-                try self.push(LoxValue.boolean(value.isFalsee()));
+                stack.replaceTos(LoxValue.boolean(stack.peek(0).isFalsee()));
             },
             .Add => {
-                const b = self.peek(0);
-                const a = self.peek(1);
+                const b = stack.peek(0);
+                const a = stack.peek(1);
 
                 if (a.isNumber() and b.isNumber()) {
-                    self.popAndReplace(LoxValue.number(a.asNumber() + b.asNumber()));
+                    stack.popAndReplace(LoxValue.number(a.asNumber() + b.asNumber()));
                 } else if (a.isString() and b.isString()) {
-                    var buf_a: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
-                    var buf_b: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
-                    const as = a.stringBytes(&buf_a);
-                    const bs = b.stringBytes(&buf_b);
-                    _ = self.pop();
-                    _ = self.pop();
-                    if (as.len + bs.len <= val.SHORT_STRING_MAX_LEN) {
-                        var combined: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
-                        @memcpy(combined[0..as.len], as);
-                        @memcpy(combined[as.len..][0..bs.len], bs);
-                        try self.push(LoxValue.shortString(combined[0 .. as.len + bs.len]));
-                    } else {
-                        const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
-                        const hash = tbl.hashString(result);
-                        const heap_str = if (self.strings.findString(result, hash)) |existing| blk: {
-                            self.allocator.free(result);
-                            break :blk existing;
-                        } else try self.takeString(result, hash);
-                        try self.push(LoxValue.string(heap_str));
-                    }
+                    stack.sync(self);
+                    try self.concatenate(a, b);
+                    stack.reload(self);
                 } else {
-                    try self.errorAt(cursor.frame.ip, "Operands must be two numbers or two strings.", .{});
+                    stack.sync(self);
+                    try self.errorAt(ip, "Operands must be two numbers or two strings.", .{});
                     return err.Error.RuntimeError;
                 }
             },
             .Subtract => {
-                const b = self.peek(0);
-                const a = self.peek(1);
+                const b = stack.peek(0);
+                const a = stack.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
-                    try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
+                    stack.sync(self);
+                    try self.errorAt(ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                self.popAndReplace(LoxValue.number(a.asNumber() - b.asNumber()));
+                stack.popAndReplace(LoxValue.number(a.asNumber() - b.asNumber()));
             },
             .Multiply => {
-                const b = self.peek(0);
-                const a = self.peek(1);
+                const b = stack.peek(0);
+                const a = stack.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
-                    try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
+                    stack.sync(self);
+                    try self.errorAt(ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                self.popAndReplace(LoxValue.number(a.asNumber() * b.asNumber()));
+                stack.popAndReplace(LoxValue.number(a.asNumber() * b.asNumber()));
             },
             .Divide => {
-                const b = self.peek(0);
-                const a = self.peek(1);
+                const b = stack.peek(0);
+                const a = stack.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
-                    try self.errorAt(cursor.frame.ip, "Operands must be numbers.", .{});
+                    stack.sync(self);
+                    try self.errorAt(ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
                 const bn = b.asNumber();
-                self.popAndReplace(LoxValue.number(if (bn == 0) std.math.nan(f64) else a.asNumber() / bn));
+                stack.popAndReplace(LoxValue.number(if (bn == 0) std.math.nan(f64) else a.asNumber() / bn));
             },
             .Print => {
-                const value = self.pop();
+                const value = stack.pop();
                 try value.print(self.writer);
                 try self.println();
             },
-            .Pop => _ = self.pop(),
-            .Closure => try self.opClosure(&cursor, Chunk.OPERAND_SHORT),
-            .ClosureLong => try self.opClosure(&cursor, Chunk.OPERAND_LONG),
+            .Pop => _ = stack.pop(),
+            .Closure => {
+                stack.sync(self);
+                ip = try self.opClosure(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+            },
+            .ClosureLong => {
+                stack.sync(self);
+                ip = try self.opClosure(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+            },
             .Call => {
-                const arg_count = Chunk.readByteAt(cursor.frame.ip);
-                cursor.frame.ip += 1;
-                const value = self.peek(arg_count);
+                const arg_count = Chunk.readByteAt(ip);
+                ip += 1;
+                cursor.frame.ip = ip;
+                stack.sync(self);
+                const value = stack.peek(arg_count);
                 // Fast path: monomorphic closure calls (fib, etc.) — no error-union dance.
                 if (value.isClosure()) {
                     const closure = value.asClosure();
                     if (closure.function.arity == arg_count and self.frame_count < FRAMES_MAX) {
-                        self.pushFrame(closure, arg_count);
-                    } else if (!try self.call(cursor.frame.ip, closure, arg_count)) {
-                        try self.errorAt(cursor.frame.ip, "Calling failed", .{});
+                        _ = self.pushFrame(closure, arg_count);
+                    } else if (!try self.call(ip, closure, arg_count)) {
+                        try self.errorAt(ip, "Calling failed", .{});
                         return err.Error.RuntimeError;
                     }
-                } else if (!try self.callValue(cursor.frame.ip, value, arg_count)) {
-                    try self.errorAt(cursor.frame.ip, "Calling failed", .{});
+                } else if (!try self.callValue(ip, value, arg_count)) {
+                    try self.errorAt(ip, "Calling failed", .{});
                     return err.Error.RuntimeError;
                 }
+                stack.reload(self);
                 cursor.reload(self);
+                ip = cursor.frame.ip;
             },
-            .Class => try self.opClass(cursor.frame, Chunk.OPERAND_SHORT),
-            .ClassLong => try self.opClass(cursor.frame, Chunk.OPERAND_LONG),
+            .Class => {
+                stack.sync(self);
+                try self.opClass(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip += Chunk.OPERAND_SHORT;
+            },
+            .ClassLong => {
+                stack.sync(self);
+                try self.opClass(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip += Chunk.OPERAND_LONG;
+            },
             .Inherit => {
-                const sub_class = try (self.peek(0)).tryClass();
-                const super_class = (self.peek(1)).tryClass() catch {
-                    try self.errorAt(cursor.frame.ip, "Superclass must be a class.", .{});
+                stack.sync(self);
+                const sub_class = try (stack.peek(0)).tryClass();
+                const super_class = (stack.peek(1)).tryClass() catch {
+                    try self.errorAt(ip, "Superclass must be a class.", .{});
                     return err.Error.RuntimeError;
                 };
                 const old_capacity = sub_class.methods.capacity;
                 try sub_class.methods.addAll(&super_class.methods);
                 try self.adjustMapAllocation(old_capacity, sub_class.methods.capacity);
-                _ = self.pop();
+                stack.reload(self);
+                _ = stack.pop();
             },
-            .GetSuper => try self.opGetSuper(cursor.frame, Chunk.OPERAND_SHORT),
-            .GetSuperLong => try self.opGetSuper(cursor.frame, Chunk.OPERAND_LONG),
-            .GetProperty => try self.opGetProperty(cursor.frame, Chunk.OPERAND_SHORT),
-            .GetPropertyLong => try self.opGetProperty(cursor.frame, Chunk.OPERAND_LONG),
-            .Invoke => try self.opInvoke(&cursor, Chunk.OPERAND_SHORT),
-            .InvokeLong => try self.opInvoke(&cursor, Chunk.OPERAND_LONG),
-            .SuperInvoke => try self.opSuperInvoke(&cursor, Chunk.OPERAND_SHORT),
-            .SuperInvokeLong => try self.opSuperInvoke(&cursor, Chunk.OPERAND_LONG),
-            .SetProperty => try self.opSetProperty(cursor.frame, Chunk.OPERAND_SHORT),
-            .SetPropertyLong => try self.opSetProperty(cursor.frame, Chunk.OPERAND_LONG),
-            .Method => try self.opMethod(cursor.frame, Chunk.OPERAND_SHORT),
-            .MethodLong => try self.opMethod(cursor.frame, Chunk.OPERAND_LONG),
+            .GetSuper => {
+                stack.sync(self);
+                try self.opGetSuper(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip += Chunk.OPERAND_SHORT;
+            },
+            .GetSuperLong => {
+                stack.sync(self);
+                try self.opGetSuper(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip += Chunk.OPERAND_LONG;
+            },
+            .GetProperty => {
+                stack.sync(self);
+                try self.opGetProperty(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip += Chunk.OPERAND_SHORT;
+            },
+            .GetPropertyLong => {
+                stack.sync(self);
+                try self.opGetProperty(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip += Chunk.OPERAND_LONG;
+            },
+            .Invoke => {
+                stack.sync(self);
+                try self.opInvoke(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip = cursor.frame.ip;
+            },
+            .InvokeLong => {
+                stack.sync(self);
+                try self.opInvoke(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip = cursor.frame.ip;
+            },
+            .SuperInvoke => {
+                stack.sync(self);
+                try self.opSuperInvoke(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip = cursor.frame.ip;
+            },
+            .SuperInvokeLong => {
+                stack.sync(self);
+                try self.opSuperInvoke(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip = cursor.frame.ip;
+            },
+            .SetProperty => {
+                stack.sync(self);
+                try self.opSetProperty(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip += Chunk.OPERAND_SHORT;
+            },
+            .SetPropertyLong => {
+                stack.sync(self);
+                try self.opSetProperty(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip += Chunk.OPERAND_LONG;
+            },
+            .Method => {
+                stack.sync(self);
+                try self.opMethod(&cursor, ip, Chunk.OPERAND_SHORT);
+                stack.reload(self);
+                ip += Chunk.OPERAND_SHORT;
+            },
+            .MethodLong => {
+                stack.sync(self);
+                try self.opMethod(&cursor, ip, Chunk.OPERAND_LONG);
+                stack.reload(self);
+                ip += Chunk.OPERAND_LONG;
+            },
             .Return => {
-                const result = if (@intFromPtr(self.stack_top) > @intFromPtr(self.stack.ptr)) self.pop() else LoxValue.nil;
+                const result = if (@intFromPtr(stack.top) > @intFromPtr(stack.base())) stack.pop() else LoxValue.nil;
 
                 if (self.open_upvalues != null) {
                     self.closeUpvalues(@ptrCast(cursor.frame.slots));
@@ -793,47 +949,69 @@ pub fn run(self: *VM) !void {
 
                 self.frame_count -= 1;
                 if (self.frame_count == 0) {
+                    stack.sync(self);
                     return;
                 }
 
-                self.stack_top = cursor.frame.slots;
-                try self.push(result);
-                cursor.reload(self);
+                stack.top = cursor.frame.slots;
+                stack.pushUnchecked(result);
+                cursor.returnToCaller();
+                ip = cursor.frame.ip;
             },
             .CloseUpvalue => {
-                self.closeUpvalues(@ptrCast(self.stack_top - 1));
-                _ = self.pop();
+                self.closeUpvalues(@ptrCast(stack.top - 1));
+                _ = stack.pop();
             },
         }
     }
 }
 
-inline fn readStringConstant(self: *VM, ip: [*]const u8, constant_size: usize) err.Error!*val.HeapString {
-    const value = self.chunk().readConstantAt(ip, constant_size);
-    if (!value.isHeapString()) return err.Error.RuntimeError;
-    return value.asString();
+/// `a` and `b` are the two strings on top of the stack; replaces them with
+/// their concatenation. The stack must be synced: interning can collect.
+fn concatenate(self: *VM, a: LoxValue, b: LoxValue) !void {
+    var buf_a: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
+    var buf_b: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
+    const as = a.stringBytes(&buf_a);
+    const bs = b.stringBytes(&buf_b);
+    _ = self.pop();
+    _ = self.pop();
+    if (as.len + bs.len <= val.SHORT_STRING_MAX_LEN) {
+        var combined: [val.SHORT_STRING_MAX_LEN]u8 = undefined;
+        @memcpy(combined[0..as.len], as);
+        @memcpy(combined[as.len..][0..bs.len], bs);
+        try self.push(LoxValue.shortString(combined[0 .. as.len + bs.len]));
+        return;
+    }
+    const result = try std.mem.concat(self.allocator, u8, &[_][]const u8{ as, bs });
+    const hash = tbl.hashString(result);
+    const heap_str = if (self.strings.findString(result, hash)) |existing| blk: {
+        self.allocator.free(result);
+        break :blk existing;
+    } else try self.takeString(result, hash);
+    try self.push(LoxValue.string(heap_str));
 }
 
-inline fn defineGlobal(self: *VM, ip: [*]const u8, constant_size: usize) !void {
-    const name = try self.readStringConstant(ip, constant_size);
+inline fn defineGlobal(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
     const value = self.peek(0);
     _ = try self.setTrackedTable(&self.globals, name, value);
     _ = self.pop();
 }
 
-inline fn getGlobal(self: *VM, ip: [*]const u8, constant_size: usize) !void {
-    const name = try self.readStringConstant(ip, constant_size);
-    if (self.globals.get(name)) |constant_value| {
-        try self.push(constant_value);
-    } else {
+inline fn getGlobal(self: *VM, stack: *StackCursor, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
+    const constant_value = self.globals.get(name) orelse {
+        stack.sync(self);
         try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
-    }
+    };
+    try stack.push(self, constant_value);
 }
 
-inline fn setGlobal(self: *VM, ip: [*]const u8, constant_size: usize) !void {
-    const name = try self.readStringConstant(ip, constant_size);
-    if (!self.globals.setExisting(name, self.peek(0))) {
+inline fn setGlobal(self: *VM, stack: *StackCursor, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
+    const name = try cursor.stringConstantAt(ip, constant_size);
+    if (!self.globals.setExisting(name, stack.peek(0))) {
+        stack.sync(self);
         try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     }

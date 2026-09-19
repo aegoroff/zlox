@@ -199,7 +199,7 @@ pub inline fn readThreeBytesAt(ip: [*]const u8) usize {
     return @as(usize, ip[2]) << 16 | @as(usize, ip[1]) << 8 | ip[0];
 }
 
-inline fn getConstantIxAt(ip: [*]const u8, constant_size: usize) usize {
+pub inline fn getConstantIxAt(ip: [*]const u8, constant_size: usize) usize {
     return switch (constant_size) {
         OPERAND_SHORT => readByteAt(ip),
         OPERAND_LONG => readThreeBytesAt(ip),
