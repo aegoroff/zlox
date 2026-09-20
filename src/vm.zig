@@ -198,20 +198,32 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
     return self.takeString(owned, hash);
 }
 
-fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
+/// Wraps `owned` in a heap string and hands both to the heap. The buffer is
+/// the caller's until the registration goes through, so a failure on the way
+/// there releases it: nothing else knows about it yet. Its own scope ends at
+/// the registration, which is what keeps the release from running once the
+/// heap owns the bytes and would free them a second time at `deinit`.
+fn allocString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
+    errdefer self.allocator.free(owned);
     const heap_str = try self.heap.alloc(val.HeapString);
     heap_str.* = .{ .gc = .{ .kind = .string }, .hash = hash, .data = owned };
+    try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
+    return heap_str;
+}
+
+fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
+    // Registration goes in before the push and before the intern-table insert,
+    // which grows the table and is therefore a collection point. A collection
+    // reached with the string on the stack but missing from the heap's object
+    // list marks it and then cannot unmark it - only listed objects are swept -
+    // so it would join the list already black. `markObject` skips an object
+    // that is already marked, so from then on nothing it points at would be
+    // blackened again. Registering first costs nothing: it is a plain list
+    // insert that never collects, and the collection it makes due is taken
+    // once the insert is accounted for.
+    const heap_str = try self.allocString(owned, hash);
     try self.push(LoxValue.string(heap_str));
     errdefer _ = self.pop();
-    // Registration goes in before the intern-table insert, which grows the
-    // table and is therefore a collection point. A collection reached with the
-    // string on the stack but missing from the heap's object list marks it and
-    // then cannot unmark it - only listed objects are swept - so it would join
-    // the list already black. `markObject` skips an object that is already
-    // marked, so from then on nothing it points at would be blackened again.
-    // Registering first costs nothing: this is a plain list insert, and the
-    // collection it makes due is taken once the insert is accounted for.
-    try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     _ = try self.setTrackedTable(&self.strings, heap_str, LoxValue.nil);
     if (self.heap.shouldCollect()) {
         try self.collectGarbage();
@@ -1257,6 +1269,26 @@ test "unreferenced interned strings are collected from string pool" {
 
     try std.testing.expect(virtual_machine.strings.findString(ephemeral, hash) == null);
     try std.testing.expect(virtual_machine.strings.findString("init", virtual_machine.init_string.?.hash) != null);
+}
+
+test "a failed heap allocation drops the interned string's bytes" {
+    // Arrange: a VM whose next allocation but one fails, with the pool left
+    // without room so that the string header has to carve a fresh block - the
+    // copy of the name goes through, the allocation right after it does not.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var virtual_machine = try init(failing.allocator(), &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+    virtual_machine.heap.pool.left = 0;
+    failing.fail_index = failing.alloc_index + 1;
+
+    // Act
+    const interned = virtual_machine.internString("never interned before");
+
+    // Assert: the failure surfaces, and the copy the VM made of the name is
+    // released - the testing allocator reports it as a leak otherwise.
+    try std.testing.expectError(error.OutOfMemory, interned);
 }
 
 test "interning a string across a collection leaves it white" {
