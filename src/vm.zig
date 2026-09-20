@@ -13,6 +13,8 @@ const Table = tbl.Table;
 const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
 const STACK_MAX: usize = 256 * FRAMES_MAX;
+/// An `OP_CLOSURE` operand pair: where the upvalue comes from, and its index.
+const UPVALUE_OPERAND_SIZE: usize = 2;
 
 // Declaration order is layout order here. What the dispatch loop touches on
 // every call, return and global access comes first so it shares a cache line,
@@ -595,6 +597,16 @@ const FrameCursor = struct {
     }
 };
 
+fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: usize) ![*]const u8 {
+    const function = cursor.constantAt(ip, constant_size).asFunction();
+    const operands = ip + constant_size;
+    const closure_ptr = try self.makeClosure(cursor, ip, operands, function);
+    try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
+    return operands + UPVALUE_OPERAND_SIZE * function.upvalue_count;
+}
+
+/// Builds the closure and leaves it on the stack for the caller to register.
+///
 /// The upvalue array is filled before the closure is pushed or registered: it
 /// comes back from the allocator uninitialized, and a collection that reached a
 /// closure holding it would walk those bytes as pointers. Capturing can collect —
@@ -603,18 +615,23 @@ const FrameCursor = struct {
 /// the sweep cannot see it; its function is a constant of the running one; every
 /// upvalue captured here is already on the open list, which `markRoots` walks;
 /// and every upvalue inherited from the enclosing closure is held by a frame.
-fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: usize) ![*]const u8 {
-    const function = cursor.constantAt(ip, constant_size).asFunction();
-    var next = ip + constant_size;
-
+///
+/// The array is the closure's own memory, and until the registration nothing
+/// else knows about it, so a failure before then - a capture, or a stack with
+/// no room for the push - releases it here. The scope ends at the return,
+/// which keeps the release off a closure the heap already owns: registering is
+/// a collection point, and a collection that fails there would otherwise leave
+/// a listed closure whose upvalues have been freed under it.
+fn makeClosure(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, operands: [*]const u8, function: *val.Function) !*val.Closure {
     const closure_ptr = try self.heap.alloc(val.Closure);
     closure_ptr.* = try val.Closure.init(self.allocator, function);
     errdefer closure_ptr.deinit(self.allocator);
 
+    var next = operands;
     for (0..function.upvalue_count) |i| {
         const is_local = Chunk.readByteAt(next);
         const index = Chunk.readByteAt(next + 1);
-        next += 2;
+        next += UPVALUE_OPERAND_SIZE;
         closure_ptr.upvalues[i] = if (is_local == 1)
             try self.captureUpvalue(@ptrCast(cursor.frame.slots + index))
         else
@@ -622,8 +639,7 @@ fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: us
     }
 
     try self.pushAt(ip, LoxValue.closure(closure_ptr));
-    try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
-    return next;
+    return closure_ptr;
 }
 
 fn opClass(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
