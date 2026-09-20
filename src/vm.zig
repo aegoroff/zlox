@@ -142,7 +142,7 @@ pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []co
     try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
     const script_ip = closure_ptr.function.chunk.code.items.ptr;
-    if (!try self.call(script_ip, closure_ptr, 0)) return err.Error.RuntimeError;
+    try self.call(script_ip, closure_ptr, 0);
     try self.run();
     _ = self.pop();
 }
@@ -268,7 +268,10 @@ inline fn replaceTos(self: *VM, value: LoxValue) void {
     (self.stack_top - 1)[0] = value;
 }
 
-inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usize) anyerror!bool {
+/// Pushes a frame for `closure`, or reports why it cannot and fails. There is
+/// no third outcome: a call either happens or raises, never comes back to be
+/// asked what went wrong.
+inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usize) anyerror!void {
     if (closure.function.arity != arg_count) {
         try self.errorAt(ip, "Expected {d} arguments but got {d}.", .{
             closure.function.arity,
@@ -281,7 +284,6 @@ inline fn call(self: *VM, ip: [*]const u8, closure: *val.Closure, arg_count: usi
         return err.Error.RuntimeError;
     }
     _ = self.pushFrame(closure, arg_count);
-    return true;
 }
 
 /// Hot path for calling a closure when arity/frames are already known to be OK.
@@ -298,7 +300,7 @@ inline fn pushFrame(self: *VM, closure: *val.Closure, arg_count: usize) *CallFra
     return pushed;
 }
 
-inline fn invokeFromClass(self: *VM, ip: [*]const u8, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!bool {
+inline fn invokeFromClass(self: *VM, ip: [*]const u8, klass: *val.Class, name: *val.HeapString, arg_count: usize) anyerror!void {
     if (klass.methods.get(name)) |method| {
         return self.call(ip, method.asClosure(), arg_count);
     }
@@ -306,7 +308,7 @@ inline fn invokeFromClass(self: *VM, ip: [*]const u8, klass: *val.Class, name: *
     return err.Error.RuntimeError;
 }
 
-inline fn invoke(self: *VM, ip: [*]const u8, name: *val.HeapString, arg_count: usize) anyerror!bool {
+inline fn invoke(self: *VM, ip: [*]const u8, name: *val.HeapString, arg_count: usize) anyerror!void {
     const receiver = self.peek(arg_count);
     const instance = receiver.tryInstance() catch {
         try self.errorAt(ip, "Only instances have methods.", .{});
@@ -321,9 +323,9 @@ inline fn invoke(self: *VM, ip: [*]const u8, name: *val.HeapString, arg_count: u
     return self.invokeFromClass(ip, instance.klass, name, arg_count);
 }
 
-inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usize) anyerror!bool {
+inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usize) anyerror!void {
     if (value.isClosure()) {
-        return try self.call(ip, value.asClosure(), arg_count);
+        return self.call(ip, value.asClosure(), arg_count);
     }
     if (value.isClass()) {
         const k = value.asClass();
@@ -332,12 +334,12 @@ inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usiz
         self.peekSlot(arg_count).* = LoxValue.instance(instance_ptr);
         try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
         if (instance_ptr.klass.methods.get(self.init_string.?)) |in| {
-            return try self.call(ip, in.asClosure(), arg_count);
+            return self.call(ip, in.asClosure(), arg_count);
         } else if (arg_count != 0) {
             try self.errorAt(ip, "Expected 0 arguments but got {d}.", .{arg_count});
             return err.Error.RuntimeError;
         }
-        return true;
+        return;
     }
     if (value.isBoundMethod()) {
         const b = value.asBoundMethod();
@@ -351,8 +353,7 @@ inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usiz
         switch (native_fn(self.io, args)) {
             .value => |result| {
                 self.stack_top -= arg_count + 1;
-                try self.push(result);
-                return true;
+                return self.push(result);
             },
             .failure => |message| {
                 try self.errorAt(ip, "{s}", .{message});
@@ -575,10 +576,7 @@ inline fn opInvoke(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_si
     const arg_count = Chunk.readByteAt(ip + constant_size);
     const next = ip + constant_size + 1;
     cursor.frame.ip = next;
-    if (!try self.invoke(next, name, arg_count)) {
-        try self.errorAt(next, "Invoke '{s}'' failed", .{name.data});
-        return err.Error.RuntimeError;
-    }
+    try self.invoke(next, name, arg_count);
     cursor.reload(self);
 }
 
@@ -589,10 +587,7 @@ inline fn opSuperInvoke(self: *VM, cursor: *FrameCursor, ip: [*]const u8, consta
     cursor.frame.ip = next;
     const super_class = try (self.pop()).tryClass();
 
-    if (!try self.invokeFromClass(next, super_class, name, arg_count)) {
-        try self.errorAt(next, "Super invoke '{s}' failed", .{name.data});
-        return err.Error.RuntimeError;
-    }
+    try self.invokeFromClass(next, super_class, name, arg_count);
     cursor.reload(self);
 }
 
@@ -899,13 +894,11 @@ pub fn run(self: *VM) !void {
                     const closure = value.asClosure();
                     if (closure.function.arity == arg_count and self.frame_count < FRAMES_MAX) {
                         _ = self.pushFrame(closure, arg_count);
-                    } else if (!try self.call(ip, closure, arg_count)) {
-                        try self.errorAt(ip, "Calling failed", .{});
-                        return err.Error.RuntimeError;
+                    } else {
+                        try self.call(ip, closure, arg_count);
                     }
-                } else if (!try self.callValue(ip, value, arg_count)) {
-                    try self.errorAt(ip, "Calling failed", .{});
-                    return err.Error.RuntimeError;
+                } else {
+                    try self.callValue(ip, value, arg_count);
                 }
                 stack.reload(self);
                 cursor.reload(self);
