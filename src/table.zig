@@ -210,14 +210,7 @@ inline fn findSlot(
     }
 }
 
-pub inline fn hashString(bytes: []const u8) u32 {
-    var hash: u32 = 2166136261;
-    for (bytes) |byte| {
-        hash ^= byte;
-        hash *%= 16777619;
-    }
-    return hash;
-}
+pub const hashString = std.hash.Fnv1a_32.hash;
 
 test "table set and get" {
     const bytes = "foo";
