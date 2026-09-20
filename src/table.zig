@@ -65,11 +65,6 @@ pub const Table = struct {
         return entry.value;
     }
 
-    pub inline fn contains(self: *const Table, key: *HeapString) bool {
-        if (self.count == 0) return false;
-        return findSlot(self.entries, self.cap, .{ .pointer = key }, false) != null;
-    }
-
     pub inline fn set(self: *Table, gpa: std.mem.Allocator, key: *HeapString, value: LoxValue) !bool {
         if (self.count + 1 > self.maxLoad()) {
             try self.adjustCapacity(gpa, growCapacity(self.cap));

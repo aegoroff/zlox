@@ -253,16 +253,6 @@ pub const LoxValue = struct {
         }
     }
 
-    pub fn tryNumber(self: LoxValue) err.Error!f64 {
-        if (!self.isNumber()) return err.Error.RuntimeError;
-        return self.asNumber();
-    }
-
-    pub fn tryString(self: LoxValue, storage: *[SHORT_STRING_MAX_LEN]u8) err.Error![]const u8 {
-        if (!self.isString()) return err.Error.RuntimeError;
-        return self.stringBytes(storage);
-    }
-
     pub fn tryInstance(self: LoxValue) err.Error!*Instance {
         if (!self.isInstance()) return err.Error.RuntimeError;
         return self.asInstance();
@@ -271,11 +261,6 @@ pub const LoxValue = struct {
     pub fn tryClass(self: LoxValue) err.Error!*Class {
         if (!self.isClass()) return err.Error.RuntimeError;
         return self.asClass();
-    }
-
-    pub fn tryClosure(self: LoxValue) err.Error!*Closure {
-        if (!self.isClosure()) return err.Error.RuntimeError;
-        return self.asClosure();
     }
 
     pub inline fn isFalsee(self: LoxValue) bool {
@@ -361,12 +346,6 @@ pub const HeapString = struct {
     gc: Obj,
     hash: u32 = 0,
     data: []const u8,
-
-    pub fn init(allocator: std.mem.Allocator, bytes: []const u8) !*HeapString {
-        const self = try allocator.create(HeapString);
-        self.* = .{ .gc = .{ .kind = .string }, .data = bytes };
-        return self;
-    }
 
     pub fn size(self: *const HeapString) usize {
         return @sizeOf(HeapString) + self.data.len;
@@ -553,12 +532,9 @@ test "short string round trip" {
 }
 
 test "short string compares with heap string" {
-    const heap = try HeapString.init(std.testing.allocator, "ab");
-    defer std.testing.allocator.destroy(heap);
-    heap.data = "ab";
-
+    var heap = HeapString{ .gc = .{ .kind = .string }, .data = "ab" };
     const short = LoxValue.shortString("ab");
-    const long = LoxValue.string(heap);
+    const long = LoxValue.string(&heap);
     try std.testing.expect(LoxValue.stringsEqual(short, long));
 }
 

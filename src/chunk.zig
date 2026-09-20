@@ -229,11 +229,6 @@ pub inline fn getConstantIxAt(ip: [*]const u8, constant_size: usize) usize {
     };
 }
 
-pub inline fn readConstantAt(self: *const Chunk, ip: [*]const u8, constant_size: usize) LoxValue {
-    const ix = getConstantIxAt(ip, constant_size);
-    return self.constants.items[ix];
-}
-
 inline fn ipAt(self: *const Chunk, offset: usize) [*]const u8 {
     return self.code.items.ptr + offset;
 }
