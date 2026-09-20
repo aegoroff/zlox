@@ -156,8 +156,14 @@ fn makeToken(self: *Lexer, token_type: TokenType) Token {
     };
 }
 
+/// The source is a slice with a length, not a C string, so its end is that
+/// length and nothing else. Treating a NUL byte as the end too - which is what
+/// clox does, because there it really is the terminator - silently dropped
+/// everything after the first one in a file that happened to contain it.
+/// A NUL now reaches `scanToken` like any other byte and is reported as an
+/// unexpected character, unless it sits inside a string literal.
 fn isAtEnd(self: *Lexer) bool {
-    return self.current == self.source.len or self.source[self.current] == '\x00';
+    return self.current >= self.source.len;
 }
 
 fn isDigit(c: u8) bool {
@@ -305,6 +311,32 @@ fn string(self: *Lexer) !Token {
 
     _ = self.advance();
     return self.makeToken(.String);
+}
+
+test "NUL byte does not end the source" {
+    // Arrange: a file with an embedded NUL used to be truncated at it without
+    // a word, so everything past it was never compiled.
+    var lexer = Lexer.init("a\x00b");
+
+    // Act
+    const first = try lexer.scanToken();
+    const second = lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Identifier, first.type);
+    try std.testing.expectError(LexerError.UnexpectedCharacter, second);
+}
+
+test "NUL byte inside a string literal is part of it" {
+    // Arrange
+    var lexer = Lexer.init("\"a\x00b\"");
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.String, token.type);
+    try std.testing.expectEqual(@as(usize, 5), token.length);
 }
 
 test "Left paren" {
