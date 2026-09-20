@@ -225,9 +225,20 @@ fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
     _ = try self.setTrackedTable(&self.globals, key, LoxValue.native(function));
 }
 
-fn stackOverflowError(self: *VM) !void {
+/// Reports a stack overflow at `ip` and fails. The instruction has to be
+/// handed in: the dispatch loop keeps the live one in a register and writes it
+/// back to the frame only at a call, so the frame's own copy names whatever was
+/// called last rather than the push that ran out of room. Storing it back here
+/// also leaves the frame pointing at the failing instruction for anything that
+/// inspects the stopped VM. A null `ip` belongs to the pushes that happen with
+/// no frame running - interning during a compile, and the script closure -
+/// which have no instruction to point at.
+fn stackOverflowError(self: *VM, ip: ?[*]const u8) !void {
     if (self.frame_count > 0) {
-        try self.errorAt(self.frames[self.frame_count - 1].ip, "Stack overflow.", .{});
+        if (ip) |at| {
+            self.frames[self.frame_count - 1].ip = at;
+            try self.errorAt(at, "Stack overflow.", .{});
+        }
     }
     return err.Error.RuntimeError;
 }
@@ -240,10 +251,17 @@ inline fn stackCount(self: *const VM) usize {
     return (@intFromPtr(self.stack_top) - @intFromPtr(self.stack.ptr)) / @sizeOf(LoxValue);
 }
 
+/// For pushes with no instruction to blame: every caller either runs with no
+/// frame yet or pushes into a slot it has just freed, so the overflow branch
+/// reports without a location. Handlers inside the dispatch loop use `pushAt`.
 inline fn push(self: *VM, value: LoxValue) !void {
+    return self.pushAt(null, value);
+}
+
+inline fn pushAt(self: *VM, ip: ?[*]const u8, value: LoxValue) !void {
     if (@intFromPtr(self.stack_top) >= @intFromPtr(self.stackLimit())) {
         @branchHint(.unlikely);
-        return stackOverflowError(self);
+        return self.stackOverflowError(ip);
     }
     self.stack_top[0] = value;
     self.stack_top += 1;
@@ -537,7 +555,7 @@ fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: us
             cursor.frame.closure.upvalues[index];
     }
 
-    try self.push(LoxValue.closure(closure_ptr));
+    try self.pushAt(ip, LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
     return next;
 }
@@ -547,7 +565,7 @@ fn opClass(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size
 
     const class_ptr = try self.heap.allocClass();
     class_ptr.* = val.Class.init(name);
-    try self.push(LoxValue.class(class_ptr));
+    try self.pushAt(ip, LoxValue.class(class_ptr));
     try self.trackObject(.{ .class = class_ptr }, class_ptr.size());
 }
 
@@ -647,11 +665,11 @@ const StackCursor = struct {
         return self.limit - STACK_MAX;
     }
 
-    inline fn push(self: *StackCursor, vm: *VM, value: LoxValue) !void {
+    inline fn push(self: *StackCursor, vm: *VM, ip: [*]const u8, value: LoxValue) !void {
         if (@intFromPtr(self.top) >= @intFromPtr(self.limit)) {
             @branchHint(.unlikely);
             self.sync(vm);
-            return vm.stackOverflowError();
+            return vm.stackOverflowError(ip);
         }
         self.pushUnchecked(value);
     }
@@ -713,11 +731,11 @@ pub fn run(self: *VM) !void {
                 ip -= offset;
             },
             .Constant => {
-                try stack.push(self, cursor.constantAt(ip, Chunk.OPERAND_SHORT));
+                try stack.push(self, ip, cursor.constantAt(ip, Chunk.OPERAND_SHORT));
                 ip += Chunk.OPERAND_SHORT;
             },
             .ConstantLong => {
-                try stack.push(self, cursor.constantAt(ip, Chunk.OPERAND_LONG));
+                try stack.push(self, ip, cursor.constantAt(ip, Chunk.OPERAND_LONG));
                 ip += Chunk.OPERAND_LONG;
             },
             .DefineGlobal => {
@@ -751,12 +769,12 @@ pub fn run(self: *VM) !void {
             .GetLocal => {
                 const slot = Chunk.readByteAt(ip);
                 ip += Chunk.OPERAND_SHORT;
-                try stack.push(self, cursor.frame.slots[slot]);
+                try stack.push(self, ip, cursor.frame.slots[slot]);
             },
             .GetLocalLong => {
                 const slot = Chunk.readThreeBytesAt(ip);
                 ip += Chunk.OPERAND_LONG;
-                try stack.push(self, cursor.frame.slots[slot]);
+                try stack.push(self, ip, cursor.frame.slots[slot]);
             },
             .SetLocal => {
                 const slot = Chunk.readByteAt(ip);
@@ -771,16 +789,16 @@ pub fn run(self: *VM) !void {
             .GetUpvalue => {
                 const slot = Chunk.readByteAt(ip);
                 ip += 1;
-                try stack.push(self, cursor.frame.closure.upvalues[slot].get());
+                try stack.push(self, ip, cursor.frame.closure.upvalues[slot].get());
             },
             .SetUpvalue => {
                 const slot = Chunk.readByteAt(ip);
                 ip += 1;
                 cursor.frame.closure.upvalues[slot].set(stack.peek(0));
             },
-            .Nil => try stack.push(self, LoxValue.nil),
-            .True => try stack.push(self, LoxValue.boolean(true)),
-            .False => try stack.push(self, LoxValue.boolean(false)),
+            .Nil => try stack.push(self, ip, LoxValue.nil),
+            .True => try stack.push(self, ip, LoxValue.boolean(true)),
+            .False => try stack.push(self, ip, LoxValue.boolean(false)),
             .Equal => {
                 const b = stack.peek(0);
                 const a = stack.peek(1);
@@ -1071,7 +1089,7 @@ inline fn getGlobal(self: *VM, stack: *StackCursor, cursor: *const FrameCursor, 
         try self.errorAt(ip, "Undefined variable '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     };
-    try stack.push(self, constant_value);
+    try stack.push(self, ip, constant_value);
 }
 
 inline fn setGlobal(self: *VM, stack: *StackCursor, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {

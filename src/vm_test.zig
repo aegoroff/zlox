@@ -3447,6 +3447,37 @@ test "error: stack overflow" {
     try t.expectFrameCount(t.machine.frames.len);
 }
 
+test "error: a value stack overflow names the instruction that could not push" {
+    // Arrange: a function wide enough that the value stack fills before the
+    // frame limit does. The dispatch loop keeps the live instruction pointer in
+    // a register and writes it back to the frame only at a call, so a frame
+    // that has not called anything yet still holds the pointer it started with.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    var source = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer source.deinit();
+    try source.writer.writeAll("fun f(n) {\n");
+    for (0..250) |i| try source.writer.print("  var v{d} = 0;\n", .{i});
+    try source.writer.writeAll("  if (n <= 0) { return 0; }\n  return ");
+    for (0..100) |_| try source.writer.writeAll("1+(");
+    try source.writer.writeAll("f(n-1)");
+    try source.writer.splatByteAll(')', 100);
+    try source.writer.writeAll(";\n}\nprint f(1000);\n");
+
+    // Act
+    try t.expectRuntimeError(source.written());
+
+    // Assert: the frame limit is not what stopped it, and the frame is left
+    // pointing at the push that ran out of room rather than at its own entry.
+    try std.testing.expect(t.machine.frame_count > 0);
+    try std.testing.expect(t.machine.frame_count < t.machine.frames.len);
+    const frame = t.machine.frames[t.machine.frame_count - 1];
+    const chunk = &frame.closure.function.chunk;
+    try std.testing.expect(chunk.offsetOf(frame.ip) > 0);
+}
+
 test "error: a runtime error on a token past the position column limit" {
     // Arrange: a position holds the column and the length in sixteen bits and
     // saturates both, so a token whose span reaches past column 65535 - a long
