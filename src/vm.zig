@@ -228,17 +228,12 @@ fn defineNative(self: *VM, name: []const u8, function: val.NativeFn) !void {
 /// Reports a stack overflow at `ip` and fails. The instruction has to be
 /// handed in: the dispatch loop keeps the live one in a register and writes it
 /// back to the frame only at a call, so the frame's own copy names whatever was
-/// called last rather than the push that ran out of room. Storing it back here
-/// also leaves the frame pointing at the failing instruction for anything that
-/// inspects the stopped VM. A null `ip` belongs to the pushes that happen with
-/// no frame running - interning during a compile, and the script closure -
-/// which have no instruction to point at.
+/// called last rather than the push that ran out of room. A null `ip` belongs
+/// to the pushes that happen with no frame running - interning during a
+/// compile, and the script closure - which have no instruction to point at.
 fn stackOverflowError(self: *VM, ip: ?[*]const u8) !void {
-    if (self.frame_count > 0) {
-        if (ip) |at| {
-            self.frames[self.frame_count - 1].ip = at;
-            try self.errorAt(at, "Stack overflow.", .{});
-        }
+    if (ip) |at| {
+        try self.errorAt(at, "Stack overflow.", .{});
     }
     return err.Error.RuntimeError;
 }
@@ -462,23 +457,78 @@ inline fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool 
     return false;
 }
 
-inline fn frame(self: *VM) *CallFrame {
-    return &self.frames[self.frame_count - 1];
+/// Source span of the instruction `ip` points into. The dispatch loop steps
+/// past the opcode before the handler runs, and a frame that is waiting on a
+/// call has its `ip` just past that call, so one byte back lands inside the
+/// instruction in either case. Every byte of an instruction carries the same
+/// position, so which byte it lands on does not matter.
+fn positionAt(chunk_ptr: *const Chunk, ip: [*]const u8) Chunk.Position {
+    const reached = chunk_ptr.offsetOf(ip);
+    const offset = if (reached > 0) reached - 1 else 0;
+    return chunk_ptr.positions.items[offset];
 }
 
-inline fn chunk(self: *VM) *Chunk {
-    return &self.frame().closure.function.chunk;
+/// One frame of the Lox call stack: where it stopped, and whose frame it is.
+pub const TraceFrame = struct {
+    position: Chunk.Position,
+    /// The compiled function's name, or null for the top-level script.
+    name: ?[]const u8,
+};
+
+/// Writes the Lox call stack into `buf`, innermost frame first, and returns
+/// the part of it that was filled. Meaningful while the VM is stopped on a
+/// runtime error: `errorAt` puts the running frame's instruction pointer back
+/// before anything reads the frames, and a runtime error stops without
+/// unwinding, so the frames stay until the next `interpret` resets the stack.
+pub fn callStack(self: *const VM, buf: []TraceFrame) []TraceFrame {
+    var count: usize = 0;
+    var i = self.frame_count;
+    while (i > 0 and count < buf.len) {
+        i -= 1;
+        const function = self.frames[i].closure.function;
+        buf[count] = .{
+            .position = positionAt(&function.chunk, self.frames[i].ip),
+            .name = function.name,
+        };
+        count += 1;
+    }
+    return buf[0..count];
+}
+
+// The reporter dims the source lines around a diagnostic; the trace under it
+// is subordinate to the same diagnostic, so it is dimmed to match.
+const dim = "\x1b[2m";
+const reset_color = "\x1b[0m";
+
+/// Prints the Lox call stack under the diagnostic, innermost frame first. It
+/// goes to stderr through `std.debug.print`, which is where the reporter puts
+/// the diagnostic it follows. A single frame gets none: with the script alone
+/// the snippet above already says everything one more line could.
+fn printCallStack(self: *const VM, trace: []const TraceFrame) void {
+    if (trace.len < 2) return;
+    const filename = self.compiler.?.filename;
+    std.debug.print("  {s}stack:{s}\n", .{ dim, reset_color });
+    for (trace) |entry| {
+        std.debug.print("  {s}  {s}:{d}:{d} in ", .{ dim, filename, entry.position.line, entry.position.col });
+        if (entry.name) |name| {
+            std.debug.print("{s}(){s}\n", .{ name, reset_color });
+        } else {
+            std.debug.print("script{s}\n", .{reset_color});
+        }
+    }
 }
 
 fn errorAt(self: *VM, ip: [*]const u8, comptime fmt: []const u8, args: anytype) !void {
-    const chunk_ptr = self.chunk();
-    const reached = chunk_ptr.offsetOf(ip);
-    // The dispatch loop steps past the opcode before the handler runs, so `ip`
-    // can already sit on the next instruction. Every byte of an instruction
-    // carries the same position, so stepping back one byte lands inside the
-    // instruction that actually failed.
-    const offset = if (reached > 0) reached - 1 else 0;
-    const position = chunk_ptr.positions.items[offset];
+    if (self.frame_count == 0) return;
+    // The dispatch loop keeps the live instruction pointer in a register and
+    // writes it back only at a call, so the running frame's copy is stale.
+    // Putting it back first means every frame describes where it stopped, for
+    // the trace below and for anything that inspects the stopped VM.
+    self.frames[self.frame_count - 1].ip = ip;
+
+    var buf: [FRAMES_MAX]TraceFrame = undefined;
+    const trace = self.callStack(&buf);
+    const position = trace[0].position;
     const message = try std.fmt.allocPrint(self.allocator, fmt, args);
     defer self.allocator.free(message);
     // Widened before the arithmetic: `Position` stores the column and the
@@ -488,6 +538,7 @@ fn errorAt(self: *VM, ip: [*]const u8, comptime fmt: []const u8, args: anytype) 
     const span = @max(@as(usize, position.len), 1);
     const col_end = @as(usize, position.col) + span - 1;
     try self.compiler.?.reportErrorAt(position.line, position.col, position.line, col_end, message);
+    self.printCallStack(trace);
 }
 
 fn println(self: *VM) !void {

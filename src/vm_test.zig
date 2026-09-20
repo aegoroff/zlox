@@ -3447,6 +3447,39 @@ test "error: stack overflow" {
     try t.expectFrameCount(t.machine.frames.len);
 }
 
+test "error: a runtime error carries the whole Lox call stack" {
+    // Arrange: an error three calls deep, so every kind of frame is on the
+    // stack - the script, two plain functions and the one that failed.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\fun c() { return nil + 1; }
+        \\fun b() { return c(); }
+        \\fun a() { return b(); }
+        \\print a();
+        \\
+    ;
+
+    // Act
+    try t.expectRuntimeError(code);
+
+    // Assert: innermost frame first, each one at the line it stopped on - the
+    // failing expression for `c`, and the call it is waiting on for the rest.
+    var buf: [64]vm.TraceFrame = undefined;
+    const trace = t.machine.callStack(&buf);
+    try std.testing.expectEqual(@as(usize, 4), trace.len);
+    try std.testing.expectEqualStrings("c", trace[0].name.?);
+    try std.testing.expectEqualStrings("b", trace[1].name.?);
+    try std.testing.expectEqualStrings("a", trace[2].name.?);
+    try std.testing.expectEqual(@as(?[]const u8, null), trace[3].name);
+    try std.testing.expectEqual(@as(u32, 1), trace[0].position.line);
+    try std.testing.expectEqual(@as(u32, 2), trace[1].position.line);
+    try std.testing.expectEqual(@as(u32, 3), trace[2].position.line);
+    try std.testing.expectEqual(@as(u32, 4), trace[3].position.line);
+}
+
 test "error: a value stack overflow names the instruction that could not push" {
     // Arrange: a function wide enough that the value stack fills before the
     // frame limit does. The dispatch loop keeps the live instruction pointer in
