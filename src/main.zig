@@ -23,14 +23,16 @@ pub fn main(init: std.process.Init) !void {
         std.heap.c_allocator;
 
     const args = try init.minimal.args.toSlice(gpa);
-    if (builtin.mode == .Debug) {
-        try run(gpa, stdout_writer, io, args[1..]); // skip exe itself
-    } else {
-        run(gpa, stdout_writer, io, args[1..]) catch |e| { // skip exe itself
-            stdout_writer.flush() catch {};
-            std.process.exit(zlox.exitCode(e));
-        };
-    }
+    run(gpa, stdout_writer, io, args[1..]) catch |e| { // skip exe itself
+        stdout_writer.flush() catch {};
+        // A debug build lets the error escape so the panic handler prints a
+        // stack trace, which is the reason to run one. A script that could not
+        // be read is the exception: the trace describes std's call chain down
+        // to open(2) and adds nothing to what `run` has already reported, while
+        // the caller only mistyped a path.
+        if (builtin.mode == .Debug and e != zlox.Error.IoError) return e;
+        std.process.exit(zlox.exitCode(e));
+    };
 }
 
 pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []const [:0]const u8) !void {
@@ -42,15 +44,24 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
     var filename: []const u8 = "";
     if (config.getPathArgValue()) |path| {
         filename = path;
-        var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+        var file = std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only }) catch |open_err| {
+            std.debug.print("Could not open file \"{s}\": {s}.\n", .{ path, @errorName(open_err) });
+            return zlox.Error.IoError;
+        };
         defer file.close(io);
         var file_buffer: [64 * 1024]u8 = undefined;
         var file_reader = file.reader(io, &file_buffer);
-        _ = try file_reader.interface.streamRemaining(&memory.writer);
+        _ = file_reader.interface.streamRemaining(&memory.writer) catch |read_err| {
+            std.debug.print("Could not read file \"{s}\": {s}.\n", .{ path, @errorName(read_err) });
+            return zlox.Error.IoError;
+        };
     } else {
         var stdin_buffer: [1024]u8 = undefined;
         var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
-        _ = try stdin_reader.interface.streamRemaining(&memory.writer);
+        _ = stdin_reader.interface.streamRemaining(&memory.writer) catch |read_err| {
+            std.debug.print("Could not read standard input: {s}.\n", .{@errorName(read_err)});
+            return zlox.Error.IoError;
+        };
     }
 
     var virtual_machine = try zlox.VM.init(gpa, writer, io);
