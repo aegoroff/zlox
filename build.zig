@@ -108,6 +108,32 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_zlox_tests.step);
+
+    // Fuzz the compiler + VM via `VM.interpret`. `zig build test` replays only
+    // the seed corpus (deterministic, fast); `zig build fuzzing --fuzz` runs
+    // the coverage-guided mutation engine.
+    //
+    // Pinned to ReleaseSafe: Zig 0.16's `-ffuzz -fno-strip` combination fails
+    // to compile the generated panic-trace code in Debug (a `*builtin.StackTrace`
+    // vs `*debug.StackTrace` mismatch inside the standard test runner).
+    const vm_fuzz_mod = b.createModule(.{
+        .root_source_file = b.path("src/vm_fuzz.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .link_libc = true,
+        .strip = false,
+    });
+    deps.applyTo(vm_fuzz_mod);
+
+    const vm_fuzz_tests = b.addTest(.{
+        .name = "vm_fuzz",
+        .root_module = vm_fuzz_mod,
+        .filters = &.{"fuzz interpret"},
+    });
+    const run_vm_fuzz = b.addRunArtifact(vm_fuzz_tests);
+    const fuzzing_step = b.step("fuzzing", "Fuzz the Lox compiler + VM (corpus smoke run; add --fuzz to mutate)");
+    fuzzing_step.dependOn(&run_vm_fuzz.step);
+    test_step.dependOn(&run_vm_fuzz.step);
 }
 
 const ModuleDeps = struct {

@@ -245,6 +245,13 @@ pub fn reportErrorAt(
     end_col: usize,
     message: []const u8,
 ) !void {
+    // Zig's fuzz runner appends every byte this binary writes to stderr into a
+    // list it keeps for the whole session, to dump if a run crashes. A
+    // diagnostic per input grows the `build` process without bound, so under
+    // `--fuzz` the report is skipped. Callers set `panic_mode` and `had_error`
+    // themselves, so only the printing goes away.
+    if (@import("builtin").fuzz) return;
+
     // For single-character tokens, use the same start and end columns
     const col_end = if (end_col > start_col) end_col else start_col;
 

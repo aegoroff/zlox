@@ -505,6 +505,9 @@ const reset_color = "\x1b[0m";
 /// the diagnostic it follows. A single frame gets none: with the script alone
 /// the snippet above already says everything one more line could.
 fn printCallStack(self: *const VM, trace: []const TraceFrame) void {
+    // Skipped while fuzzing for the reason `reportErrorAt` gives: the runner
+    // keeps every stderr byte, and a runaway recursion prints a line per frame.
+    if (@import("builtin").fuzz) return;
     if (trace.len < 2) return;
     const filename = self.compiler.?.filename;
     std.debug.print("  {s}stack:{s}\n", .{ dim, reset_color });

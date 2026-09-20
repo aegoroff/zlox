@@ -10,6 +10,10 @@ test optimize = "ReleaseFast":
 
 all optimize = "ReleaseFast": (build optimize) (test optimize)
 
+# corpus-only smoke run by default; pass `--fuzz` (or `--fuzz=10K`) to mutate
+fuzz *args:
+  zig build fuzzing -Dtarget={{target}} --summary all -Dcpu={{cpu}} -Dversion={{ver}} {{args}}
+
 build_all optimize = "ReleaseFast" version = "0.1.0":
     #!/usr/bin/env bash
     rm -rf ./zig-out/*.tar.gz
