@@ -315,6 +315,13 @@ pub const LoxValue = struct {
     }
 
     pub inline fn greaterThan(self: LoxValue, other: LoxValue) err.Error!bool {
+        // Numbers compare directly. Deriving the answer from `less` and `equal`
+        // works for the ordered types but not for a NaN, which is neither less
+        // than nor equal to anything - including itself - and would come out
+        // greater than everything.
+        if (self.isNumber() and other.isNumber()) {
+            return self.asNumber() > other.asNumber();
+        }
         const lt = try self.less(other);
         return !lt and !self.equal(other);
     }
@@ -516,6 +523,21 @@ pub const BoundMethod = struct {
         };
     }
 };
+
+test "greaterThan of a NaN is false whichever side it is on" {
+    // Arrange
+    const nan = LoxValue.number(std.math.nan(f64));
+    const one = LoxValue.number(1);
+    const two = LoxValue.number(2);
+
+    // Act & Assert
+    try std.testing.expect(!try nan.greaterThan(one));
+    try std.testing.expect(!try one.greaterThan(nan));
+    try std.testing.expect(!try nan.greaterThan(nan));
+    try std.testing.expect(try two.greaterThan(one));
+    try std.testing.expect(!try one.greaterThan(two));
+    try std.testing.expect(!try one.greaterThan(one));
+}
 
 test "short string round trip" {
     const bytes = "hi";
