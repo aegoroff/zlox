@@ -3688,3 +3688,21 @@ test "vm: a closure's open upvalue survives a runtime error during capture" {
     // Assert
     try t.expectOutput("42\n");
 }
+
+test "function name outlives the source buffer it was compiled from" {
+    // Arrange: a source buffer the caller owns, as any embedder would have.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    const source = try std.testing.allocator.dupe(u8, "fun myFunctionName() { return 1; }");
+    try t.interpret(source);
+
+    // Act: the caller is done with the buffer, but the function it declared
+    // lives on in the heap, reachable through the global it was bound to.
+    @memset(source, 'z');
+    std.testing.allocator.free(source);
+    try t.interpret("print myFunctionName;");
+
+    // Assert
+    try t.expectOutput("<fn myFunctionName>\n");
+}

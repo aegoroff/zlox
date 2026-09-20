@@ -56,7 +56,7 @@ const Compile = struct {
 
     fn init(gpa: std.mem.Allocator, function_type: FunctionType) !Compile {
         const func = try gpa.create(val.Function);
-        func.* = val.Function.init(gpa, null);
+        func.* = val.Function.init(gpa);
         var compiler = Compile{
             .allocator = gpa,
             .local_count = 1,
@@ -904,10 +904,12 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     const old_compiler = self.current;
     var compiler = try Compile.init(self.allocator, function_type);
     compiler.enclosing = old_compiler;
-    compiler.function.?.name = self.lexeme(&self.parser.previous);
     const new_compile = try self.allocator.create(Compile);
     new_compile.* = compiler;
     self.current = new_compile;
+    // Named only once the new compile is on the chain, so a failure here still
+    // reaches `Compiler.deinit` and frees the function instead of leaking it.
+    try new_compile.function.?.setName(self.allocator, self.lexeme(&self.parser.previous));
 
     self.beginScope();
     try self.consume(.LeftParen, "Expect '(' after function name.");

@@ -394,20 +394,32 @@ pub const Function = struct {
     gc: Obj,
     arity: usize,
     chunk: Chunk,
+    /// Owned by the function, and null for a script. The compiler reads the
+    /// name off a token, which points into the source buffer, while the
+    /// function itself outlives compilation in the GC heap - so `setName`
+    /// takes a copy rather than the caller's slice.
     name: ?[]const u8,
     upvalue_count: usize,
 
-    pub fn init(gpa: std.mem.Allocator, name: ?[]const u8) Function {
+    pub fn init(gpa: std.mem.Allocator) Function {
         return .{
             .gc = .{ .kind = .function },
             .arity = 0,
             .chunk = Chunk.init(gpa),
-            .name = name,
+            .name = null,
             .upvalue_count = 0,
         };
     }
 
+    pub fn setName(self: *Function, gpa: std.mem.Allocator, name: []const u8) !void {
+        const owned = try gpa.dupe(u8, name);
+        if (self.name) |previous| gpa.free(previous);
+        self.name = owned;
+    }
+
     pub fn deinit(self: *Function) void {
+        if (self.name) |owned| self.chunk.allocator.free(owned);
+        self.name = null;
         self.chunk.deinit();
     }
 
@@ -533,7 +545,7 @@ test "LoxValue is 8 bytes" {
 }
 
 test "Closure size scales with upvalue count" {
-    var func = Function.init(std.testing.allocator, "fn");
+    var func = Function.init(std.testing.allocator);
     func.upvalue_count = 3;
     var closure = try Closure.init(std.testing.allocator, &func);
     defer closure.deinit(std.testing.allocator);
