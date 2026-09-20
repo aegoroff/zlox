@@ -463,7 +463,12 @@ fn errorAt(self: *VM, ip: [*]const u8, comptime fmt: []const u8, args: anytype) 
     const position = chunk_ptr.positions.items[offset];
     const message = try std.fmt.allocPrint(self.allocator, fmt, args);
     defer self.allocator.free(message);
-    const col_end = position.col + @max(position.len, 1) - 1;
+    // Widened before the arithmetic: `Position` stores the column and the
+    // length in sixteen bits and saturates both, so a token whose span reaches
+    // past column 65535 - a long string literal, or anything on a generated
+    // line that long - overflows the sum in sixteen-bit arithmetic.
+    const span = @max(@as(usize, position.len), 1);
+    const col_end = @as(usize, position.col) + span - 1;
     try self.compiler.?.reportErrorAt(position.line, position.col, position.line, col_end, message);
 }
 

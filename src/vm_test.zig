@@ -3447,6 +3447,25 @@ test "error: stack overflow" {
     try t.expectFrameCount(t.machine.frames.len);
 }
 
+test "error: a runtime error on a token past the position column limit" {
+    // Arrange: a position holds the column and the length in sixteen bits and
+    // saturates both, so a token whose span reaches past column 65535 - a long
+    // string literal, or anything on a generated line that long - used to
+    // overflow the span arithmetic in the reporter and abort the process.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    var source = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer source.deinit();
+    try source.writer.writeAll("print -\"");
+    try source.writer.splatByteAll('a', 70_000);
+    try source.writer.writeAll("\";");
+
+    // Act + Assert
+    try t.expectRuntimeError(source.written());
+}
+
 test "error: super extra args" {
     // Arrange
     var t: TestHarness = undefined;
