@@ -203,8 +203,19 @@ fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
     heap_str.* = .{ .gc = .{ .kind = .string }, .hash = hash, .data = owned };
     try self.push(LoxValue.string(heap_str));
     errdefer _ = self.pop();
+    // Registration goes in before the intern-table insert, which grows the
+    // table and is therefore a collection point. A collection reached with the
+    // string on the stack but missing from the heap's object list marks it and
+    // then cannot unmark it - only listed objects are swept - so it would join
+    // the list already black. `markObject` skips an object that is already
+    // marked, so from then on nothing it points at would be blackened again.
+    // Registering first costs nothing: this is a plain list insert, and the
+    // collection it makes due is taken once the insert is accounted for.
+    try self.heap.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
     _ = try self.setTrackedTable(&self.strings, heap_str, LoxValue.nil);
-    try self.trackObject(.{ .string = heap_str }, @sizeOf(val.HeapString) + owned.len);
+    if (self.heap.shouldCollect()) {
+        try self.collectGarbage();
+    }
     _ = self.pop();
     return heap_str;
 }
@@ -1147,6 +1158,32 @@ test "unreferenced interned strings are collected from string pool" {
 
     try std.testing.expect(virtual_machine.strings.findString(ephemeral, hash) == null);
     try std.testing.expect(virtual_machine.strings.findString("init", virtual_machine.init_string.?.hash) != null);
+}
+
+test "interning a string across a collection leaves it white" {
+    // Arrange: collect at every tracked allocation, so the growth of the
+    // string pool inside `takeString` is itself a collection point.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtual_machine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+    virtual_machine.heap.next_gc = 0;
+
+    // Act: enough strings to grow the pool several times.
+    var i: usize = 0;
+    while (i < 64) : (i += 1) {
+        var name_buf: [32]u8 = undefined;
+        const name = try std.fmt.bufPrint(&name_buf, "interned_string_{d}", .{i});
+        _ = try virtual_machine.internString(name);
+    }
+
+    // Assert: no object stays black between collections. One that does is
+    // skipped by `markObject` forever after, and nothing it points at would
+    // ever be blackened again.
+    var current = virtual_machine.heap.objects;
+    while (current) |obj| : (current = obj.next) {
+        try std.testing.expect(!obj.marked);
+    }
 }
 
 test "collecting garbage before init_string is set does not mark a garbage pointer" {
