@@ -870,8 +870,7 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                const bn = b.asNumber();
-                stack.popAndReplace(LoxValue.number(if (bn == 0) std.math.nan(f64) else a.asNumber() / bn));
+                stack.popAndReplace(LoxValue.number(a.asNumber() / b.asNumber()));
             },
             .Print => {
                 const value = stack.pop();

@@ -302,8 +302,58 @@ test "expr: divide by zero" {
     // Act
     try t.interpret("print 5 / 0;");
 
+    // Assert: plain IEEE division, the way clox and the book leave it.
+    try t.expectOutput("inf\n");
+}
+
+test "expr: divide a negative by zero" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.interpret("print -5 / 0;");
+
+    // Assert
+    try t.expectOutput("-inf\n");
+}
+
+test "expr: divide zero by zero" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.interpret("print 0 / 0;");
+
     // Assert
     try t.expectOutput("NaN\n");
+}
+
+test "expr: infinity stays a number through the NaN boxing" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    const code =
+        \\var big = 1/0;
+        \\print big > 5;
+        \\print big == 1/0;
+        \\print -big;
+        \\print big + 1;
+        \\print big - big;
+    ;
+
+    // Act
+    try t.interpret(code);
+
+    // Assert: an infinity carries neither the quiet-NaN pattern the boxing
+    // reserves for its own tags nor the sign bit that marks a boxed pointer,
+    // so it round-trips as a plain number.
+    try t.expectOutput("true\ntrue\n-inf\ninf\nNaN\n");
 }
 
 test "expr: long string <= false" {
