@@ -3,9 +3,14 @@ const val = @import("value.zig");
 const LoxValue = val.LoxValue;
 const NativeResult = val.NativeResult;
 
+/// Seconds of CPU this process has used, which is what the book's `clock()`
+/// reports - it is C's `clock()` over `CLOCKS_PER_SEC`. Reading a wall clock
+/// instead gives the same answer for `clock() - start`, the only use the
+/// book's benchmarks put it to, but makes a bare `print clock();` print the
+/// Unix time.
 pub fn clock(io: std.Io, args: []const LoxValue) NativeResult {
     if (args.len != 0) return .{ .failure = "clock() expects no arguments." };
-    const ts = std.Io.Clock.real.now(io);
+    const ts = std.Io.Clock.cpu_process.now(io);
     const ns: f64 = @floatFromInt(ts.toNanoseconds());
     return .{ .value = LoxValue.number(ns / 1_000_000_000.0) };
 }
@@ -26,6 +31,22 @@ pub fn max(_: std.Io, args: []const LoxValue) NativeResult {
     if (args.len != 2) return .{ .failure = "max() expects 2 arguments." };
     if (!args[0].isNumber() or !args[1].isNumber()) return .{ .failure = "max() expects numbers." };
     return .{ .value = LoxValue.number(@max(args[0].asNumber(), args[1].asNumber())) };
+}
+
+test "clock measures from the start of the process" {
+    // Arrange, Act
+    const first = clock(std.testing.io, &.{}).value.asNumber();
+    var spin: f64 = 0;
+    var i: usize = 0;
+    while (i < 200_000) : (i += 1) spin += @floatFromInt(i);
+    const second = clock(std.testing.io, &.{}).value.asNumber();
+
+    // Assert: seconds since the process began, so a small number that does not
+    // go backwards - not the ten-digit Unix time a wall clock would give.
+    try std.testing.expect(first >= 0);
+    try std.testing.expect(second >= first);
+    try std.testing.expect(second < 3600);
+    try std.testing.expect(spin > 0);
 }
 
 test "clock rejects arguments" {
