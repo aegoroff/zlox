@@ -264,10 +264,14 @@ pub fn reportErrorAt(
 fn advance(self: *Compiler) !void {
     self.parser.previous = self.parser.current;
     self.parser.current = self.lexer.scanToken() catch |lex_err| {
-        switch (lex_err) {
-            error.UnexpectedCharacter => try self.errorAtCurrent("Unexpected character found in source code."),
-            error.UnterminatedString => try self.errorAtLexerScan("Unterminated string literal."),
-        }
+        // A failed scan hands back no token, so `parser.current` still holds
+        // the one before it - reporting against that points at the end of the
+        // previous token, or at nothing at all when the very first scan fails.
+        // The scanner's own span is what describes the text that was refused.
+        try self.errorAtLexerScan(switch (lex_err) {
+            error.UnexpectedCharacter => "Unexpected character found in source code.",
+            error.UnterminatedString => "Unterminated string literal.",
+        });
         // A lexical error is a compile error. Letting the scanner's own error
         // set escape sends `exitCode` down its `else` branch, which exits 1
         // instead of the 65 the language contract promises for a failed
@@ -289,12 +293,12 @@ fn errorAtLexerScan(self: *Compiler, message: []const u8) !void {
         return;
     }
     self.parser.panic_mode = true;
-    const col_end = if (self.lexer.col > self.lexer.start_col) self.lexer.col - 1 else self.lexer.start_col;
+    const scanned = self.lexer.span();
     try self.reportErrorAt(
-        self.lexer.line,
-        self.lexer.start_col,
-        self.lexer.line,
-        col_end,
+        scanned.line,
+        scanned.col_start,
+        scanned.line,
+        scanned.col_end,
         message,
     );
     self.parser.had_error = true;

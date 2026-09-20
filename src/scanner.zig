@@ -49,6 +49,15 @@ pub const TokenType = enum {
     Eof,
 };
 
+/// Where the text scanned so far for the token in progress begins and ends.
+/// A lexical error hands back no token, so this is the only description of
+/// what went wrong that survives it.
+pub const Span = struct {
+    line: usize,
+    col_start: usize,
+    col_end: usize,
+};
+
 pub const Token = struct {
     type: TokenType,
     start: usize,
@@ -65,6 +74,9 @@ current: usize,
 line: usize,
 col: usize,
 start_col: usize,
+/// Line the token in progress began on, which is not `line` once the token
+/// has run over a newline - as an unterminated string literal does.
+start_line: usize,
 
 pub fn init(source: []const u8) Lexer {
     return Lexer{
@@ -74,6 +86,20 @@ pub fn init(source: []const u8) Lexer {
         .line = 1,
         .col = 1,
         .start_col = 1,
+        .start_line = 1,
+    };
+}
+
+pub fn span(self: *const Lexer) Span {
+    // `col` sits one past the last character consumed, and is a column on
+    // `line` - which is only the token's own line while the token has not run
+    // over a newline. Once it has, all that can be pointed at is where it
+    // started.
+    const ends_where_it_began = self.line != self.start_line or self.col <= self.start_col;
+    return .{
+        .line = self.start_line,
+        .col_start = self.start_col,
+        .col_end = if (ends_where_it_began) self.start_col else self.col - 1,
     };
 }
 
@@ -81,6 +107,7 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
     self.skipWhitespace();
     self.start = self.current;
     self.start_col = self.col;
+    self.start_line = self.line;
     if (self.isAtEnd()) {
         // For EOF token, use the position at the end of the file
         // col_start and col_end should point to the end of the last line
@@ -337,6 +364,63 @@ test "NUL byte inside a string literal is part of it" {
     // Assert
     try std.testing.expectEqual(.String, token.type);
     try std.testing.expectEqual(@as(usize, 5), token.length);
+}
+
+test "span of an unexpected character covers just that character" {
+    // Arrange
+    var lexer = Lexer.init("@");
+
+    // Act
+    const result = lexer.scanToken();
+
+    // Assert
+    try std.testing.expectError(LexerError.UnexpectedCharacter, result);
+    try std.testing.expectEqual(Span{ .line = 1, .col_start = 1, .col_end = 1 }, lexer.span());
+}
+
+test "span of an unexpected character stays on its own line" {
+    // Arrange
+    var lexer = Lexer.init("print 1;\n@");
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+
+    // Act
+    const result = lexer.scanToken();
+
+    // Assert
+    try std.testing.expectError(LexerError.UnexpectedCharacter, result);
+    try std.testing.expectEqual(Span{ .line = 2, .col_start = 1, .col_end = 1 }, lexer.span());
+}
+
+test "span of an unterminated string that ran over a newline points at its start" {
+    // Arrange
+    var lexer = Lexer.init("var s = \"no close\nand more text here");
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+
+    // Act
+    const result = lexer.scanToken();
+
+    // Assert: the scan stopped two lines down, but the literal opened here.
+    try std.testing.expectError(LexerError.UnterminatedString, result);
+    try std.testing.expectEqual(Span{ .line = 1, .col_start = 9, .col_end = 9 }, lexer.span());
+}
+
+test "span of an unterminated string covers the literal" {
+    // Arrange
+    var lexer = Lexer.init("var s = \"no close");
+
+    // Act
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    const result = lexer.scanToken();
+
+    // Assert
+    try std.testing.expectError(LexerError.UnterminatedString, result);
+    try std.testing.expectEqual(Span{ .line = 1, .col_start = 9, .col_end = 17 }, lexer.span());
 }
 
 test "Left paren" {
