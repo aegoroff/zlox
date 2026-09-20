@@ -137,7 +137,7 @@ pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []co
     try self.trackConstantsRecursively(func);
     self.compiler.?.current.function = null;
 
-    const closure_ptr = try self.heap.allocClosure();
+    const closure_ptr = try self.heap.alloc(val.Closure);
     closure_ptr.* = try val.Closure.init(self.allocator, func);
     try self.push(LoxValue.closure(closure_ptr));
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
@@ -199,7 +199,7 @@ fn internString(self: *VM, bytes: []const u8) !*val.HeapString {
 }
 
 fn takeString(self: *VM, owned: []u8, hash: u32) !*val.HeapString {
-    const heap_str = try self.heap.allocStringHeader();
+    const heap_str = try self.heap.alloc(val.HeapString);
     heap_str.* = .{ .gc = .{ .kind = .string }, .hash = hash, .data = owned };
     try self.push(LoxValue.string(heap_str));
     errdefer _ = self.pop();
@@ -342,7 +342,7 @@ inline fn callValue(self: *VM, ip: [*]const u8, value: LoxValue, arg_count: usiz
     }
     if (value.isClass()) {
         const k = value.asClass();
-        const instance_ptr = try self.heap.allocInstance();
+        const instance_ptr = try self.heap.alloc(val.Instance);
         instance_ptr.* = val.Instance.init(k);
         self.peekSlot(arg_count).* = LoxValue.instance(instance_ptr);
         try self.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
@@ -391,7 +391,7 @@ fn captureUpvalue(self: *VM, slot: *LoxValue) !*val.Upvalue {
         current = upvalue.next;
     }
 
-    const created = try self.heap.allocUpvalue();
+    const created = try self.heap.alloc(val.Upvalue);
     created.* = .{
         .gc = .{ .kind = .upvalue },
         .location = slot,
@@ -448,7 +448,7 @@ inline fn bindMethod(self: *VM, klass: *val.Class, name: *val.HeapString) !bool 
     if (klass.methods.get(name)) |method| {
         _ = self.pop(); // instance
 
-        const bound_ptr = try self.heap.allocBoundMethod();
+        const bound_ptr = try self.heap.alloc(val.BoundMethod);
         bound_ptr.* = val.BoundMethod.init(instance, method);
         try self.push(LoxValue.boundMethod(bound_ptr));
         try self.trackObject(.{ .bound_method = bound_ptr }, @sizeOf(val.BoundMethod));
@@ -595,7 +595,7 @@ fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: us
     const function = cursor.constantAt(ip, constant_size).asFunction();
     var next = ip + constant_size;
 
-    const closure_ptr = try self.heap.allocClosure();
+    const closure_ptr = try self.heap.alloc(val.Closure);
     closure_ptr.* = try val.Closure.init(self.allocator, function);
     errdefer closure_ptr.deinit(self.allocator);
 
@@ -617,7 +617,7 @@ fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: us
 fn opClass(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, constant_size: usize) !void {
     const name = try cursor.stringConstantAt(ip, constant_size);
 
-    const class_ptr = try self.heap.allocClass();
+    const class_ptr = try self.heap.alloc(val.Class);
     class_ptr.* = val.Class.init(name);
     try self.pushAt(ip, LoxValue.class(class_ptr));
     try self.trackObject(.{ .class = class_ptr }, class_ptr.size());

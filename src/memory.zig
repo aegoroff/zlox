@@ -230,28 +230,8 @@ pub const Heap = struct {
         }
     }
 
-    pub fn allocInstance(self: *Heap) !*Instance {
-        return self.pool.create(self.allocator, Instance);
-    }
-
-    pub fn allocClosure(self: *Heap) !*Closure {
-        return self.pool.create(self.allocator, Closure);
-    }
-
-    pub fn allocUpvalue(self: *Heap) !*Upvalue {
-        return self.pool.create(self.allocator, Upvalue);
-    }
-
-    pub fn allocBoundMethod(self: *Heap) !*BoundMethod {
-        return self.pool.create(self.allocator, BoundMethod);
-    }
-
-    pub fn allocClass(self: *Heap) !*Class {
-        return self.pool.create(self.allocator, Class);
-    }
-
-    pub fn allocStringHeader(self: *Heap) !*HeapString {
-        return self.pool.create(self.allocator, HeapString);
+    pub fn alloc(self: *Heap, comptime T: type) !*T {
+        return self.pool.create(self.allocator, T);
     }
 
     pub fn trackObject(self: *Heap, obj: HeapObj, size: usize) !void {
