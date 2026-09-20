@@ -3756,3 +3756,95 @@ test "function name outlives the source buffer it was compiled from" {
     // Assert
     try t.expectOutput("<fn myFunctionName>\n");
 }
+
+/// Builds `prefix` repeated `depth` times, then `middle`, then `suffix`
+/// repeated `depth` times - the shape every nesting test below needs.
+fn nested(
+    gpa: std.mem.Allocator,
+    depth: usize,
+    prefix: []const u8,
+    middle: []const u8,
+    suffix: []const u8,
+) ![]u8 {
+    var source = std.Io.Writer.Allocating.init(gpa);
+    errdefer source.deinit();
+    for (0..depth) |_| try source.writer.writeAll(prefix);
+    try source.writer.writeAll(middle);
+    for (0..depth) |_| try source.writer.writeAll(suffix);
+    return source.toOwnedSlice();
+}
+
+test "compile: nesting within the parser's limit still compiles and runs" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    const source = try nested(std.testing.allocator, 100, "(", "1", ")");
+    defer std.testing.allocator.free(source);
+    const code = try std.mem.concat(std.testing.allocator, u8, &.{ "print ", source, ";" });
+    defer std.testing.allocator.free(code);
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("1\n");
+}
+
+test "compile: a block costs the same nesting as any other construct" {
+    // Arrange: 200 is past what a block used to reach, back when a level of it
+    // was charged twice - once through `declaration`, once through `statement`
+    // - while an expression or a function declaration was charged once.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    const code = try nested(std.testing.allocator, 200, "{", " print 1; ", "}");
+    defer std.testing.allocator.free(code);
+
+    // Act
+    try t.interpret(code);
+
+    // Assert
+    try t.expectOutput("1\n");
+}
+
+test "compile: expression nested past the parser's limit is a compile error" {
+    // Arrange: the recursive descent runs on the host stack, which it can
+    // neither grow nor probe, so past some depth the process would die with no
+    // diagnostic at all.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    const source = try nested(std.testing.allocator, 400, "(", "1", ")");
+    defer std.testing.allocator.free(source);
+    const code = try std.mem.concat(std.testing.allocator, u8, &.{ "print ", source, ";" });
+    defer std.testing.allocator.free(code);
+
+    // Act & Assert
+    try t.expectCompileError(code);
+}
+
+test "compile: blocks nested past the parser's limit are a compile error" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    const code = try nested(std.testing.allocator, 400, "{", " print 1; ", "}");
+    defer std.testing.allocator.free(code);
+
+    // Act & Assert
+    try t.expectCompileError(code);
+}
+
+test "compile: function declarations nested past the parser's limit are a compile error" {
+    // Arrange: the heaviest level there is - each one adds a `Compile` to the
+    // enclosing chain and a frame of `function` to the host stack.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+    const code = try nested(std.testing.allocator, 400, "fun f(){", " print 1; ", "}");
+    defer std.testing.allocator.free(code);
+
+    // Act & Assert
+    try t.expectCompileError(code);
+}

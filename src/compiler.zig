@@ -54,22 +54,22 @@ const Compile = struct {
     function_type: FunctionType,
     upvalues: [LOCALS_MAX]Upvalue,
 
-    fn init(gpa: std.mem.Allocator, function_type: FunctionType) !Compile {
+    /// Initializes in place rather than returning a `Compile`. The struct
+    /// carries the local and upvalue arrays inline, some ten kilobytes of it,
+    /// and every nested function declaration adds another copy of whatever a
+    /// by-value return leaves on the stack - which is what the host stack runs
+    /// out of first when a script nests functions deeply.
+    fn init(self: *Compile, gpa: std.mem.Allocator, function_type: FunctionType) !void {
         const func = try gpa.create(val.Function);
         func.* = val.Function.init(gpa);
-        var compiler = Compile{
-            .allocator = gpa,
-            .local_count = 1,
-            .scope_depth = 0,
-            .locals = undefined,
-            .function = func,
-            .function_type = function_type,
-            .enclosing = null,
-            .upvalues = undefined,
-        };
+        self.allocator = gpa;
+        self.enclosing = null;
+        self.local_count = 1;
+        self.scope_depth = 0;
+        self.function = func;
+        self.function_type = function_type;
         const receiver_name = if (function_type == .Method or function_type == .TypeInitializer) "this" else "";
-        compiler.locals[0] = Local{ .name = receiver_name, .depth = 0, .is_captured = false };
-        return compiler;
+        self.locals[0] = Local{ .name = receiver_name, .depth = 0, .is_captured = false };
     }
 
     fn deinit(self: *Compile) void {
@@ -107,12 +107,23 @@ pub const FunctionType = enum {
 
 const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
 
+/// How deep the recursive descent may go before it gives up. The parser
+/// recurses on the host stack, which it cannot grow and cannot check, so
+/// without a bound deeply nested input crashes the process instead of being
+/// diagnosed. A nested function declaration is the heaviest level at roughly
+/// 1.5 KiB of stack in a debug build, which keeps the worst case here inside
+/// even a 1 MiB stack. Nothing written by hand comes close to this; reaching
+/// it means generated or hostile input.
+const MAX_NESTING: usize = 256;
+
 allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 lexer: scan.Lexer,
 current: *Compile,
 current_class: ?*ClassCompiler,
 parser: Parser,
+/// Current depth of the recursive descent, bounded by `MAX_NESTING`.
+nesting: usize,
 print_code: bool,
 filename: []const u8,
 intern_ctx: *anyopaque,
@@ -129,7 +140,7 @@ pub fn init(
 ) !Compiler {
     const script = try gpa.create(Compile);
     errdefer gpa.destroy(script);
-    script.* = try Compile.init(gpa, .Script);
+    try script.init(gpa, .Script);
     return .{
         .allocator = gpa,
         .writer = writer,
@@ -139,6 +150,7 @@ pub fn init(
         .intern_string_fn = intern_string_fn,
         .reporter = ErrorReporter.init(gpa),
         .lexer = undefined,
+        .nesting = 0,
         .current = script,
         .current_class = null,
         .parser = .{
@@ -148,6 +160,23 @@ pub fn init(
             .panic_mode = false,
         },
     };
+}
+
+/// Counts one level of nesting, refusing to go past `MAX_NESTING`. The caller
+/// pairs it with `defer self.nesting -= 1`; a refusal does not count the level,
+/// so it needs no unwinding of its own.
+///
+/// Three callers cover every way the descent can recurse, each charging one
+/// level per level of source: `parsePrecedence` for expressions, `statement`
+/// for blocks and the bodies of `if`, `while` and `for`, and `function` for
+/// function and method declarations, which `declaration` reaches without
+/// going through `statement`.
+fn enterNesting(self: *Compiler) !void {
+    if (self.nesting == MAX_NESTING) {
+        try self.errorAtCurrent("Too deeply nested.");
+        return e.Error.CompileError;
+    }
+    self.nesting += 1;
 }
 
 fn internCompileString(self: *Compiler, bytes: []const u8) !*val.HeapString {
@@ -652,6 +681,8 @@ fn getPrecedence(token_type: scan.TokenType) Precedence {
 }
 
 fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
+    try self.enterNesting();
+    defer self.nesting -= 1;
     try self.advance();
     const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
     if (!try self.callPrefix(self.parser.previous.type, can_assign)) {
@@ -902,11 +933,19 @@ fn block(self: *Compiler) anyerror!void {
 }
 
 fn function(self: *Compiler, function_type: FunctionType) !void {
+    try self.enterNesting();
+    defer self.nesting -= 1;
     const old_compiler = self.current;
-    var compiler = try Compile.init(self.allocator, function_type);
-    compiler.enclosing = old_compiler;
     const new_compile = try self.allocator.create(Compile);
-    new_compile.* = compiler;
+    {
+        // Scoped deliberately: past this block the compile struct is on the
+        // enclosing chain, and `Compiler.deinit` is what frees it. Destroying
+        // it on the way out of an error once `self.current` points at it would
+        // leave that chain holding freed memory.
+        errdefer self.allocator.destroy(new_compile);
+        try new_compile.init(self.allocator, function_type);
+    }
+    new_compile.enclosing = old_compiler;
     self.current = new_compile;
     // Named only once the new compile is on the chain, so a failure here still
     // reaches `Compiler.deinit` and frees the function instead of leaking it.
@@ -932,27 +971,22 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     try self.consume(.LeftBrace, "Expect '{' before function body.");
     try self.block();
 
-    // Save upvalue_count before calling endCompiler (which nullifies function)
-    const upvalue_count = new_compile.function.?.upvalue_count;
-    var upvalues: [LOCALS_MAX]Upvalue = undefined;
-    for (0..upvalue_count) |i| {
-        upvalues[i] = new_compile.upvalues[i];
-    }
-
     const func = try self.endCompiler();
 
+    // `endCompiler` has handed the function over, so the compile struct owns
+    // nothing any more: it can be freed on the way out whatever happens, while
+    // staying readable for the upvalue operands below. Reading them straight
+    // out of it saves copying the array to a local, which is four kilobytes of
+    // stack per level of nested function declaration.
+    defer self.allocator.destroy(new_compile);
     // Restore current to the enclosing compiler so defineVariable works correctly.
     self.current = old_compiler;
 
-    new_compile.deinit();
-    self.allocator.destroy(new_compile);
-
     const ix = try self.currentChunk().addConstant(LoxValue.function(func));
     try self.emitConstantOpcode(.Closure, ix);
-    for (0..upvalue_count) |i| {
-        const is_local: usize = if (upvalues[i].is_local) 1 else 0;
-        try self.emitOperand(is_local);
-        try self.emitOperand(upvalues[i].index);
+    for (new_compile.upvalues[0..func.upvalue_count]) |upvalue| {
+        try self.emitOperand(if (upvalue.is_local) 1 else 0);
+        try self.emitOperand(upvalue.index);
     }
 }
 
@@ -1046,6 +1080,8 @@ fn declaration(self: *Compiler) !void {
 }
 
 fn statement(self: *Compiler) !void {
+    try self.enterNesting();
+    defer self.nesting -= 1;
     if (try self.match(.Print)) {
         try self.printStatement();
     } else if (try self.match(.If)) {
