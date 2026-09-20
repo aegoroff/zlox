@@ -389,6 +389,7 @@ fn endCompiler(self: *Compiler) !*val.Function {
     if (!self.parser.had_error and self.print_code) {
         try self.currentChunk().disassembly(self.writer, fun_ptr.name);
     }
+    fun_ptr.chunk.dropConstantLookup();
     // Ownership transfers to caller (VM), nullify the function in compiler
     // to prevent double-free when compiler is deinitialized
     self.current.function = null;

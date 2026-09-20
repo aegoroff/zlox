@@ -1120,6 +1120,36 @@ pub fn collectGarbage(self: *VM) !void {
     self.heap.sweep();
 }
 
+test "compiled functions carry no constant lookup into execution" {
+    // Arrange
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var virtual_machine = try init(std.testing.allocator, &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+
+    // Act: a script, a nested function and a method, each with constants of
+    // its own.
+    const code =
+        \\fun outer() { var a = "first value"; fun inner() { return a; } return inner; }
+        \\class Greeter { greet() { return "third value"; } }
+        \\print outer()();
+    ;
+    try virtual_machine.interpret(code, false);
+
+    // Assert: nothing reaches execution still holding the map `addConstant`
+    // dedupes through - the indexes it produced are in the bytecode by then.
+    var seen: usize = 0;
+    var current = virtual_machine.heap.objects;
+    while (current) |obj| : (current = obj.next) {
+        if (obj.kind != .function) continue;
+        const func: *val.Function = @fieldParentPtr("gc", obj);
+        try std.testing.expectEqual(@as(usize, 0), func.chunk.constant_lookup.capacity());
+        seen += 1;
+    }
+    // script, outer, inner and greet at the least.
+    try std.testing.expect(seen >= 4);
+}
+
 test "tracked table growth updates gc heap bytes" {
     var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer writer.deinit();

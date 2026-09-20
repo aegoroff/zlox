@@ -97,6 +97,18 @@ pub fn init(gpa: std.mem.Allocator) Chunk {
     };
 }
 
+/// Releases the constant pool's index once nothing will be added to the pool
+/// again. The map exists only so `addConstant` can dedupe; execution reads
+/// constants by the index already baked into the bytecode and never touches
+/// it. The compiler reaches every chunk through `currentChunk()`, which goes
+/// through the function its `Compile` owns, and `endCompiler` clears that
+/// function as it hands it over - so once a function is compiled there is no
+/// path left that could add a constant to it.
+pub fn dropConstantLookup(self: *Chunk) void {
+    self.constant_lookup.deinit(self.allocator);
+    self.constant_lookup = .empty;
+}
+
 pub fn deinit(self: *Chunk) void {
     self.code.deinit(self.allocator);
     // Function constants are now in heap and managed by GC, don't free them here
@@ -462,6 +474,24 @@ test "addConstant reuses the index of an already-added constant" {
     try std.testing.expectEqual(first, third);
     try std.testing.expect(first != second);
     try std.testing.expectEqual(@as(usize, 2), chunk.constants.items.len);
+}
+
+test "dropConstantLookup frees the index but keeps the constants" {
+    // Arrange
+    var chunk = Chunk.init(std.testing.allocator);
+    defer chunk.deinit();
+    _ = try chunk.addConstant(LoxValue.number(1));
+    _ = try chunk.addConstant(LoxValue.number(2));
+    try std.testing.expect(chunk.constant_lookup.capacity() > 0);
+
+    // Act
+    chunk.dropConstantLookup();
+
+    // Assert: the pool execution reads is untouched, only its compile-time
+    // index is gone, and `deinit` still copes with the emptied map.
+    try std.testing.expectEqual(@as(usize, 0), chunk.constant_lookup.capacity());
+    try std.testing.expectEqual(@as(usize, 2), chunk.constants.items.len);
+    try std.testing.expectEqual(@as(f64, 2), chunk.constants.items[1].asNumber());
 }
 
 test "addConstant scales past what a linear scan would take too long for" {
