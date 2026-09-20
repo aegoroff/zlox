@@ -697,6 +697,9 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     }
 }
 
+/// Completes the local `addLocal` started, which is the one on top. Reached
+/// only after `addLocal` has succeeded: a refusal ends the compile instead of
+/// leaving the top slot holding someone else's local.
 fn markInitialized(self: *Compiler) void {
     if (self.current.scope_depth == 0) {
         return;
@@ -760,10 +763,17 @@ fn identifierConstant(self: *Compiler, token: *const scan.Token) anyerror!usize 
     return try self.makeConstant(LoxValue.string(interned));
 }
 
+/// Refusing to add a local ends the compile rather than returning quietly.
+/// `markInitialized` finishes the declaration that this call started by
+/// writing to `locals[local_count - 1]`, which is the local just added - or,
+/// if none was, whichever local happens to sit there, whose scope depth it
+/// would then overwrite. Nothing observable comes of that today, because the
+/// diagnostic has already set `had_error` and a failed compile never runs, but
+/// that makes the correctness of one function depend on a flag set in another.
 fn addLocal(self: *Compiler, token: *const scan.Token) !void {
     if (self.current.local_count == LOCALS_MAX) {
         try self.errorAtPrev("Too many local variables in function.");
-        return;
+        return e.Error.CompileError;
     }
     var local = &self.current.locals[self.current.local_count];
     self.current.local_count += 1;
@@ -1125,4 +1135,39 @@ fn synchronize(self: *Compiler) !void {
         }
         try self.advance();
     }
+}
+
+fn refusingIntern(_: *anyopaque, _: []const u8) anyerror!*val.HeapString {
+    return error.OutOfMemory;
+}
+
+test "refusing a local past the limit ends the compile" {
+    // Arrange: a compiler holding nothing but the receiver slot every compile
+    // starts with, inside a scope so `markInitialized` would do its write.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var compiler = try Compiler.init(
+        std.testing.allocator,
+        &writer.writer,
+        false,
+        "test",
+        @ptrCast(&writer),
+        refusingIntern,
+    );
+    defer compiler.deinit();
+    const token = syntheticToken("x");
+    compiler.parser.previous = token;
+    compiler.current.scope_depth = 1;
+    while (compiler.current.local_count < LOCALS_MAX) {
+        try compiler.addLocal(&token);
+    }
+    const last_depth = compiler.current.locals[LOCALS_MAX - 1].depth;
+
+    // Act
+    const result = compiler.addLocal(&token);
+
+    // Assert: the caller is stopped before it can mark a slot it does not own.
+    try std.testing.expectError(e.Error.CompileError, result);
+    try std.testing.expectEqual(LOCALS_MAX, compiler.current.local_count);
+    try std.testing.expectEqual(last_depth, compiler.current.locals[LOCALS_MAX - 1].depth);
 }
