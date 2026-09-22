@@ -942,7 +942,7 @@ pub fn run(self: *VM) !void {
                     return err.Error.RuntimeError;
                 }
             },
-            .Subtract => {
+            .Subtract, .Multiply, .Divide => {
                 const b = stack.peek(0);
                 const a = stack.peek(1);
                 if (!a.isNumber() or !b.isNumber()) {
@@ -950,27 +950,13 @@ pub fn run(self: *VM) !void {
                     try self.errorAt(ip, "Operands must be numbers.", .{});
                     return err.Error.RuntimeError;
                 }
-                stack.popAndReplace(LoxValue.number(a.asNumber() - b.asNumber()));
-            },
-            .Multiply => {
-                const b = stack.peek(0);
-                const a = stack.peek(1);
-                if (!a.isNumber() or !b.isNumber()) {
-                    stack.sync(self);
-                    try self.errorAt(ip, "Operands must be numbers.", .{});
-                    return err.Error.RuntimeError;
-                }
-                stack.popAndReplace(LoxValue.number(a.asNumber() * b.asNumber()));
-            },
-            .Divide => {
-                const b = stack.peek(0);
-                const a = stack.peek(1);
-                if (!a.isNumber() or !b.isNumber()) {
-                    stack.sync(self);
-                    try self.errorAt(ip, "Operands must be numbers.", .{});
-                    return err.Error.RuntimeError;
-                }
-                stack.popAndReplace(LoxValue.number(a.asNumber() / b.asNumber()));
+                const result = switch (opcode) {
+                    .Subtract => a.asNumber() - b.asNumber(),
+                    .Multiply => a.asNumber() * b.asNumber(),
+                    .Divide => a.asNumber() / b.asNumber(),
+                    else => unreachable,
+                };
+                stack.popAndReplace(LoxValue.number(result));
             },
             .Print => {
                 const value = stack.pop();
