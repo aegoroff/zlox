@@ -341,6 +341,18 @@ pub const Heap = struct {
         }
     }
 
+    /// Undoes a collection that stopped after marking. `markObject` skips an
+    /// object that is already marked, so a later pass would never blacken it
+    /// and `sweep` would free whatever it still points at.
+    pub fn clearMarks(self: *Heap) void {
+        self.gray_count = 0;
+        var current = self.objects;
+        while (current) |obj| {
+            obj.marked = false;
+            current = obj.next;
+        }
+    }
+
     pub fn sweep(self: *Heap) void {
         var previous: ?*Obj = null;
         var current = self.objects;

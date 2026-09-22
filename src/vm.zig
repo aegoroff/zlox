@@ -1212,6 +1212,11 @@ fn markRoots(self: *VM) !void {
 }
 
 pub fn collectGarbage(self: *VM) !void {
+    // Marking is not atomic: `markObject` paints an object before it is sure
+    // the gray stack can hold it. Leaving those bits set makes the next pass
+    // skip the object and sweep its children. A failed pass has to look like
+    // it never started.
+    errdefer self.heap.clearMarks();
     try self.markRoots();
     try self.heap.traceReferences();
     self.strings.removeWhite();
@@ -1354,6 +1359,55 @@ test "value stack overflow is reported" {
     defer virtual_machine.deinit();
     virtual_machine.stack_top = virtual_machine.stackLimit();
     try std.testing.expectError(err.Error.RuntimeError, virtual_machine.push(LoxValue.nil));
+}
+
+test "a failed collection clears marks so the next one still traces" {
+    // Arrange: an instance on the stack, its only field a string nothing else
+    // keeps. The gray stack is emptied and the next allocation fails, so the
+    // first mark paints the instance and then cannot enqueue it.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var virtual_machine = try init(failing.allocator(), &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+
+    const class_name = try virtual_machine.internString("Box");
+    const class_ptr = try virtual_machine.heap.alloc(val.Class);
+    class_ptr.* = val.Class.init(class_name);
+    try virtual_machine.trackObject(.{ .class = class_ptr }, class_ptr.size());
+
+    const instance_ptr = try virtual_machine.heap.alloc(val.Instance);
+    instance_ptr.* = val.Instance.init(class_ptr);
+    try virtual_machine.trackObject(.{ .instance = instance_ptr }, instance_ptr.size());
+    try virtual_machine.push(LoxValue.instance(instance_ptr));
+
+    const child_bytes = "only-through-the-field";
+    const child = try virtual_machine.internString(child_bytes);
+    const old_capacity = instance_ptr.fields.capacity();
+    _ = try instance_ptr.fields.set(virtual_machine.allocator, child, LoxValue.nil);
+    try virtual_machine.adjustMapAllocation(old_capacity, instance_ptr.fields.capacity());
+
+    const gray = virtual_machine.heap.gray_stack;
+    virtual_machine.heap.gray_stack = &.{};
+    virtual_machine.heap.gray_count = 0;
+    virtual_machine.allocator.free(gray);
+    failing.fail_index = failing.alloc_index;
+
+    // Act
+    const failed = virtual_machine.collectGarbage();
+
+    // Assert: the pass is abandoned with every mark taken back, and a second
+    // pass, now able to allocate, still finds the field string.
+    try std.testing.expectError(error.OutOfMemory, failed);
+    try std.testing.expect(!instance_ptr.gc.marked);
+    try std.testing.expect(!child.gc.marked);
+    try std.testing.expectEqual(@as(usize, 0), virtual_machine.heap.gray_count);
+
+    failing.fail_index = std.math.maxInt(usize);
+    try virtual_machine.collectGarbage();
+    try std.testing.expect(virtual_machine.strings.findString(child_bytes, tbl.hashString(child_bytes)) != null);
+    try std.testing.expect(instance_ptr.fields.get(child) != null);
+    try std.testing.expect(!child.gc.marked);
 }
 
 test {
