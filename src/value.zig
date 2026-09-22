@@ -421,6 +421,10 @@ pub const Closure = struct {
     gc: Obj,
     function: *Function,
     upvalues: []*Upvalue,
+    /// Same number as `upvalues.len`. Reading the slice length instead made
+    /// `trees.lox` spend about 12% more cycles at the same instruction count,
+    /// and padding the struct back to 48 bytes did not recover that.
+    upvalue_count: usize,
 
     pub fn init(allocator: std.mem.Allocator, function: *Function) !Closure {
         const upvalues = try allocator.alloc(*Upvalue, function.upvalue_count);
@@ -428,6 +432,7 @@ pub const Closure = struct {
             .gc = .{ .kind = .closure },
             .function = function,
             .upvalues = upvalues,
+            .upvalue_count = function.upvalue_count,
         };
     }
 
@@ -439,7 +444,7 @@ pub const Closure = struct {
     }
 
     pub fn size(self: *const Closure) usize {
-        return @sizeOf(Closure) + self.upvalues.len * @sizeOf(*Upvalue);
+        return @sizeOf(Closure) + self.upvalue_count * @sizeOf(*Upvalue);
     }
 };
 
