@@ -568,6 +568,13 @@ fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *const scan.Token)
     }
 }
 
+/// Refusing an upvalue ends the compile rather than returning quietly. The
+/// returned index goes straight into a `GetUpvalue`/`SetUpvalue` operand, so
+/// handing back `0` when nothing was added points the load at whichever
+/// variable the function captured first. Nothing observable comes of that
+/// today, because the diagnostic has already set `had_error` and a failed
+/// compile never runs, but that makes the correctness of one function depend
+/// on a flag set in another.
 fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool) !usize {
     const upvalue_count = compiler.function.?.upvalue_count;
     for (0..upvalue_count) |ix| {
@@ -578,7 +585,7 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
 
     if (upvalue_count == LOCALS_MAX) {
         try self.errorAtPrev("Too many closure variables in function.");
-        return 0;
+        return e.Error.CompileError;
     }
 
     compiler.upvalues[upvalue_count].is_local = is_local;
@@ -1186,4 +1193,33 @@ test "refusing a local past the limit ends the compile" {
     try std.testing.expectError(e.Error.CompileError, result);
     try std.testing.expectEqual(LOCALS_MAX, compiler.current.local_count);
     try std.testing.expectEqual(last_depth, compiler.current.locals[LOCALS_MAX - 1].depth);
+}
+
+test "refusing an upvalue past the limit ends the compile" {
+    // Arrange: a compile whose upvalue array is full, each slot a distinct
+    // capture so the next request cannot be answered by the dedupe scan.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var compiler = try Compiler.init(
+        std.testing.allocator,
+        &writer.writer,
+        false,
+        "test",
+        @ptrCast(&writer),
+        refusingIntern,
+    );
+    defer compiler.deinit();
+    const token = syntheticToken("x");
+    compiler.parser.previous = token;
+    for (0..LOCALS_MAX) |ix| {
+        _ = try compiler.addUpvalue(compiler.current, ix, true);
+    }
+
+    // Act
+    const result = compiler.addUpvalue(compiler.current, LOCALS_MAX, true);
+
+    // Assert: the caller is stopped instead of being sent to a capture it
+    // never asked for.
+    try std.testing.expectError(e.Error.CompileError, result);
+    try std.testing.expectEqual(LOCALS_MAX, compiler.current.function.?.upvalue_count);
 }
