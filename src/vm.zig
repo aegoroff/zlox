@@ -1410,6 +1410,32 @@ test "a failed collection clears marks so the next one still traces" {
     try std.testing.expect(!child.gc.marked);
 }
 
+test "compiling a nested function leaks nothing when an allocation fails" {
+    // Arrange / Act: fail each allocation of a compile in turn. `fun g` is
+    // handed off by `endCompiler` before the enclosing chunk accepts it, which
+    // is the step that used to drop the function.
+    const source = "fun f() { fun g() {} }";
+    var attempt: usize = 0;
+    const max_attempts: usize = 512;
+    var succeeded = false;
+    while (attempt < max_attempts) : (attempt += 1) {
+        var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+        defer writer.deinit();
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var virtual_machine = try init(failing.allocator(), &writer.writer, std.testing.io);
+        defer virtual_machine.deinit();
+
+        failing.fail_index = failing.alloc_index + attempt;
+        virtual_machine.interpret(source, false) catch continue;
+        succeeded = true;
+        break;
+    }
+
+    // Assert: some attempt gets past every allocation, and the testing
+    // allocator reports a leak from any earlier attempt that freed nothing.
+    try std.testing.expect(succeeded);
+}
+
 test {
     _ = @import("vm_test.zig");
 }

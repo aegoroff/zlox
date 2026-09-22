@@ -80,9 +80,8 @@ const Compile = struct {
 };
 
 /// Frees a function together with the nested functions stored in its constant
-/// pool. Only reached while the compiler still owns the tree: a successful
-/// `endCompiler` nulls out `Compile.function`, after which the VM owns every
-/// function through the heap.
+/// pool. Reached while a `Compile` still owns the tree, and when `endCompiler`
+/// has already given the function back but it never landed in a chunk.
 fn freeOwnedFunction(gpa: std.mem.Allocator, func: *val.Function) void {
     for (func.chunk.constants.items) |constant| {
         if (constant.isFunction()) {
@@ -1003,7 +1002,13 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     // Restore current to the enclosing compiler so defineVariable works correctly.
     self.current = old_compiler;
 
-    const ix = try self.currentChunk().addConstant(LoxValue.function(func));
+    // Ours until the enclosing chunk accepts it. Past `endCompiler` the compile
+    // struct will not free it, and a failed `addConstant` never stores it, so
+    // this is the last pointer.
+    const ix = self.currentChunk().addConstant(LoxValue.function(func)) catch |add_err| {
+        freeOwnedFunction(self.allocator, func);
+        return add_err;
+    };
     try self.emitConstantOpcode(.Closure, ix);
     for (new_compile.upvalues[0..func.upvalue_count]) |upvalue| {
         try self.emitOperand(if (upvalue.is_local) 1 else 0);
