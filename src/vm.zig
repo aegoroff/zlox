@@ -12,9 +12,7 @@ const Table = tbl.Table;
 
 const LoxValue = val.LoxValue;
 const FRAMES_MAX: usize = 64;
-const STACK_MAX: usize = 256 * FRAMES_MAX;
-/// An `OP_CLOSURE` operand pair: where the upvalue comes from, and its index.
-const UPVALUE_OPERAND_SIZE: usize = 2;
+pub const STACK_MAX: usize = 256 * FRAMES_MAX;
 
 // Declaration order is layout order here. What the dispatch loop touches on
 // every call, return and global access comes first so it shares a cache line,
@@ -602,7 +600,7 @@ fn opClosure(self: *VM, cursor: *FrameCursor, ip: [*]const u8, constant_size: us
     const operands = ip + constant_size;
     const closure_ptr = try self.makeClosure(cursor, ip, operands, function);
     try self.trackObject(.{ .closure = closure_ptr }, closure_ptr.size());
-    return operands + UPVALUE_OPERAND_SIZE * function.upvalue_count;
+    return operands + Chunk.UPVALUE_OPERAND_SIZE * function.upvalue_count;
 }
 
 /// Builds the closure and leaves it on the stack for the caller to register.
@@ -630,8 +628,8 @@ fn makeClosure(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, operands:
     var next = operands;
     for (0..function.upvalue_count) |i| {
         const is_local = Chunk.readByteAt(next);
-        const index = Chunk.readByteAt(next + 1);
-        next += UPVALUE_OPERAND_SIZE;
+        const index = Chunk.readThreeBytesAt(next + 1);
+        next += Chunk.UPVALUE_OPERAND_SIZE;
         closure_ptr.upvalues[i] = if (is_local == 1)
             try self.captureUpvalue(@ptrCast(cursor.frame.slots + index))
         else

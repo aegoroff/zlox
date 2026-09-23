@@ -71,6 +71,10 @@ pub const Position = struct {
 pub const MAX_SHORT_VALUE: usize = 255;
 pub const OPERAND_SHORT: usize = 1;
 pub const OPERAND_LONG: usize = 3;
+/// A `Closure` operand describing one captured variable: an `is_local` byte,
+/// then the slot or enclosing upvalue index. The index is always three bytes
+/// wide because a captured local may sit past slot 255.
+pub const UPVALUE_OPERAND_SIZE: usize = 1 + OPERAND_LONG;
 
 const OperandWidth = enum {
     short,
@@ -129,13 +133,17 @@ pub fn codeSize(self: *Chunk) usize {
 }
 
 pub fn writeCode(self: *Chunk, code: OpCode, position: Position) !void {
-    try self.writeOperand(@intFromEnum(code), position);
+    try self.writeByte(@intFromEnum(code), position);
 }
 
 pub fn writeIndexedOpcode(self: *Chunk, short: OpCode, ix: usize, position: Position) !void {
-    const real_code = if (ix > MAX_SHORT_VALUE) longOpcode(short) else short;
-    try self.writeCode(real_code, position);
-    try self.writeOperand(ix, position);
+    if (ix > MAX_SHORT_VALUE) {
+        try self.writeCode(longOpcode(short), position);
+        try self.writeThreeBytes(ix, position);
+    } else {
+        try self.writeCode(short, position);
+        try self.writeByte(@intCast(ix), position);
+    }
 }
 
 inline fn longOpcode(short: OpCode) OpCode {
@@ -177,15 +185,17 @@ pub fn addConstant(self: *Chunk, val: LoxValue) !usize {
     return ix;
 }
 
-pub fn writeOperand(self: *Chunk, val: usize, position: Position) !void {
-    if (val > MAX_SHORT_VALUE) {
-        for (intoThreeBytes(val)) |b| {
-            try self.write(b);
-            try self.positions.append(self.allocator, position);
-        }
-    } else {
-        try self.write(@truncate(val));
-        try self.positions.append(self.allocator, position);
+/// The width of every operand is fixed by its opcode, so the writers take it
+/// from the caller rather than from the value: a width picked by value would
+/// let a large operand spill into the bytes the VM reads as the next one.
+pub fn writeByte(self: *Chunk, byte: u8, position: Position) !void {
+    try self.write(byte);
+    try self.positions.append(self.allocator, position);
+}
+
+pub fn writeThreeBytes(self: *Chunk, val: usize, position: Position) !void {
+    for (intoThreeBytes(val)) |b| {
+        try self.writeByte(b, position);
     }
 }
 
@@ -413,9 +423,9 @@ fn disassemblyClosureInstruction(self: *Chunk, writer: *std.Io.Writer, offset: u
     while (i < upvalue_count) : (i += 1) {
         const is_local = self.readByte(current_offset);
         const is_local_str = if (is_local == 1) "local" else "upvalue";
-        const index = self.readByte(current_offset + 1);
+        const index = self.readThreeBytes(current_offset + 1);
         try writer.print("{d:04}    |                     {s} {d}\n", .{ current_offset, is_local_str, index });
-        current_offset += 2;
+        current_offset += UPVALUE_OPERAND_SIZE;
     }
     return current_offset;
 }

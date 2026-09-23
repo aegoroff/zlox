@@ -3625,12 +3625,22 @@ test "error: too many locals" {
     var code = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer code.deinit();
     try code.writer.writeAll("fun f() {\n");
-    // Slot 0 is the function itself; 255 more locals fill LOCALS_MAX.
+    // Slot 0 is the function itself; the rest fill a frame as large as the
+    // whole value stack. Nested blocks keep each scope small, so the
+    // duplicate-name scan stays cheap while every local still takes a slot.
+    const per_block = 128;
+    var blocks: usize = 0;
     var i: usize = 0;
-    while (i < 255) : (i += 1) {
+    while (i < vm.STACK_MAX - 1) : (i += 1) {
+        if (i > 0 and i % per_block == 0) {
+            try code.writer.writeAll("{\n");
+            blocks += 1;
+        }
         try code.writer.print("  var v{d};\n", .{i});
     }
-    try code.writer.writeAll("  var oops;\n}\n");
+    try code.writer.writeAll("  var oops;\n");
+    try code.writer.splatByteAll('}', blocks + 1);
+    try code.writer.writeAll("\n");
 
     var t: TestHarness = undefined;
     try t.setup();
@@ -3638,6 +3648,72 @@ test "error: too many locals" {
 
     // Act + Assert
     try t.expectCompileError(code.written());
+}
+
+/// A function body declaring `v0` .. `v299`, each initialized to its own
+/// index, so slots from 256 on need the long local operands.
+fn writeManyLocals(writer: *std.Io.Writer) !void {
+    var i: usize = 0;
+    while (i < 300) : (i += 1) {
+        try writer.print("  var v{d} = {d};\n", .{ i, i });
+    }
+}
+
+test "locals: slots past 255 are read and written" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("fun f() {\n");
+    try writeManyLocals(&code.writer);
+    try code.writer.writeAll(
+        \\  v299 = v299 + v256;
+        \\  print v299;
+        \\  print v0;
+        \\}
+        \\f();
+        \\
+    );
+
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.interpret(code.written());
+
+    // Assert
+    try t.expectOutput("555\n0\n");
+}
+
+test "locals: closures capture slots past 255" {
+    // Arrange
+    var code = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer code.deinit();
+    try code.writer.writeAll("fun f() {\n");
+    try writeManyLocals(&code.writer);
+    try code.writer.writeAll(
+        \\  fun inc() { v299 = v299 + 1; }
+        \\  fun outer() {
+        \\    fun inner() { return v298 + v299; }
+        \\    return inner;
+        \\  }
+        \\  inc();
+        \\  print v299;
+        \\  print outer()();
+        \\}
+        \\f();
+        \\
+    );
+
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.interpret(code.written());
+
+    // Assert
+    try t.expectOutput("300\n598\n");
 }
 
 test "error: too many params" {

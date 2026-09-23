@@ -47,32 +47,33 @@ const Precedence = enum(u8) {
 const Compile = struct {
     allocator: std.mem.Allocator,
     enclosing: ?*Compile,
-    locals: [LOCALS_MAX]Local,
-    local_count: usize,
+    locals: std.ArrayList(Local),
     scope_depth: i16,
     function: ?*val.Function,
     function_type: FunctionType,
-    upvalues: [LOCALS_MAX]Upvalue,
+    upvalues: [UPVALUES_MAX]Upvalue,
 
     /// Initializes in place rather than returning a `Compile`. The struct
-    /// carries the local and upvalue arrays inline, some ten kilobytes of it,
+    /// carries the upvalue array inline, some four kilobytes of it,
     /// and every nested function declaration adds another copy of whatever a
     /// by-value return leaves on the stack - which is what the host stack runs
     /// out of first when a script nests functions deeply.
     fn init(self: *Compile, gpa: std.mem.Allocator, function_type: FunctionType) !void {
         const func = try gpa.create(val.Function);
         func.* = val.Function.init(gpa);
+        errdefer freeOwnedFunction(gpa, func);
+        const receiver_name = if (function_type == .Method or function_type == .TypeInitializer) "this" else "";
+        self.locals = .empty;
+        try self.locals.append(gpa, Local{ .name = receiver_name, .depth = 0, .is_captured = false });
         self.allocator = gpa;
         self.enclosing = null;
-        self.local_count = 1;
         self.scope_depth = 0;
         self.function = func;
         self.function_type = function_type;
-        const receiver_name = if (function_type == .Method or function_type == .TypeInitializer) "this" else "";
-        self.locals[0] = Local{ .name = receiver_name, .depth = 0, .is_captured = false };
     }
 
     fn deinit(self: *Compile) void {
+        self.locals.deinit(self.allocator);
         if (self.function) |func| {
             freeOwnedFunction(self.allocator, func);
         }
@@ -104,7 +105,11 @@ pub const FunctionType = enum {
     TypeInitializer,
 };
 
-const LOCALS_MAX: usize = std.math.maxInt(u8) + 1;
+/// Local slots are addressed by up to three-byte operands, but a frame can
+/// never hold more slots than the whole value stack, so that is the limit.
+const LOCALS_MAX: usize = @import("vm.zig").STACK_MAX;
+/// `GetUpvalue`/`SetUpvalue` address a closure's upvalues with one byte.
+const UPVALUES_MAX: usize = std.math.maxInt(u8) + 1;
 
 /// How deep the recursive descent may go before it gives up. The parser
 /// recurses on the host stack, which it cannot grow and cannot check, so
@@ -365,8 +370,8 @@ fn emitOpcode(self: *Compiler, opcode: Chunk.OpCode) !void {
     try self.currentChunk().writeCode(opcode, self.previousPosition());
 }
 
-fn emitOperand(self: *Compiler, value: usize) !void {
-    try self.currentChunk().writeOperand(value, self.previousPosition());
+fn emitByte(self: *Compiler, byte: u8) !void {
+    try self.currentChunk().writeByte(byte, self.previousPosition());
 }
 
 fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, ix: usize) !void {
@@ -380,14 +385,14 @@ fn emitLoop(self: *Compiler, loop_start: usize) !void {
         try self.errorAtPrev("Loop body too large.");
     }
 
-    try self.emitOperand(offset & 0xff);
-    try self.emitOperand((offset >> 8) & 0xff);
+    try self.emitByte(@truncate(offset & 0xff));
+    try self.emitByte(@truncate((offset >> 8) & 0xff));
 }
 
 fn emitJump(self: *Compiler, opcode: Chunk.OpCode) !usize {
     try self.emitOpcode(opcode);
-    try self.emitOperand(0xFF);
-    try self.emitOperand(0xFF);
+    try self.emitByte(0xFF);
+    try self.emitByte(0xFF);
     return self.currentChunk().codeSize() - 2;
 }
 
@@ -406,7 +411,7 @@ fn patchJump(self: *Compiler, offset: usize) !void {
 fn emitReturn(self: *Compiler) !void {
     if (self.current.function_type == .TypeInitializer) {
         try self.emitOpcode(.GetLocal);
-        try self.emitOperand(0);
+        try self.emitByte(0);
     } else {
         try self.emitOpcode(.Nil);
     }
@@ -441,13 +446,14 @@ fn beginScope(self: *Compiler) void {
 
 fn endScope(self: *Compiler) !void {
     self.current.scope_depth -= 1;
-    while (self.current.local_count > 0 and self.current.locals[self.current.local_count - 1].depth > self.current.scope_depth) {
-        if (self.current.locals[self.current.local_count - 1].is_captured) {
+    const locals = &self.current.locals;
+    while (locals.items.len > 0 and locals.items[locals.items.len - 1].depth > self.current.scope_depth) {
+        if (locals.items[locals.items.len - 1].is_captured) {
             try self.emitOpcode(.CloseUpvalue);
         } else {
             try self.emitOpcode(.Pop);
         }
-        self.current.local_count -= 1;
+        _ = locals.pop();
     }
 }
 
@@ -510,7 +516,7 @@ fn super_(self: *Compiler) !void {
         const arg_count = try self.argumentList();
         try self.namedVariable(&syntheticToken("super"), false);
         try self.emitConstantOpcode(.SuperInvoke, name);
-        try self.emitOperand(arg_count);
+        try self.emitByte(arg_count);
     } else {
         try self.namedVariable(&syntheticToken("super"), false);
         try self.emitConstantOpcode(.GetSuper, name);
@@ -554,7 +560,7 @@ fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !v
 fn resolveUpvalue(self: *Compiler, compiler: *Compile, token: *const scan.Token) !?usize {
     if (compiler.enclosing) |enclosing| {
         if (try self.resolveLocal(enclosing, token)) |local| {
-            compiler.enclosing.?.locals[local].is_captured = true;
+            compiler.enclosing.?.locals.items[local].is_captured = true;
             return try self.addUpvalue(compiler, local, true);
         } else {
             if (try self.resolveUpvalue(compiler.enclosing.?, token)) |upvalue| {
@@ -583,7 +589,7 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
         }
     }
 
-    if (upvalue_count == LOCALS_MAX) {
+    if (upvalue_count == UPVALUES_MAX) {
         try self.errorAtPrev("Too many closure variables in function.");
         return e.Error.CompileError;
     }
@@ -595,9 +601,9 @@ fn addUpvalue(self: *Compiler, compiler: *Compile, index: usize, is_local: bool)
 }
 
 fn resolveLocal(self: *Compiler, compiler: *Compile, token: *const scan.Token) !?usize {
-    var i: usize = compiler.local_count;
+    var i: usize = compiler.locals.items.len;
     while (i > 0) : (i -= 1) {
-        const local = compiler.locals[i - 1];
+        const local = compiler.locals.items[i - 1];
 
         if (std.mem.eql(u8, self.lexeme(token), local.name)) {
             if (local.depth == -1) {
@@ -665,7 +671,7 @@ fn binary(self: *Compiler) !void {
 fn call(self: *Compiler, _: bool) !void {
     const args_count = try self.argumentList();
     try self.emitOpcode(.Call);
-    try self.emitOperand(args_count);
+    try self.emitByte(args_count);
 }
 
 fn dot(self: *Compiler, can_assign: bool) !void {
@@ -677,7 +683,7 @@ fn dot(self: *Compiler, can_assign: bool) !void {
     } else if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
         try self.emitConstantOpcode(.Invoke, name);
-        try self.emitOperand(arg_count);
+        try self.emitByte(arg_count);
     } else {
         try self.emitConstantOpcode(.GetProperty, name);
     }
@@ -721,7 +727,8 @@ fn markInitialized(self: *Compiler) void {
     if (self.current.scope_depth == 0) {
         return;
     }
-    self.current.locals[self.current.local_count - 1].depth = self.current.scope_depth;
+    const locals = self.current.locals.items;
+    locals[locals.len - 1].depth = self.current.scope_depth;
 }
 
 fn parseVariable(self: *Compiler, message: []const u8) anyerror!usize {
@@ -741,15 +748,18 @@ fn defineVariable(self: *Compiler, global: usize) anyerror!void {
     try self.currentChunk().writeIndexedOpcode(.DefineGlobal, global, self.previousPosition());
 }
 
-fn argumentList(self: *Compiler) anyerror!usize {
-    var arg_count: usize = 0;
+/// The count stops at 255 once the error is reported, so it always fits the
+/// one-byte operand it is written into.
+fn argumentList(self: *Compiler) anyerror!u8 {
+    var arg_count: u8 = 0;
     if (!self.check(.RightParen)) {
         while (true) {
             try self.expression();
             if (arg_count == 255) {
                 try self.errorAtPrev("Can't have more than 255 arguments.");
+            } else {
+                arg_count += 1;
             }
-            arg_count += 1;
             if (!try self.match(.Comma)) {
                 break;
             }
@@ -782,31 +792,31 @@ fn identifierConstant(self: *Compiler, token: *const scan.Token) anyerror!usize 
 
 /// Refusing to add a local ends the compile rather than returning quietly.
 /// `markInitialized` finishes the declaration that this call started by
-/// writing to `locals[local_count - 1]`, which is the local just added - or,
+/// writing to the last entry of `locals`, which is the local just added - or,
 /// if none was, whichever local happens to sit there, whose scope depth it
 /// would then overwrite. Nothing observable comes of that today, because the
 /// diagnostic has already set `had_error` and a failed compile never runs, but
 /// that makes the correctness of one function depend on a flag set in another.
 fn addLocal(self: *Compiler, token: *const scan.Token) !void {
-    if (self.current.local_count == LOCALS_MAX) {
+    if (self.current.locals.items.len == LOCALS_MAX) {
         try self.errorAtPrev("Too many local variables in function.");
         return e.Error.CompileError;
     }
-    var local = &self.current.locals[self.current.local_count];
-    self.current.local_count += 1;
-    local.name = self.lexeme(token);
-    local.depth = -1; // Uninitialized
-    local.is_captured = false;
+    try self.current.locals.append(self.allocator, Local{
+        .name = self.lexeme(token),
+        .depth = -1, // Uninitialized
+        .is_captured = false,
+    });
 }
 
 fn declareVariable(self: *Compiler) !void {
     if (self.current.scope_depth == 0) {
         return;
     }
-    var i: usize = self.current.local_count;
+    var i: usize = self.current.locals.items.len;
     while (i > 0) {
         i -= 1;
-        const local = &self.current.locals[i];
+        const local = &self.current.locals.items[i];
 
         if (local.depth != -1 and local.depth < self.current.scope_depth) {
             break;
@@ -1005,7 +1015,10 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     // staying readable for the upvalue operands below. Reading them straight
     // out of it saves copying the array to a local, which is four kilobytes of
     // stack per level of nested function declaration.
-    defer self.allocator.destroy(new_compile);
+    defer {
+        new_compile.deinit();
+        self.allocator.destroy(new_compile);
+    }
     // Restore current to the enclosing compiler so defineVariable works correctly.
     self.current = old_compiler;
 
@@ -1018,8 +1031,8 @@ fn function(self: *Compiler, function_type: FunctionType) !void {
     };
     try self.emitConstantOpcode(.Closure, ix);
     for (new_compile.upvalues[0..func.upvalue_count]) |upvalue| {
-        try self.emitOperand(if (upvalue.is_local) 1 else 0);
-        try self.emitOperand(upvalue.index);
+        try self.emitByte(if (upvalue.is_local) 1 else 0);
+        try self.currentChunk().writeThreeBytes(upvalue.index, self.previousPosition());
     }
 }
 
@@ -1181,18 +1194,18 @@ test "refusing a local past the limit ends the compile" {
     const token = syntheticToken("x");
     compiler.parser.previous = token;
     compiler.current.scope_depth = 1;
-    while (compiler.current.local_count < LOCALS_MAX) {
+    while (compiler.current.locals.items.len < LOCALS_MAX) {
         try compiler.addLocal(&token);
     }
-    const last_depth = compiler.current.locals[LOCALS_MAX - 1].depth;
+    const last_depth = compiler.current.locals.items[LOCALS_MAX - 1].depth;
 
     // Act
     const result = compiler.addLocal(&token);
 
     // Assert: the caller is stopped before it can mark a slot it does not own.
     try std.testing.expectError(e.Error.CompileError, result);
-    try std.testing.expectEqual(LOCALS_MAX, compiler.current.local_count);
-    try std.testing.expectEqual(last_depth, compiler.current.locals[LOCALS_MAX - 1].depth);
+    try std.testing.expectEqual(LOCALS_MAX, compiler.current.locals.items.len);
+    try std.testing.expectEqual(last_depth, compiler.current.locals.items[LOCALS_MAX - 1].depth);
 }
 
 test "refusing an upvalue past the limit ends the compile" {
@@ -1211,15 +1224,15 @@ test "refusing an upvalue past the limit ends the compile" {
     defer compiler.deinit();
     const token = syntheticToken("x");
     compiler.parser.previous = token;
-    for (0..LOCALS_MAX) |ix| {
+    for (0..UPVALUES_MAX) |ix| {
         _ = try compiler.addUpvalue(compiler.current, ix, true);
     }
 
     // Act
-    const result = compiler.addUpvalue(compiler.current, LOCALS_MAX, true);
+    const result = compiler.addUpvalue(compiler.current, UPVALUES_MAX, true);
 
     // Assert: the caller is stopped instead of being sent to a capture it
     // never asked for.
     try std.testing.expectError(e.Error.CompileError, result);
-    try std.testing.expectEqual(LOCALS_MAX, compiler.current.function.?.upvalue_count);
+    try std.testing.expectEqual(UPVALUES_MAX, compiler.current.function.?.upvalue_count);
 }
