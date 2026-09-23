@@ -292,10 +292,18 @@ fn advance(self: *Lexer) u8 {
     if (c == '\n') {
         self.line += 1;
         self.col = 1;
-    } else {
+    } else if (!isUtf8Continuation(c)) {
         self.col += 1;
     }
     return c;
+}
+
+/// Columns count characters, not bytes: the reporter pads the caret line
+/// with one space per column, so a multibyte character counted per byte
+/// shifts every mark after it on the line. Only a character's first byte
+/// moves the column.
+fn isUtf8Continuation(c: u8) bool {
+    return c & 0xC0 == 0x80;
 }
 
 fn peek(self: *Lexer) u8 {
@@ -383,6 +391,24 @@ test "a string literal over a newline is placed where it opens" {
     try std.testing.expectEqual(@as(usize, 1), token.line);
     try std.testing.expectEqual(@as(usize, 7), token.col_start);
     try std.testing.expectEqual(@as(usize, 7), token.col_end);
+}
+
+test "columns after a multibyte character count characters" {
+    // Arrange: two-byte Cyrillic and Latin letters inside a literal, then a
+    // token after it on the same line.
+    var lexer = Lexer.init("var s = \"ыé\"; x");
+    for (0..3) |_| _ = try lexer.scanToken();
+
+    // Act
+    const literal = try lexer.scanToken();
+    _ = try lexer.scanToken();
+    const after = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(@as(usize, 9), literal.col_start);
+    try std.testing.expectEqual(@as(usize, 12), literal.col_end);
+    try std.testing.expectEqual(@as(usize, 15), after.col_start);
+    try std.testing.expectEqual(@as(usize, 15), after.col_end);
 }
 
 test "span of an unexpected character covers just that character" {
