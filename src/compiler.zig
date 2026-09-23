@@ -357,6 +357,20 @@ fn previousPosition(self: *Compiler) Chunk.Position {
     return tokenPosition(&self.parser.previous);
 }
 
+/// From `start` through the previous token, for an instruction that answers
+/// for a whole construct such as a call. A position describes a single line,
+/// so a construct that runs over several keeps just its first token.
+fn positionThroughPrevious(self: *Compiler, start: Chunk.Position) Chunk.Position {
+    const end = &self.parser.previous;
+    if (end.line != start.line or end.col_end < start.col) return start;
+    const span = end.col_end - start.col + 1;
+    return .{
+        .line = start.line,
+        .col = start.col,
+        .len = std.math.cast(u16, span) orelse std.math.maxInt(u16),
+    };
+}
+
 fn tokenPosition(token: *const scan.Token) Chunk.Position {
     const span = if (token.col_end >= token.col_start) token.col_end - token.col_start + 1 else 1;
     return .{
@@ -529,8 +543,9 @@ fn super_(self: *Compiler) !void {
     if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
         try self.namedVariable(&syntheticToken("super"), false);
-        try self.currentChunk().writeIndexedOpcode(.SuperInvoke, name, name_position);
-        try self.emitByteAt(arg_count, name_position);
+        const call_position = self.positionThroughPrevious(name_position);
+        try self.currentChunk().writeIndexedOpcode(.SuperInvoke, name, call_position);
+        try self.emitByteAt(arg_count, call_position);
     } else {
         try self.namedVariable(&syntheticToken("super"), false);
         try self.emitConstantOpcode(.GetSuper, name);
@@ -687,11 +702,13 @@ fn binary(self: *Compiler) !void {
     }
 }
 
-fn call(self: *Compiler, _: bool) !void {
-    const paren_position = self.previousPosition();
+/// `callee_start` is where the expression being called begins, so the call is
+/// marked from there through its closing parenthesis.
+fn call(self: *Compiler, callee_start: Chunk.Position) !void {
     const args_count = try self.argumentList();
-    try self.emitOpcodeAt(.Call, paren_position);
-    try self.emitByteAt(args_count, paren_position);
+    const call_position = self.positionThroughPrevious(callee_start);
+    try self.emitOpcodeAt(.Call, call_position);
+    try self.emitByteAt(args_count, call_position);
 }
 
 fn dot(self: *Compiler, can_assign: bool) !void {
@@ -703,8 +720,9 @@ fn dot(self: *Compiler, can_assign: bool) !void {
         try self.currentChunk().writeIndexedOpcode(.SetProperty, name, name_position);
     } else if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
-        try self.currentChunk().writeIndexedOpcode(.Invoke, name, name_position);
-        try self.emitByteAt(arg_count, name_position);
+        const call_position = self.positionThroughPrevious(name_position);
+        try self.currentChunk().writeIndexedOpcode(.Invoke, name, call_position);
+        try self.emitByteAt(arg_count, call_position);
     } else {
         try self.emitConstantOpcode(.GetProperty, name);
     }
@@ -728,13 +746,14 @@ fn parsePrecedence(self: *Compiler, precedence: Precedence) anyerror!void {
     try self.enterNesting();
     defer self.nesting -= 1;
     try self.advance();
+    const operand_start = self.previousPosition();
     const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
     if (!try self.callPrefix(self.parser.previous.type, can_assign)) {
         return;
     }
     while (@intFromEnum(getPrecedence(self.parser.current.type)) >= @intFromEnum(precedence)) {
         try self.advance();
-        try self.callInfix(self.parser.previous.type, can_assign);
+        try self.callInfix(self.parser.previous.type, can_assign, operand_start);
     }
     if (can_assign and try self.match(.Equal)) {
         try self.errorAtPrev("Invalid assignment target.");
@@ -873,12 +892,12 @@ fn callPrefix(self: *Compiler, token_type: scan.TokenType, can_assign: bool) !bo
     return true;
 }
 
-fn callInfix(self: *Compiler, token_type: scan.TokenType, can_assign: bool) !void {
+fn callInfix(self: *Compiler, token_type: scan.TokenType, can_assign: bool, operand_start: Chunk.Position) !void {
     switch (token_type) {
         .Minus, .Plus, .Slash, .Star, .BangEqual, .EqualEqual, .Greater, .GreaterEqual, .Less, .LessEqual => try self.binary(),
         .And => try self.and_(),
         .Or => try self.or_(),
-        .LeftParen => try self.call(can_assign),
+        .LeftParen => try self.call(operand_start),
         .Dot => try self.dot(can_assign),
         else => {},
     }

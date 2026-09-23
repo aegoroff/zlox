@@ -46,6 +46,13 @@ const TestHarness = struct {
         try std.testing.expectEqual(line, trace[0].position.line);
         try std.testing.expectEqual(col, trace[0].position.col);
     }
+
+    /// Like `expectErrorAt`, and the mark is `len` columns wide.
+    fn expectErrorSpan(self: *TestHarness, line: u32, col: u16, len: u16) !void {
+        try self.expectErrorAt(line, col);
+        var buf: [1]vm.TraceFrame = undefined;
+        try std.testing.expectEqual(len, self.machine.callStack(&buf)[0].position.len);
+    }
 };
 
 // --- expr ---
@@ -3516,7 +3523,20 @@ test "error: a unary operator error points at the operator" {
     try t.expectErrorAt(1, 7);
 }
 
-test "error: a call error points at its opening parenthesis" {
+test "error: a call error covers the whole call" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("fun f(a) {}\nprint f(1, 2);");
+
+    // Assert: from the callee through the closing parenthesis.
+    try t.expectErrorSpan(2, 7, 7);
+}
+
+test "error: a call over several lines is marked by its callee" {
     // Arrange
     var t: TestHarness = undefined;
     try t.setup();
@@ -3525,8 +3545,21 @@ test "error: a call error points at its opening parenthesis" {
     // Act
     try t.expectRuntimeError("fun f(a) {}\nf(\n1,\n2);");
 
+    // Assert: a position covers one line, so only the first token is left.
+    try t.expectErrorSpan(2, 1, 1);
+}
+
+test "error: an invoke error covers the method name and its arguments" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("class Foo { method(a, b) {} }\nFoo().method(1, 2, 3, 4);");
+
     // Assert
-    try t.expectErrorAt(2, 2);
+    try t.expectErrorSpan(2, 7, 18);
 }
 
 test "error: a property store error points at the property name" {
@@ -3552,7 +3585,7 @@ test "error: an invoke error points at the method name" {
     try t.expectRuntimeError("class A {}\nA().x(\n1);");
 
     // Assert
-    try t.expectErrorAt(2, 5);
+    try t.expectErrorSpan(2, 5, 1);
 }
 
 test "error: a super invoke error points at the method name" {
