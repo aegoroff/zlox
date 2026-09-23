@@ -653,7 +653,7 @@ inline fn opGetSuper(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, con
     const name = try cursor.stringConstantAt(ip, constant_size);
     const super_class = try (self.pop()).tryClass();
     if (!try self.bindMethod(super_class, name)) {
-        try self.errorAt(ip, "Undefined method or property '{s}'", .{name.data});
+        try self.errorAt(ip, "Undefined property '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     }
 }
@@ -669,7 +669,7 @@ inline fn opGetProperty(self: *VM, cursor: *const FrameCursor, ip: [*]const u8, 
     if (instance.fields.get(name)) |field| {
         self.replaceTos(field);
     } else if (!try self.bindMethod(instance.klass, name)) {
-        try self.errorAt(ip, "Undefined property or method '{s}' of {s}", .{ name.data, instance.klass.name.data });
+        try self.errorAt(ip, "Undefined property '{s}'.", .{name.data});
         return err.Error.RuntimeError;
     }
 }

@@ -374,6 +374,19 @@ fn emitByte(self: *Compiler, byte: u8) !void {
     try self.currentChunk().writeByte(byte, self.previousPosition());
 }
 
+/// For instructions emitted only after their operands have been parsed: by then
+/// `previous` is the operand's last token, while a runtime error belongs to the
+/// operator, so the caller records its position before parsing on.
+fn emitOpcodeAt(self: *Compiler, opcode: Chunk.OpCode, position: Chunk.Position) !void {
+    try self.currentChunk().writeCode(opcode, position);
+}
+
+/// Every byte of an instruction has to carry the same position, operands
+/// included: the VM resolves a failing instruction by the byte before its `ip`.
+fn emitByteAt(self: *Compiler, byte: u8, position: Chunk.Position) !void {
+    try self.currentChunk().writeByte(byte, position);
+}
+
 fn emitConstantOpcode(self: *Compiler, short_op: Chunk.OpCode, ix: usize) !void {
     try self.currentChunk().writeIndexedOpcode(short_op, ix, self.previousPosition());
 }
@@ -510,13 +523,14 @@ fn super_(self: *Compiler) !void {
     try self.consume(.Dot, "Expect '.' after 'super'.");
     try self.consume(.Identifier, "Expect superclass method name.");
     const name = try self.identifierConstant(&self.parser.previous);
+    const name_position = self.previousPosition();
     try self.namedVariable(&syntheticToken("this"), false);
 
     if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
         try self.namedVariable(&syntheticToken("super"), false);
-        try self.emitConstantOpcode(.SuperInvoke, name);
-        try self.emitByte(arg_count);
+        try self.currentChunk().writeIndexedOpcode(.SuperInvoke, name, name_position);
+        try self.emitByteAt(arg_count, name_position);
     } else {
         try self.namedVariable(&syntheticToken("super"), false);
         try self.emitConstantOpcode(.GetSuper, name);
@@ -535,6 +549,9 @@ fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !v
     var get_op: Chunk.OpCode = undefined;
     var set_op: Chunk.OpCode = undefined;
     var arg: ?usize = null;
+    // An assignment is emitted after its value, whose last token is what
+    // `previous` holds by then; an undefined name is the variable's fault.
+    const name_position = self.previousPosition();
     if (try self.resolveLocal(self.current, token)) |local| {
         get_op = .GetLocal;
         set_op = .SetLocal;
@@ -551,9 +568,9 @@ fn namedVariable(self: *Compiler, token: *const scan.Token, can_assign: bool) !v
 
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        try self.currentChunk().writeIndexedOpcode(set_op, arg.?, self.previousPosition());
+        try self.currentChunk().writeIndexedOpcode(set_op, arg.?, name_position);
     } else {
-        try self.currentChunk().writeIndexedOpcode(get_op, arg.?, self.previousPosition());
+        try self.currentChunk().writeIndexedOpcode(get_op, arg.?, name_position);
     }
 }
 
@@ -628,10 +645,11 @@ fn literal(self: *Compiler) !void {
 
 fn unary(self: *Compiler) !void {
     const operator_type = self.parser.previous.type;
+    const operator_position = self.previousPosition();
     try self.parsePrecedence(.Unary);
     switch (operator_type) {
-        .Minus => try self.emitOpcode(.Negate),
-        .Bang => try self.emitOpcode(.Not),
+        .Minus => try self.emitOpcodeAt(.Negate, operator_position),
+        .Bang => try self.emitOpcodeAt(.Not, operator_position),
         else => {
             return;
         },
@@ -640,27 +658,28 @@ fn unary(self: *Compiler) !void {
 
 fn binary(self: *Compiler) !void {
     const operator_type = self.parser.previous.type;
+    const operator_position = self.previousPosition();
     const precedence = getPrecedence(operator_type);
     try self.parsePrecedence(@enumFromInt(@intFromEnum(precedence) + 1));
     switch (operator_type) {
-        .Plus => try self.emitOpcode(.Add),
-        .Minus => try self.emitOpcode(.Subtract),
-        .Star => try self.emitOpcode(.Multiply),
-        .Slash => try self.emitOpcode(.Divide),
+        .Plus => try self.emitOpcodeAt(.Add, operator_position),
+        .Minus => try self.emitOpcodeAt(.Subtract, operator_position),
+        .Star => try self.emitOpcodeAt(.Multiply, operator_position),
+        .Slash => try self.emitOpcodeAt(.Divide, operator_position),
         .BangEqual => {
-            try self.emitOpcode(.Equal);
-            try self.emitOpcode(.Not);
+            try self.emitOpcodeAt(.Equal, operator_position);
+            try self.emitOpcodeAt(.Not, operator_position);
         },
-        .EqualEqual => try self.emitOpcode(.Equal),
-        .Greater => try self.emitOpcode(.Greater),
+        .EqualEqual => try self.emitOpcodeAt(.Equal, operator_position),
+        .Greater => try self.emitOpcodeAt(.Greater, operator_position),
         .GreaterEqual => {
-            try self.emitOpcode(.Less);
-            try self.emitOpcode(.Not);
+            try self.emitOpcodeAt(.Less, operator_position);
+            try self.emitOpcodeAt(.Not, operator_position);
         },
-        .Less => try self.emitOpcode(.Less),
+        .Less => try self.emitOpcodeAt(.Less, operator_position),
         .LessEqual => {
-            try self.emitOpcode(.Greater);
-            try self.emitOpcode(.Not);
+            try self.emitOpcodeAt(.Greater, operator_position);
+            try self.emitOpcodeAt(.Not, operator_position);
         },
         else => {
             return;
@@ -669,21 +688,23 @@ fn binary(self: *Compiler) !void {
 }
 
 fn call(self: *Compiler, _: bool) !void {
+    const paren_position = self.previousPosition();
     const args_count = try self.argumentList();
-    try self.emitOpcode(.Call);
-    try self.emitByte(args_count);
+    try self.emitOpcodeAt(.Call, paren_position);
+    try self.emitByteAt(args_count, paren_position);
 }
 
 fn dot(self: *Compiler, can_assign: bool) !void {
     try self.consume(.Identifier, "Expect property name after '.'.");
     const name = try self.identifierConstant(&self.parser.previous);
+    const name_position = self.previousPosition();
     if (can_assign and try self.match(.Equal)) {
         try self.expression();
-        try self.emitConstantOpcode(.SetProperty, name);
+        try self.currentChunk().writeIndexedOpcode(.SetProperty, name, name_position);
     } else if (try self.match(.LeftParen)) {
         const arg_count = try self.argumentList();
-        try self.emitConstantOpcode(.Invoke, name);
-        try self.emitByte(arg_count);
+        try self.currentChunk().writeIndexedOpcode(.Invoke, name, name_position);
+        try self.emitByteAt(arg_count, name_position);
     } else {
         try self.emitConstantOpcode(.GetProperty, name);
     }

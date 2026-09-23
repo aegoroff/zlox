@@ -172,14 +172,18 @@ pub fn scanToken(self: *Lexer) LexerError!Token {
     };
 }
 
+/// A token is placed on the line it starts on. Only a string literal can run
+/// over a newline, and then its end column belongs to a later line, so its
+/// span is cut down to the opening quote the way `span` does it.
 fn makeToken(self: *Lexer, token_type: TokenType) Token {
+    const scanned = self.span();
     return Token{
         .type = token_type,
         .start = self.start,
         .length = self.current - self.start,
-        .line = self.line,
-        .col_start = self.start_col,
-        .col_end = self.col - 1,
+        .line = scanned.line,
+        .col_start = scanned.col_start,
+        .col_end = scanned.col_end,
     };
 }
 
@@ -364,6 +368,21 @@ test "NUL byte inside a string literal is part of it" {
     // Assert
     try std.testing.expectEqual(.String, token.type);
     try std.testing.expectEqual(@as(usize, 5), token.length);
+}
+
+test "a string literal over a newline is placed where it opens" {
+    // Arrange
+    var lexer = Lexer.init("print \"a\nbc\";");
+    _ = try lexer.scanToken();
+
+    // Act
+    const token = try lexer.scanToken();
+
+    // Assert: the end column belongs to line 2, so only the quote is kept.
+    try std.testing.expectEqual(.String, token.type);
+    try std.testing.expectEqual(@as(usize, 1), token.line);
+    try std.testing.expectEqual(@as(usize, 7), token.col_start);
+    try std.testing.expectEqual(@as(usize, 7), token.col_end);
 }
 
 test "span of an unexpected character covers just that character" {

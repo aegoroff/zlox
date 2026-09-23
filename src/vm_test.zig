@@ -37,6 +37,15 @@ const TestHarness = struct {
     fn expectRuntimeError(self: *TestHarness, source: []const u8) !void {
         try std.testing.expectError(err.Error.RuntimeError, self.machine.interpret(source, false));
     }
+
+    /// Where the innermost frame stopped, which is what the diagnostic points at.
+    fn expectErrorAt(self: *TestHarness, line: u32, col: u16) !void {
+        var buf: [1]vm.TraceFrame = undefined;
+        const trace = self.machine.callStack(&buf);
+        try std.testing.expectEqual(@as(usize, 1), trace.len);
+        try std.testing.expectEqual(line, trace[0].position.line);
+        try std.testing.expectEqual(col, trace[0].position.col);
+    }
 };
 
 // --- expr ---
@@ -3480,6 +3489,102 @@ test "error: a runtime error carries the whole Lox call stack" {
     try std.testing.expectEqual(@as(u32, 4), trace[3].position.line);
 }
 
+test "error: a binary operator error points at the operator" {
+    // Arrange: the right operand sits on the next line, where the last token
+    // parsed before the opcode is emitted lives.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("print 1 <\n  \"a\";");
+
+    // Assert
+    try t.expectErrorAt(1, 9);
+}
+
+test "error: a unary operator error points at the operator" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("print -\n  \"a\";");
+
+    // Assert
+    try t.expectErrorAt(1, 7);
+}
+
+test "error: a call error points at its opening parenthesis" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("fun f(a) {}\nf(\n1,\n2);");
+
+    // Assert
+    try t.expectErrorAt(2, 2);
+}
+
+test "error: a property store error points at the property name" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("var a;\na.b =\n1;");
+
+    // Assert
+    try t.expectErrorAt(2, 3);
+}
+
+test "error: an invoke error points at the method name" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("class A {}\nA().x(\n1);");
+
+    // Assert
+    try t.expectErrorAt(2, 5);
+}
+
+test "error: a super invoke error points at the method name" {
+    // Arrange: the call is made from the script so the failing frame, `f`,
+    // is the only one besides it; the trace helper wants just the innermost.
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("class A {}\nclass B < A { f() { super.x(\n1); } }\nB().f();");
+
+    // Assert
+    var buf: [2]vm.TraceFrame = undefined;
+    const trace = t.machine.callStack(&buf);
+    try std.testing.expectEqual(@as(u32, 2), trace[0].position.line);
+    try std.testing.expectEqual(@as(u16, 27), trace[0].position.col);
+}
+
+test "error: assigning an undefined global points at its name" {
+    // Arrange
+    var t: TestHarness = undefined;
+    try t.setup();
+    defer t.deinit();
+
+    // Act
+    try t.expectRuntimeError("nope =\n1;");
+
+    // Assert
+    try t.expectErrorAt(1, 1);
+}
+
 test "error: a value stack overflow names the instruction that could not push" {
     // Arrange: a function wide enough that the value stack fills before the
     // frame limit does. The dispatch loop keeps the live instruction pointer in
@@ -3514,7 +3619,7 @@ test "error: a value stack overflow names the instruction that could not push" {
 test "error: a runtime error on a token past the position column limit" {
     // Arrange: a position holds the column and the length in sixteen bits and
     // saturates both, so a token whose span reaches past column 65535 - a long
-    // string literal, or anything on a generated line that long - used to
+    // identifier, or anything on a generated line that long - used to
     // overflow the span arithmetic in the reporter and abort the process.
     var t: TestHarness = undefined;
     try t.setup();
@@ -3522,9 +3627,9 @@ test "error: a runtime error on a token past the position column limit" {
 
     var source = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer source.deinit();
-    try source.writer.writeAll("print -\"");
+    try source.writer.writeAll("print ");
     try source.writer.splatByteAll('a', 70_000);
-    try source.writer.writeAll("\";");
+    try source.writer.writeAll(";");
 
     // Act + Assert
     try t.expectRuntimeError(source.written());
