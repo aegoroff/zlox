@@ -116,9 +116,10 @@ Managed via `build.zig.zon`:
 
 ## Reference test compatibility
 
-All runnable reference tests pass except two limit tests that are written for clox's smaller constant pool:
+All runnable reference tests pass except three limit tests written for clox's 8-bit operand limits:
 
 - `test/limit/no_reuse_constants.lox`
 - `test/limit/too_many_constants.lox`
+- `test/limit/too_many_locals.lox`
 
-Those tests expect a compile error, but zlox accepts the programs because it supports a larger constant table than clox.
+Those tests expect a compile error. zlox accepts the programs because it uses long constant and local operands and reuses duplicate constants in the pool.
