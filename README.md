@@ -1,6 +1,6 @@
 # zlox
 
-**zlox** is a Zig implementation of the Lox programming language from [Crafting Interpreters](https://craftinginterpreters.com/). It implements a bytecode compiler and virtual machine — the clox chapter of the book.
+zlox is a Zig implementation of the Lox programming language from [Crafting Interpreters](https://craftinginterpreters.com/). It implements a bytecode compiler and virtual machine, the clox chapter of the book.
 
 ## Features
 
@@ -110,9 +110,9 @@ src/
 
 Managed via `build.zig.zon`:
 
-- [yazap](https://github.com/prajwalch/yazap) — CLI argument parsing
-- [fehler](https://github.com/ciathefed/fehler) — diagnostic reporting
-- [mimalloc](https://github.com/microsoft/mimalloc) — heap allocator (optional)
+- [yazap](https://github.com/prajwalch/yazap): CLI argument parsing
+- [fehler](https://github.com/ciathefed/fehler): diagnostic reporting
+- [mimalloc](https://github.com/microsoft/mimalloc): heap allocator (optional)
 
 ## Reference test compatibility
 
