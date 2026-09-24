@@ -67,7 +67,7 @@ pub const Table = struct {
 
     pub inline fn set(self: *Table, gpa: std.mem.Allocator, key: *HeapString, value: LoxValue) !bool {
         if (self.count + 1 > self.maxLoad()) {
-            try self.adjustCapacity(gpa, growCapacity(self.cap));
+            try self.adjustCapacity(gpa, self.rehashCapacity());
         }
 
         const entry = findSlot(self.entries, self.cap, .{ .pointer = key }, true).?;
@@ -149,6 +149,29 @@ pub const Table = struct {
 
         self.entries = entries.ptr;
         self.cap = new_capacity;
+    }
+
+    /// Capacity for a table that has run out of load. Rehashing drops the
+    /// tombstones, so when they make up enough of the load the table is rebuilt
+    /// at the size it has instead of doubled. Doubling regardless made the
+    /// capacity follow every key the table has ever held rather than the live
+    /// ones: the intern pool, whose strings the collector keeps deleting, grew
+    /// to millions of slots under a program that never had a dozen alive.
+    /// Staying put only while at most half the slots are live leaves a quarter
+    /// of the table to fill before the next rehash, so the cost stays amortized.
+    fn rehashCapacity(self: *const Table) u32 {
+        if (self.cap >= INITIAL_CAPACITY and self.liveCount() <= self.cap / 2) {
+            return self.cap;
+        }
+        return growCapacity(self.cap);
+    }
+
+    fn liveCount(self: *const Table) u32 {
+        var live: u32 = 0;
+        for (self.slice()) |entry| {
+            if (entry.key != null) live += 1;
+        }
+        return live;
     }
 
     inline fn growCapacity(current: u32) u32 {
@@ -326,6 +349,33 @@ test "table keeps an empty slot through delete and reinsert cycles" {
     }
     try std.testing.expect(countEmptySlots(&table) > 0);
     try std.testing.expect(table.findString("absent", hashString("absent")) == null);
+}
+
+test "table capacity follows live keys, not every key it has held" {
+    // Arrange: far more distinct keys than ever live at once.
+    const allocator = std.testing.allocator;
+    const key_count = 4096;
+    var names: [key_count][8]u8 = undefined;
+    var keys: [key_count]val.HeapString = undefined;
+    for (&names, &keys, 0..) |*name, *key, i| {
+        const bytes = try std.fmt.bufPrint(name, "k{d}", .{i});
+        key.* = .{ .gc = .{ .kind = .string }, .hash = hashString(bytes), .data = bytes };
+    }
+    var table: Table = .{};
+    defer table.deinit(allocator);
+
+    // Act: the churn of the intern pool - each key inserted, then deleted by
+    // the collector a little later, with no more than four alive at a time.
+    for (&keys, 0..) |*key, i| {
+        _ = try table.set(allocator, key, LoxValue.nil);
+        if (i >= 4) try std.testing.expect(table.delete(&keys[i - 4]));
+    }
+
+    // Assert: the table stays small, and every live key is still found.
+    try std.testing.expect(table.capacity() <= 32);
+    for (keys[key_count - 4 ..]) |*key| {
+        try std.testing.expect(table.findString(key.data, key.hash) == key);
+    }
 }
 
 test "table addAll copies entries" {
