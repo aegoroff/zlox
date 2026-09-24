@@ -113,9 +113,12 @@ pub fn interpretFrom(self: *VM, source: []const u8, print_code: bool, from: []co
     // A prior call's compiler stays alive through `run()` so `errorAt` can
     // still reach it, but nothing keeps it around after that: overwriting
     // `self.compiler` below without freeing it first leaks its reporter and
-    // script `Compile` struct on every call after the first.
+    // script `Compile` struct on every call after the first. The field is
+    // cleared at once: should the `init` below fail, `deinit` would otherwise
+    // free the same compiler a second time.
     if (self.compiler) |*previous| {
         previous.deinit();
+        self.compiler = null;
     }
     self.compiler = try Compiler.init(
         self.allocator,
@@ -1392,6 +1395,26 @@ test "a failed collection clears marks so the next one still traces" {
     try std.testing.expect(virtual_machine.strings.findString(child_bytes, tbl.hashString(child_bytes)) != null);
     try std.testing.expect(instance_ptr.fields.get(child) != null);
     try std.testing.expect(!child.gc.marked);
+}
+
+test "a compiler that fails to start on a later run is not freed twice" {
+    // Arrange: a VM that has already run a script, so it holds that run's
+    // compiler, with the very next allocation - the new compiler's - failing.
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer writer.deinit();
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var virtual_machine = try init(failing.allocator(), &writer.writer, std.testing.io);
+    defer virtual_machine.deinit();
+    try virtual_machine.interpret("print 1;", false);
+    failing.fail_index = failing.alloc_index;
+
+    // Act
+    const result = virtual_machine.interpret("print 2;", false);
+
+    // Assert: the failure surfaces and leaves no compiler behind, so the
+    // deferred `deinit` does not release the previous one again.
+    try std.testing.expectError(error.OutOfMemory, result);
+    try std.testing.expect(virtual_machine.compiler == null);
 }
 
 test "compiling a nested function leaks nothing when an allocation fails" {
