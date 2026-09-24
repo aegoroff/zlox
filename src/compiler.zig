@@ -256,6 +256,11 @@ pub fn reportErrorAt(
     // themselves, so only the printing goes away.
     if (@import("builtin").fuzz) return;
 
+    // The diagnostic goes straight to stderr while the program's output may
+    // still sit in the writer's buffer. Flushing first keeps what the program
+    // printed before the error ahead of the error.
+    try self.writer.flush();
+
     // For single-character tokens, use the same start and end columns
     const col_end = if (end_col > start_col) end_col else start_col;
 

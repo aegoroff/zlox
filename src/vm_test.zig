@@ -3967,6 +3967,88 @@ test "error: unterminated string" {
 
 // --- vm ---
 
+/// Holds what is written in its buffer and hands it on to `sink` only when
+/// drained, the way a file writer does, so a test can tell what was flushed.
+const HoldingWriter = struct {
+    interface: std.Io.Writer,
+    sink: std.ArrayList(u8) = .empty,
+
+    fn init(buffer: []u8) HoldingWriter {
+        return .{ .interface = .{ .vtable = &.{ .drain = drain }, .buffer = buffer } };
+    }
+
+    fn deinit(self: *HoldingWriter) void {
+        self.sink.deinit(std.testing.allocator);
+    }
+
+    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        const self: *HoldingWriter = @fieldParentPtr("interface", w);
+        self.sink.appendSlice(std.testing.allocator, w.buffered()) catch return error.WriteFailed;
+        w.end = 0;
+        var consumed: usize = 0;
+        for (data[0 .. data.len - 1]) |bytes| {
+            self.sink.appendSlice(std.testing.allocator, bytes) catch return error.WriteFailed;
+            consumed += bytes.len;
+        }
+        const last = data[data.len - 1];
+        for (0..splat) |_| {
+            self.sink.appendSlice(std.testing.allocator, last) catch return error.WriteFailed;
+        }
+        return consumed + last.len * splat;
+    }
+};
+
+test "vm: output printed before a runtime error is flushed ahead of it" {
+    // Arrange: a buffer far larger than the output, so nothing but an
+    // explicit flush moves it on.
+    var buffer: [1024]u8 = undefined;
+    var holding = HoldingWriter.init(&buffer);
+    defer holding.deinit();
+    var machine = try vm.init(std.testing.allocator, &holding.interface, std.testing.io);
+    defer machine.deinit();
+
+    // Act
+    const result = machine.interpret("print 1; print nil + 1;", false);
+
+    // Assert: by the time the diagnostic is reported the earlier line has
+    // left the buffer, so on a shared terminal it shows up above the error.
+    try std.testing.expectError(err.Error.RuntimeError, result);
+    try std.testing.expectEqualStrings("1\n", holding.sink.items);
+}
+
+test "vm: a line-buffered VM flushes after every print" {
+    // Arrange
+    var buffer: [1024]u8 = undefined;
+    var holding = HoldingWriter.init(&buffer);
+    defer holding.deinit();
+    var machine = try vm.init(std.testing.allocator, &holding.interface, std.testing.io);
+    defer machine.deinit();
+    machine.line_buffered = true;
+
+    // Act
+    try machine.interpret("print 1; print \"two\";", false);
+
+    // Assert
+    try std.testing.expectEqualStrings("1\ntwo\n", holding.sink.items);
+    try std.testing.expectEqual(@as(usize, 0), holding.interface.buffered().len);
+}
+
+test "vm: output stays buffered unless the VM is line-buffered" {
+    // Arrange
+    var buffer: [1024]u8 = undefined;
+    var holding = HoldingWriter.init(&buffer);
+    defer holding.deinit();
+    var machine = try vm.init(std.testing.allocator, &holding.interface, std.testing.io);
+    defer machine.deinit();
+
+    // Act
+    try machine.interpret("print 1;", false);
+
+    // Assert: a pipe or a file keeps the full buffer.
+    try std.testing.expectEqualStrings("", holding.sink.items);
+    try std.testing.expectEqualStrings("1\n", holding.interface.buffered());
+}
+
 test "vm: reusing the VM across interpret calls does not leak the compiler" {
     // Arrange
     var t: TestHarness = undefined;

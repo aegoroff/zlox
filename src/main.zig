@@ -66,6 +66,7 @@ pub fn run(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io, argv: []c
 
     var virtual_machine = try zlox.VM.init(gpa, writer, io);
     defer virtual_machine.deinit();
+    virtual_machine.line_buffered = std.Io.File.stdout().isTty(io) catch false;
     const from = if (filename.len == 0) "<stdin>" else filename;
     try virtual_machine.interpretFrom(memory.written(), config.printCode(), from);
 }

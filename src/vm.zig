@@ -38,6 +38,9 @@ allocator: std.mem.Allocator,
 writer: *std.Io.Writer,
 io: std.Io,
 compiler: ?Compiler,
+/// Flush the writer after every printed line, as libc does for a terminal.
+/// Off by default: a pipe or a file is better served by the full buffer.
+line_buffered: bool,
 
 pub const CallFrame = struct {
     closure: *val.Closure,
@@ -69,6 +72,7 @@ pub fn init(gpa: std.mem.Allocator, writer: *std.Io.Writer, io: std.Io) !VM {
         .open_upvalues = null,
         .compiler = null,
         .init_string = null,
+        .line_buffered = false,
     };
     errdefer {
         gpa.free(stack);
@@ -561,6 +565,7 @@ fn errorAt(self: *VM, ip: [*]const u8, comptime fmt: []const u8, args: anytype) 
 
 fn println(self: *VM) !void {
     try self.writer.print("\n", .{});
+    if (self.line_buffered) try self.writer.flush();
 }
 
 const FrameCursor = struct {
