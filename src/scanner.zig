@@ -411,6 +411,33 @@ test "columns after a multibyte character count characters" {
     try std.testing.expectEqual(@as(usize, 15), after.col_end);
 }
 
+test "decimal after a multibyte string keeps its fraction" {
+    // Arrange
+    const source = "\"é\" 1.5";
+    var lexer = Lexer.init(source);
+    _ = try lexer.scanToken();
+
+    // Act
+    const number_token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Number, number_token.type);
+    try std.testing.expectEqualStrings("1.5", source[number_token.start..][0..number_token.length]);
+}
+
+test "decimal after a multibyte comment keeps its fraction" {
+    // Arrange
+    const source = "// é\n1.5";
+    var lexer = Lexer.init(source);
+
+    // Act
+    const number_token = try lexer.scanToken();
+
+    // Assert
+    try std.testing.expectEqual(.Number, number_token.type);
+    try std.testing.expectEqualStrings("1.5", source[number_token.start..][0..number_token.length]);
+}
+
 test "span of an unexpected character covers just that character" {
     // Arrange
     var lexer = Lexer.init("@");
